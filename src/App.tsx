@@ -13,7 +13,7 @@ import {
   type ModuleSet,
 } from './lib/layout'
 import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
-import { LocalFrame } from './lib/geo'
+import { deg2rad, LocalFrame, rotate, type Vec } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
@@ -60,6 +60,8 @@ export default function App() {
   const [tool, setTool] = useState<MapTool>('none')
   const [params, setParams] = useState<LayoutParams>(DEFAULT_PARAMS)
   const [sets, setSets] = useState<ModuleSet[]>([])
+  // 배치 편집 이력(되돌리기·다시실행). 필지가 바뀌면 비운다.
+  const [history, setHistory] = useState<{ past: ModuleSet[][]; future: ModuleSet[][] }>({ past: [], future: [] })
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [obstacles, setObstacles] = useState<Obstacle[]>([])
   const [shadeDate, setShadeDate] = useState({ month: 12, day: 22 })
@@ -84,11 +86,32 @@ export default function App() {
     setObstacles([])
     setEnergy(null)
     setSets([])
+    setHistory({ past: [], future: [] })
     setSelected(new Set())
   }
   const setDrawing = (on: boolean | ((d: boolean) => boolean)) => {
     const next = typeof on === 'function' ? on(drawing) : on
     setTool(next ? 'draw' : 'none')
+  }
+  /** 되돌릴 수 있는 배치 변경 */
+  const editSets = (next: ModuleSet[] | ((prev: ModuleSet[]) => ModuleSet[])) => {
+    const value = typeof next === 'function' ? next(sets) : next
+    setHistory((h) => ({ past: [...h.past.slice(-49), sets], future: [] }))
+    setSets(value)
+  }
+  const undo = () => {
+    const prev = history.past.at(-1)
+    if (!prev) return
+    setHistory({ past: history.past.slice(0, -1), future: [sets, ...history.future] })
+    setSets(prev)
+    setSelected(new Set())
+  }
+  const redo = () => {
+    const next = history.future[0]
+    if (!next) return
+    setHistory({ past: [...history.past, sets], future: history.future.slice(1) })
+    setSets(next)
+    setSelected(new Set())
   }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -190,6 +213,27 @@ export default function App() {
     void selectParcelAt(it.lon, it.lat)
   }
 
+  // 사각형 수치 입력: 가로(동서)·세로(남북) m, 회전(도, 시계 방향)
+  const [rect, setRect] = useState({ width: 50, depth: 30, rotation: 0 })
+  const placeRect = (lon: number, lat: number) => {
+    const f = new LocalFrame(lon, lat)
+    const hw = rect.width / 2
+    const hd = rect.depth / 2
+    const corners: Vec[] = [
+      [-hw, -hd],
+      [hw, -hd],
+      [hw, hd],
+      [-hw, hd],
+    ]
+    const ring = corners.map((c) => f.toLonLat(rotate(c, -deg2rad(rect.rotation))) as number[])
+    setTool('none')
+    setParcel({ address: `사각형 영역 ${rect.width}×${rect.depth} m`, rings: [[...ring, ring[0]]], source: 'manual' })
+  }
+  const onMapClick = (lon: number, lat: number) => {
+    if (tool === 'rect') placeRect(lon, lat)
+    else void selectParcelAt(lon, lat)
+  }
+
   const onDrawEnd = (ring: number[][]) => {
     setTool('none')
     setParcel({ address: '직접 그린 영역', rings: [ring], source: 'manual' })
@@ -274,7 +318,7 @@ export default function App() {
   const applyCandidate = (c: Candidate) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     setParams(c.params)
-    setSets(c.sets)
+    editSets(c.sets)
     setSelected(new Set())
     setEnergy(null)
     switchTab('layout')
@@ -305,7 +349,7 @@ export default function App() {
   const runAutoLayout = () => {
     if (!parcel) return
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
-    setSets(autoLayout(parcel, params))
+    editSets(autoLayout(parcel, params))
     setSelected(new Set())
   }
 
@@ -322,26 +366,25 @@ export default function App() {
 
   const onMoveSets = (moved: Array<{ id: string; lon: number; lat: number }>) => {
     const byId = new Map(moved.map((m) => [m.id, m]))
-    setSets((prev) => prev.map((s) => (byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)))
+    editSets((prev) => prev.map((s) => (byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)))
   }
 
   const onAddSet = (lon: number, lat: number) => {
     const s: ModuleSet = { id: newSetId(), lon, lat, azimuth: params.azimuth }
-    setSets((prev) => [...prev, s])
+    editSets((prev) => [...prev, s])
     setSelected(new Set([s.id]))
   }
 
-  const deleteSelected = useCallback(() => {
-    setSets((prev) => prev.filter((s) => !selected.has(s.id)))
+  const deleteSelected = () => {
+    editSets((prev) => prev.filter((s) => !selected.has(s.id)))
     setSelected(new Set())
-  }, [selected])
+  }
 
   const rotateSelected = (deg: number) =>
-    setSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: s.azimuth + deg } : s)))
+    editSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: s.azimuth + deg } : s)))
 
   const clearSets = () => {
-    if (!window.confirm('배치한 세트를 모두 지울까요?')) return
-    setSets([])
+    editSets([])
     setSelected(new Set())
   }
 
@@ -354,10 +397,21 @@ export default function App() {
         deleteSelected()
       }
       if (e.key === 'Escape') setSelected(new Set())
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        redo()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tab, selected, deleteSelected])
+    // 핸들러가 매번 최신 배치를 쓰도록 렌더마다 다시 건다.
+  })
 
   return (
     <div className="app">
@@ -412,6 +466,10 @@ export default function App() {
             onDeleteSelected={deleteSelected}
             onRotateSelected={rotateSelected}
             onClear={clearSets}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            onUndo={undo}
+            onRedo={redo}
           />
         )}
 
@@ -521,6 +579,40 @@ export default function App() {
             </button>
           </p>
           {drawing && <p className="hint">지도를 클릭해 꼭짓점을 찍고, 첫 점을 다시 클릭하면 끝납니다.</p>}
+          <details style={{ marginTop: 10 }} open={tool === 'rect'}>
+            <summary>사각형 수치 입력</summary>
+            <div className="grid2" style={{ marginTop: 8 }}>
+              {(
+                [
+                  ['width', '가로(동서)', 'm'],
+                  ['depth', '세로(남북)', 'm'],
+                  ['rotation', '회전', '°'],
+                ] as const
+              ).map(([k, label, unit]) => (
+                <label key={k} className="field">
+                  <span>{label}</span>
+                  <input
+                    type="number"
+                    step={k === 'rotation' ? 1 : 0.5}
+                    min={k === 'rotation' ? -90 : 1}
+                    max={k === 'rotation' ? 90 : undefined}
+                    value={rect[k]}
+                    onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && setRect({ ...rect, [k]: e.target.valueAsNumber })}
+                  />
+                  <em>{unit}</em>
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={tool === 'rect' ? 'block' : 'secondary block'}
+              disabled={rect.width <= 0 || rect.depth <= 0}
+              onClick={() => setTool(tool === 'rect' ? 'none' : 'rect')}
+            >
+              {tool === 'rect' ? '놓기 취소' : '지도에 놓기'}
+            </button>
+            {tool === 'rect' && <p className="hint">사각형 중심이 될 자리를 지도에서 클릭하세요. 회전은 시계 방향입니다.</p>}
+          </details>
           {message && <p className="error">{message}</p>}
           {busy && <p className="hint">불러오는 중…</p>}
         </section>
@@ -671,7 +763,7 @@ export default function App() {
           params={params}
           geometry={geometry}
           selected={selected}
-          onMapClick={selectParcelAt}
+          onMapClick={onMapClick}
           onDrawEnd={onDrawEnd}
           onSelect={onSelect}
           onMoveSets={onMoveSets}
