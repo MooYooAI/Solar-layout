@@ -19,21 +19,29 @@ type Tab = 'parcel' | 'layout'
 
 const KEY_STORAGE = 'vworld-key'
 
+/** 복사할 때 섞여 들어온 공백·따옴표를 걷어낸다. */
+const cleanKey = (k: string | null | undefined) => (k ?? '').trim().replace(/^["']|["']$/g, '').trim()
+
+const BUILD_KEY = cleanKey(import.meta.env.VITE_VWORLD_KEY as string | undefined)
+
+// 화면에서 직접 넣은 키가 빌드에 들어간 키보다 우선한다. 시크릿 값이 틀려도 화면에서 바로잡을 수 있다.
 function loadKey(): string {
-  const env = import.meta.env.VITE_VWORLD_KEY as string | undefined
-  if (env) return env
   try {
-    return localStorage.getItem(KEY_STORAGE) ?? ''
+    const saved = cleanKey(localStorage.getItem(KEY_STORAGE))
+    if (saved) return saved
   } catch {
-    return ''
+    /* 저장소를 못 쓰는 환경 */
   }
+  return BUILD_KEY
 }
+
+const maskKey = (k: string) => (k.length > 8 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k ? '****' : '없음')
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 
 export default function App() {
   const [vworldKey, setVworldKey] = useState(loadKey)
-  const [keyDraft, setKeyDraft] = useState(vworldKey)
+  const [keyDraft, setKeyDraft] = useState('')
   const [baseMap, setBaseMap] = useState<BaseMap>('Satellite')
   const [showCadastral, setShowCadastral] = useState(true)
   const [query, setQuery] = useState('')
@@ -60,10 +68,12 @@ export default function App() {
   const [message, setMessage] = useState<string | null>(null)
 
   const saveKey = () => {
-    const k = keyDraft.trim()
-    setVworldKey(k)
+    const k = cleanKey(keyDraft)
+    setKeyDraft(k)
+    setVworldKey(k || BUILD_KEY)
     try {
-      localStorage.setItem(KEY_STORAGE, k)
+      if (k) localStorage.setItem(KEY_STORAGE, k)
+      else localStorage.removeItem(KEY_STORAGE)
     } catch {
       /* 저장 불가 환경이면 이번 세션에서만 사용 */
     }
@@ -342,11 +352,16 @@ export default function App() {
         <details className="card">
           <summary>VWorld 인증키 설정</summary>
           <div className="row">
-            <input value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} placeholder="인증키" />
+            <input value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} placeholder="인증키 붙여넣기" />
             <button type="button" onClick={saveKey}>
               저장
             </button>
           </div>
+          <p className="hint">
+            지금 쓰는 키: <span className="mono">{maskKey(vworldKey)}</span>
+            {vworldKey && vworldKey === BUILD_KEY ? ' (저장소 시크릿)' : vworldKey ? ' (이 브라우저에 저장)' : ''}. 비워 두고 저장하면 저장소
+            시크릿 키로 돌아갑니다.
+          </p>
         </details>
         </>
         )}
