@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import MapView, { type FlyTarget, type MapTool } from './components/MapView'
 import LayoutPanel from './components/LayoutPanel'
 import { getParcelAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
-import { parcelArea, parcelFromFeature, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
+import { lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
   autoLayout,
   DEFAULT_PARAMS,
@@ -75,6 +75,7 @@ export default function App() {
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
+    if (!p) setAddingLot(false)
     setOptResults(null)
     setObstacles([])
     setEnergy(null)
@@ -87,6 +88,9 @@ export default function App() {
   }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // 켜 두면 지도 클릭·검색 결과가 부지를 바꾸지 않고 지번을 더하거나 뺀다.
+  const [addingLot, setAddingLot] = useState(false)
+  const lots = parcel?.lots
 
   const selectParcelAt = useCallback(
     async (lon: number, lat: number) => {
@@ -95,16 +99,27 @@ export default function App() {
       setMessage(null)
       try {
         const f = await getParcelAt(lon, lat, vworldKey)
-        if (f) setParcel(parcelFromFeature(f))
-        else setMessage('이 위치에서 필지를 찾지 못했습니다.')
+        if (!f) setMessage('이 위치에서 필지를 찾지 못했습니다.')
+        else if (addingLot && lots) {
+          const lot = lotFromFeature(f)
+          const next = lots.some((l) => l.pnu === lot.pnu) ? lots.filter((l) => l.pnu !== lot.pnu) : [...lots, lot]
+          setParcel(parcelFromLots(next))
+        } else setParcel(parcelFromFeature(f))
       } catch (e) {
         setMessage((e as Error).message)
       } finally {
         setBusy(false)
       }
     },
-    [vworldKey],
+    [vworldKey, addingLot, lots],
   )
+
+  const removeLot = (pnu: string) => {
+    if (!lots) return
+    const next = lots.filter((l) => l.pnu !== pnu)
+    setParcel(parcelFromLots(next))
+    if (!next.length) setAddingLot(false)
+  }
 
   const onSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -465,7 +480,7 @@ export default function App() {
 
         {parcel && (
           <section className="card">
-            <h2>선택한 필지</h2>
+            <h2>{lots && lots.length > 1 ? `선택한 부지 (${lots.length}필지)` : '선택한 필지'}</h2>
             <dl className="facts">
               <dt>주소</dt>
               <dd>{parcel.address}</dd>
@@ -494,9 +509,43 @@ export default function App() {
                 </>
               )}
             </dl>
+            {lots && lots.length > 1 && (
+              <ul className="lots">
+                {lots.map((l) => (
+                  <li key={l.pnu}>
+                    <span>
+                      {l.address}
+                      <small>
+                        {l.landCategory ?? ''} {fmt(l.area)} ㎡
+                      </small>
+                    </span>
+                    <button type="button" className="secondary" onClick={() => removeLot(l.pnu)} aria-label={`${l.address} 빼기`}>
+                      빼기
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {lots && (
+              <>
+                <button
+                  type="button"
+                  className={addingLot ? 'block' : 'secondary block'}
+                  onClick={() => setAddingLot((a) => !a)}
+                >
+                  {addingLot ? '지번 추가 끝내기' : '옆 지번 추가'}
+                </button>
+                {addingLot && (
+                  <p className="hint">
+                    지도에서 필지를 클릭하거나 위에서 검색해 고르면 부지에 더해집니다. 이미 들어간 필지를 다시 클릭하면 빠집니다. 맞닿은
+                    지번은 경계 없이 하나로 합쳐 배치합니다.
+                  </p>
+                )}
+              </>
+            )}
             <div className="row" style={{ marginTop: 10 }}>
               <button type="button" onClick={() => switchTab('layout')}>
-                이 필지에 배치하기
+                {lots && lots.length > 1 ? '이 부지에 배치하기' : '이 필지에 배치하기'}
               </button>
               <button type="button" className="secondary" onClick={() => setParcel(null)}>
                 선택 해제

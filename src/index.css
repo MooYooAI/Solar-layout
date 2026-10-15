@@ -87,3 +87,7 @@ button.block { width: 100%; margin-top: 12px; padding: 10px; }
 .chart .bar.neg.active { opacity: 0.9; }
 details.chart summary { cursor: pointer; }
 .facts.wide { grid-template-columns: 90px 1fr; }
+.lots { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; font-size: 12px; }
+.lots li { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 6px; }
+.lots small { display: block; color: var(--muted); }
+.lots button.secondary { margin: 0; padding: 4px 10px; font-size: 12px; }
