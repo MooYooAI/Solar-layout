@@ -9,7 +9,13 @@
 3. 음영 분석과 발전량: 동지·춘추분·하지 태양 궤적, 연간·월별 발전량
 4. AI 최적 배치
 
-## 실행
+## 바로 열기
+
+`main`에 올라가면 GitHub Actions가 빌드해서 GitHub Pages에 배포합니다: https://mooyooai.github.io/solar-layout/
+
+처음 한 번은 저장소 Settings > Pages에서 Source를 "GitHub Actions"로 바꿔야 합니다. VWorld 키를 Settings > Secrets and variables > Actions에 `VITE_VWORLD_KEY`로 등록하면 화면에서 키를 넣지 않아도 되고, VWorld 키의 서비스 URL에는 `mooyooai.github.io`를 추가해야 합니다.
+
+## 로컬 실행
 
 ```bash
 npm install
