@@ -24,6 +24,7 @@ import OptimizePanel from './components/OptimizePanel'
 import type { Candidate, OptimizeInput } from './lib/optimize'
 import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
 import { DEFAULT_ECON } from './lib/economics'
+import ReportView from './components/ReportView'
 
 type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'econ' | 'ai'
 
@@ -77,6 +78,7 @@ export default function App() {
   const [optError, setOptError] = useState<string | null>(null)
   const [econ, setEcon] = useState<EconSettings>(DEFAULT_ECON)
   const [econHours, setEconHours] = useState(3.6)
+  const [showReport, setShowReport] = useState(false)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
@@ -414,10 +416,16 @@ export default function App() {
   })
 
   return (
+    <>
     <div className="app">
       <aside className="panel">
         <header>
-          <h1>태양광 배치 설계</h1>
+          <div className="title-row">
+            <h1>태양광 배치 설계</h1>
+            <button type="button" className="secondary" disabled={!parcel} onClick={() => setShowReport(true)}>
+              보고서
+            </button>
+          </div>
           <ol className="steps">
             <li>
               <button type="button" className={tab === 'parcel' ? 'active' : ''} onClick={() => switchTab('parcel')}>
@@ -775,5 +783,24 @@ export default function App() {
         />
       </main>
     </div>
+    {showReport && parcel && (
+      <ReportView
+        parcel={parcel}
+        area={area}
+        zoning={parcelZoning}
+        params={params}
+        geometry={geometry}
+        stats={stats}
+        sets={sets}
+        obstacles={obstacles}
+        scene={scene}
+        suggestedRowSpacing={suggestedRowSpacing}
+        energy={energy}
+        econ={econ}
+        econHours={econHours}
+        onClose={() => setShowReport(false)}
+      />
+    )}
+    </>
   )
 }
