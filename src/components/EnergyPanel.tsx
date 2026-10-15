@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { EnergyResult } from '../lib/energy'
+import { STATIONS } from '../lib/climate'
 
 interface Props {
   kWp: number
@@ -9,6 +10,13 @@ interface Props {
   onPerformanceRatio: (v: number) => void
   withShade: boolean
   onWithShade: (v: boolean) => void
+  tempOn: boolean
+  onTempOn: (v: boolean) => void
+  tempCoeff: number
+  onTempCoeff: (v: number) => void
+  stationId: string
+  onStationId: (id: string) => void
+  autoStationName: string | null
   onRun: () => void
   canRun: boolean
 }
@@ -42,12 +50,44 @@ export default function EnergyPanel(props: Props) {
           <input type="checkbox" checked={props.withShade} onChange={(e) => props.onWithShade(e.target.checked)} /> 음영 손실 반영 (세트 간
           그림자 + 장애물)
         </label>
+        <label className="row" style={{ marginTop: 6 }}>
+          <input type="checkbox" checked={props.tempOn} onChange={(e) => props.onTempOn(e.target.checked)} /> 모듈 온도 손실 반영
+        </label>
+        {props.tempOn && (
+          <div className="grid2" style={{ marginTop: 8 }}>
+            <label className="field">
+              <span>기온 권역</span>
+              <select value={props.stationId} onChange={(e) => props.onStationId(e.target.value)}>
+                <option value="auto">자동{props.autoStationName ? ` (${props.autoStationName})` : ''}</option>
+                {STATIONS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>온도계수</span>
+              <input
+                type="number"
+                min={-0.6}
+                max={0}
+                step={0.01}
+                value={props.tempCoeff}
+                onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && props.onTempCoeff(e.target.valueAsNumber)}
+              />
+              <em>%/°C</em>
+            </label>
+          </div>
+        )}
         <button type="button" className="block" disabled={!props.canRun || props.busy} onClick={props.onRun}>
           {props.busy ? '계산 중…' : '발전량 계산'}
         </button>
         {!props.canRun && <p className="hint">배치 탭에서 모듈을 먼저 배치하세요.</p>}
         <p className="hint">
-          한국 평균 월별 일사량, 경사각·방위각, 성능계수(온도·인버터·배선 손실)로 계산한 예상값입니다. 실제 발전량은 지역과 해마다 달라집니다.
+          한국 평균 월별 일사량과 경사각·방위각으로 경사면 일사를 구하고, 온도 손실을 켜면 권역 월평균 기온과 일사로 셀 온도(NOCT 45°C)를
+          시간마다 계산해 출력을 보정합니다. 성능계수에는 인버터·배선·오염 등 온도 외 손실을 넣습니다(온도 손실을 끄면 0.8 정도가 적당합니다).
+          실제 발전량은 지역과 해마다 달라집니다.
         </p>
       </section>
 
@@ -66,6 +106,12 @@ export default function EnergyPanel(props: Props) {
             </dd>
             <dt>음영 손실</dt>
             <dd>{fmt(result.shadeLoss * 100, 1)} %</dd>
+            {props.tempOn && (
+              <>
+                <dt>온도 손실</dt>
+                <dd>{fmt(result.tempLoss * 100, 1)} %</dd>
+              </>
+            )}
           </dl>
           <MonthlyChart result={result} />
         </section>

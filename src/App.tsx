@@ -19,6 +19,7 @@ import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
 import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
 import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
+import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
 import OptimizePanel from './components/OptimizePanel'
 import type { Candidate, OptimizeInput } from './lib/optimize'
@@ -68,7 +69,12 @@ export default function App() {
   const [shadeDate, setShadeDate] = useState({ month: 12, day: 22 })
   const [shadeHour, setShadeHour] = useState(12)
   const [playing, setPlaying] = useState(false)
-  const [performanceRatio, setPerformanceRatio] = useState(0.8)
+  // 온도 손실을 따로 계산하므로 성능계수에는 인버터·배선·오염·불일치 등 나머지 손실만 넣는다.
+  const [performanceRatio, setPerformanceRatio] = useState(0.86)
+  const [tempOn, setTempOn] = useState(true)
+  const [tempCoeff, setTempCoeff] = useState(DEFAULT_TEMP_COEFF)
+  // 'auto'면 필지에서 가장 가까운 권역
+  const [stationId, setStationId] = useState('auto')
   const [withShade, setWithShade] = useState(true)
   const [energy, setEnergy] = useState<EnergyResult | null>(null)
   const [energyBusy, setEnergyBusy] = useState(false)
@@ -298,7 +304,7 @@ export default function App() {
     setOptResults(null)
     setOptError(null)
     setOptProgress(null)
-    w.onmessage = (e) => {
+    w.addEventListener('message', (e) => {
       const m = e.data
       if (m.type === 'progress') setOptProgress({ done: m.done, total: m.total, phase: m.phase })
       else {
@@ -307,8 +313,8 @@ export default function App() {
         w.terminate()
         setOptWorker(null)
       }
-    }
-    const input: OptimizeInput = { parcel, base: params, obstacles, performanceRatio }
+    })
+    const input: OptimizeInput = { parcel, base: params, obstacles, performanceRatio, temperature }
     w.postMessage(input)
   }
 
@@ -326,6 +332,16 @@ export default function App() {
     switchTab('layout')
   }
 
+  const autoStation = useMemo(() => {
+    if (!parcel) return null
+    const f = LocalFrame.around(parcel.rings)
+    return nearestStation(f.lat0, f.lon0)
+  }, [parcel])
+  const station = (stationId === 'auto' ? autoStation : STATIONS.find((s) => s.id === stationId)) ?? STATIONS[0]
+  const temperature: TempModel | undefined = tempOn
+    ? { temp: station.temp, coeffPct: tempCoeff, noct: DEFAULT_NOCT }
+    : undefined
+
   const runEnergy = () => {
     if (!scene || !sets.length) return
     setEnergyBusy(true)
@@ -342,6 +358,7 @@ export default function App() {
           albedo: 0.2,
           ghi: KOREA_GHI,
           shade,
+          temperature,
         }),
       )
       setEnergyBusy(false)
@@ -523,6 +540,13 @@ export default function App() {
             onPerformanceRatio={setPerformanceRatio}
             withShade={withShade}
             onWithShade={setWithShade}
+            tempOn={tempOn}
+            onTempOn={setTempOn}
+            tempCoeff={tempCoeff}
+            onTempCoeff={setTempCoeff}
+            stationId={stationId}
+            onStationId={setStationId}
+            autoStationName={autoStation?.name ?? null}
             onRun={runEnergy}
             canRun={sets.length > 0}
           />

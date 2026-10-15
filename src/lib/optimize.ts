@@ -6,6 +6,7 @@
 import { buildScene, shadeTable } from './analysis'
 import { KOREA_GHI, simulateEnergy, type EnergyResult } from './energy'
 import { LocalFrame } from './geo'
+import type { TempModel } from './climate'
 import { autoLayout, layoutStats, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import { parcelArea, type Parcel } from './parcel'
 import type { Obstacle } from './shading'
@@ -24,6 +25,7 @@ export interface OptimizeInput {
   base: LayoutParams
   obstacles: Obstacle[]
   performanceRatio: number
+  temperature?: TempModel
 }
 
 export interface Candidate {
@@ -99,6 +101,7 @@ function evaluate(
     azimuth: params.azimuth,
     kWp: stats.kWp,
     performanceRatio: o.performanceRatio,
+    temperature: o.temperature,
     albedo: 0.2,
     ghi: KOREA_GHI,
     shade: shadeTable(scene, quick),
