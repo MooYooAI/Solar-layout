@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import MapView, { type FlyTarget, type MapTool } from './components/MapView'
 import LayoutPanel from './components/LayoutPanel'
 import { getParcelAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
@@ -15,6 +15,8 @@ import {
 import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
 import { LocalFrame } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
+import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
+import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
 import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
@@ -23,7 +25,7 @@ import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 import OptimizePanel from './components/OptimizePanel'
 import type { Candidate, OptimizeInput } from './lib/optimize'
 
-type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'ai'
+type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'ai' | 'terrain'
 
 const NO_SHADOWS: Array<{ ring: number[][]; fromSet: boolean }> = []
 
@@ -67,10 +69,19 @@ export default function App() {
   const [optProgress, setOptProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
   const [optError, setOptError] = useState<string | null>(null)
+  const [terrain, setTerrain] = useState<TerrainResult | null>(null)
+  const [terrainBusy, setTerrainBusy] = useState(false)
+  const [terrainError, setTerrainError] = useState<string | null>(null)
+  const [gradingMode, setGradingMode] = useState<GradingMode>('plane')
+  const [maxDesignSlope, setMaxDesignSlope] = useState(15)
+  const [terrainView, setTerrainView] = useState<TerrainView>('slope')
+  const demCache = useRef<{ parcel: Parcel; dem: Dem } | null>(null)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
+    setTerrain(null)
+    setTerrainError(null)
     setOptResults(null)
     setObstacles([])
     setEnergy(null)
@@ -293,6 +304,27 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [tab, selected, deleteSelected])
 
+  const runTerrain = async (mode = gradingMode, maxSlope = maxDesignSlope) => {
+    if (!parcel) return
+    setTerrainBusy(true)
+    setTerrainError(null)
+    try {
+      if (demCache.current?.parcel !== parcel) demCache.current = { parcel, dem: await loadDem(parcel) }
+      setTerrain(analyzeTerrain(parcel, demCache.current.dem, { cell: 3, mode, maxDesignSlopePct: maxSlope }))
+      if (terrainView === 'none') setTerrainView('slope')
+    } catch (e) {
+      setTerrainError(`표고 자료를 불러오지 못했습니다. (${e instanceof Error ? e.message : String(e)})`)
+    } finally {
+      setTerrainBusy(false)
+    }
+  }
+  // 이미 분석했다면 방식·경사를 바꿀 때 바로 다시 계산한다(표고는 캐시).
+  const changeGrading = (mode: GradingMode, maxSlope: number) => {
+    setGradingMode(mode)
+    setMaxDesignSlope(maxSlope)
+    if (terrain) void runTerrain(mode, maxSlope)
+  }
+
   return (
     <div className="app">
       <aside className="panel">
@@ -324,6 +356,11 @@ export default function App() {
                 AI 배치
               </button>
             </li>
+            <li>
+              <button type="button" className={tab === 'terrain' ? 'active' : ''} onClick={() => switchTab('terrain')}>
+                지형
+              </button>
+            </li>
           </ol>
         </header>
 
@@ -344,6 +381,21 @@ export default function App() {
           />
         )}
 
+        {tab === 'terrain' && (
+          <TerrainPanel
+            canRun={!!parcel}
+            busy={terrainBusy}
+            error={terrainError}
+            result={terrain}
+            mode={gradingMode}
+            onMode={(m) => changeGrading(m, maxDesignSlope)}
+            maxSlope={maxDesignSlope}
+            onMaxSlope={(v) => changeGrading(gradingMode, v)}
+            view={terrainView}
+            onView={setTerrainView}
+            onRun={() => void runTerrain()}
+          />
+        )}
         {tab === 'shade' && (
           <ShadePanel
             month={shadeDate.month}
@@ -523,6 +575,8 @@ export default function App() {
           shadows={shadeView?.shadows ?? NO_SHADOWS}
           setShade={shadeView?.perSet ?? null}
           onObstacleDrawn={onObstacleDrawn}
+          terrainCells={terrain?.cells ?? null}
+          terrainView={terrainView}
         />
       </main>
     </div>

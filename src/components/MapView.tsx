@@ -25,6 +25,8 @@ import { CADASTRAL_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
 import { parcelGeometry, type Parcel } from '../lib/parcel'
 import { moduleQuadsLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
+import type { TerrainCell } from '../lib/terrain'
+import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 
 export interface FlyTarget {
   lon: number
@@ -51,6 +53,8 @@ interface Props {
   shadows: Array<{ ring: number[][]; fromSet: boolean }>
   /** 세트별 그늘 비율. 음영 탭에서만 채운다. */
   setShade: ReadonlyMap<string, number> | null
+  terrainCells: TerrainCell[] | null
+  terrainView: 'slope' | 'cutfill' | 'none'
   onObstacleDrawn: (ring: number[][]) => void
   onMapClick: (lon: number, lat: number) => void
   onDrawEnd: (ring: number[][]) => void
@@ -87,8 +91,11 @@ const setSelectedStyle = new Style({
   fill: new Fill({ color: 'rgba(25, 113, 194, 0.95)' }),
 })
 
+const slopeStyles = SLOPE_COLORS.map((c) => new Style({ fill: new Fill({ color: c }), stroke: new Stroke({ color: c, width: 1 }) }))
+const cutFillStyles = CUTFILL_COLORS.map((c) => new Style({ fill: new Fill({ color: c }), stroke: new Stroke({ color: c, width: 1 }) }))
+
 export default function MapView(props: Props) {
-  const { vworldKey, baseMap, showCadastral, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade } = props
+  const { vworldKey, baseMap, showCadastral, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView } = props
   const el = useRef<HTMLDivElement>(null)
   const mapRef = useRef<OlMap | null>(null)
   const baseLayer = useRef(new TileLayer({ zIndex: 0 }))
@@ -98,6 +105,7 @@ export default function MapView(props: Props) {
   const setSource = useRef(new VectorSource())
   const obstacleSource = useRef(new VectorSource())
   const shadowSource = useRef(new VectorSource())
+  const terrainSource = useRef(new VectorSource())
   const selectedFeatures = useRef(new Collection<Feature>())
   // OL handlers are bound once; read the latest props through a ref.
   const latest = useRef(props)
@@ -120,6 +128,15 @@ export default function MapView(props: Props) {
         baseLayer.current,
         labelLayer.current,
         cadastralLayer.current,
+        new VectorLayer({
+          source: terrainSource.current,
+          zIndex: 9,
+          opacity: 0.7,
+          style: (f: FeatureLike) =>
+            latest.current.terrainView === 'cutfill'
+              ? cutFillStyles[cutFillClass(f.get('dz'))]
+              : slopeStyles[slopeClass(f.get('slope'))],
+        }),
         new VectorLayer({ source: parcelSource.current, style: parcelStyle, zIndex: 10 }),
         new VectorLayer({
           source: shadowSource.current,
@@ -222,6 +239,20 @@ export default function MapView(props: Props) {
     src.clear()
     src.addFeatures(obstacles.map((o) => new Feature(new Polygon([o.ring]).transform('EPSG:4326', 'EPSG:3857'))))
   }, [obstacles])
+
+  useEffect(() => {
+    const src = terrainSource.current
+    src.clear()
+    if (!terrainCells || terrainView === 'none') return
+    src.addFeatures(
+      terrainCells.map((c) => {
+        const f = new Feature(new Polygon([c.ring]).transform('EPSG:4326', 'EPSG:3857'))
+        f.set('dz', c.dz)
+        f.set('slope', c.slopePct)
+        return f
+      }),
+    )
+  }, [terrainCells, terrainView])
 
   useEffect(() => {
     const src = shadowSource.current
