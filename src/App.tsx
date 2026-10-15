@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView, { type FlyTarget, type MapTool } from './components/MapView'
 import LayoutPanel from './components/LayoutPanel'
-import { getParcelAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
-import { parcelArea, parcelFromFeature, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
+import { getParcelAt, getZoningAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
+import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
   autoLayout,
   DEFAULT_PARAMS,
@@ -48,6 +48,10 @@ export default function App() {
   const vworldKey = VWORLD_KEY
   const [baseMap, setBaseMap] = useState<BaseMap>('Satellite')
   const [showCadastral, setShowCadastral] = useState(true)
+  const [showZoning, setShowZoning] = useState(false)
+  const [clearMeasuresSeq, setClearMeasuresSeq] = useState(0)
+  // 지번(PNU)별 용도지역. 직접 그린 영역은 'manual:…' 키.
+  const [zoning, setZoning] = useState<Record<string, string[] | 'error'>>({})
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ParcelSearchItem[]>([])
   const [parcel, setParcelState] = useState<Parcel | null>(null)
@@ -75,6 +79,7 @@ export default function App() {
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
+    if (!p) setAddingLot(false)
     setOptResults(null)
     setObstacles([])
     setEnergy(null)
@@ -87,6 +92,9 @@ export default function App() {
   }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // 켜 두면 지도 클릭·검색 결과가 부지를 바꾸지 않고 지번을 더하거나 뺀다.
+  const [addingLot, setAddingLot] = useState(false)
+  const lots = parcel?.lots
 
   const selectParcelAt = useCallback(
     async (lon: number, lat: number) => {
@@ -95,16 +103,70 @@ export default function App() {
       setMessage(null)
       try {
         const f = await getParcelAt(lon, lat, vworldKey)
-        if (f) setParcel(parcelFromFeature(f))
-        else setMessage('이 위치에서 필지를 찾지 못했습니다.')
+        if (!f) setMessage('이 위치에서 필지를 찾지 못했습니다.')
+        else if (addingLot && lots) {
+          const lot = lotFromFeature(f)
+          const next = lots.some((l) => l.pnu === lot.pnu) ? lots.filter((l) => l.pnu !== lot.pnu) : [...lots, lot]
+          setParcel(parcelFromLots(next))
+        } else setParcel(parcelFromFeature(f))
       } catch (e) {
         setMessage((e as Error).message)
       } finally {
         setBusy(false)
       }
     },
-    [vworldKey],
+    [vworldKey, addingLot, lots],
   )
+
+  // 부지가 바뀌면 아직 모르는 지번의 용도지역을 찾아 둔다. 결과가 오기 전(undefined)은 조회 중으로 본다.
+  const zoningRequested = useRef(new Set<string>())
+  const zoningTargets = useMemo(
+    () =>
+      !parcel
+        ? []
+        : parcel.lots?.length
+          ? parcel.lots.map((l) => ({ key: l.pnu, rings: l.rings }))
+          : [{ key: `manual:${parcel.rings[0]?.[0]?.join(',')}:${parcel.rings[0]?.length}`, rings: parcel.rings }],
+    [parcel],
+  )
+  useEffect(() => {
+    if (!vworldKey) return
+    for (const t of zoningTargets) {
+      if (zoningRequested.current.has(t.key)) continue
+      zoningRequested.current.add(t.key)
+      const [lon, lat] = interiorPoint(t.rings)
+      getZoningAt(lon, lat, vworldKey).then(
+        (names) => setZoning((z) => ({ ...z, [t.key]: names })),
+        () => {
+          zoningRequested.current.delete(t.key)
+          setZoning((z) => ({ ...z, [t.key]: 'error' }))
+        },
+      )
+    }
+  }, [zoningTargets, vworldKey])
+
+  const zoningText = (key: string) => {
+    const z = zoning[key]
+    if (z === undefined) return '조회 중…'
+    if (z === 'error') return '조회 실패'
+    return z.length ? z.join(', ') : '정보 없음'
+  }
+  const parcelZoningKeys = zoningTargets.map((t) => t.key)
+  const parcelZoning = [
+    ...new Set(
+      parcelZoningKeys.flatMap((k) => {
+        const z = zoning[k]
+        return Array.isArray(z) ? z : []
+      }),
+    ),
+  ]
+
+  const removeLot = (pnu: string) => {
+    if (!lots) return
+    const next = lots.filter((l) => l.pnu !== pnu)
+    setParcel(parcelFromLots(next))
+    if (!next.length) setAddingLot(false)
+  }
 
   const onSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -465,7 +527,7 @@ export default function App() {
 
         {parcel && (
           <section className="card">
-            <h2>선택한 필지</h2>
+            <h2>{lots && lots.length > 1 ? `선택한 부지 (${lots.length}필지)` : '선택한 필지'}</h2>
             <dl className="facts">
               <dt>주소</dt>
               <dd>{parcel.address}</dd>
@@ -479,6 +541,16 @@ export default function App() {
               <dd>
                 {fmt(area)} ㎡ ({fmt(area / SQM_PER_PYEONG)} 평)
               </dd>
+              {vworldKey && (
+                <>
+                  <dt>용도지역</dt>
+                  <dd>
+                    {parcelZoning.length
+                      ? parcelZoning.join(', ')
+                      : zoningText(parcelZoningKeys[0])}
+                  </dd>
+                </>
+              )}
               {parcel.jiga !== undefined && (
                 <>
                   <dt>공시지가</dt>
@@ -494,9 +566,43 @@ export default function App() {
                 </>
               )}
             </dl>
+            {lots && lots.length > 1 && (
+              <ul className="lots">
+                {lots.map((l) => (
+                  <li key={l.pnu}>
+                    <span>
+                      {l.address}
+                      <small>
+                        {l.landCategory ?? ''} {fmt(l.area)} ㎡ · {zoningText(l.pnu)}
+                      </small>
+                    </span>
+                    <button type="button" className="secondary" onClick={() => removeLot(l.pnu)} aria-label={`${l.address} 빼기`}>
+                      빼기
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {lots && (
+              <>
+                <button
+                  type="button"
+                  className={addingLot ? 'block' : 'secondary block'}
+                  onClick={() => setAddingLot((a) => !a)}
+                >
+                  {addingLot ? '지번 추가 끝내기' : '옆 지번 추가'}
+                </button>
+                {addingLot && (
+                  <p className="hint">
+                    지도에서 필지를 클릭하거나 위에서 검색해 고르면 부지에 더해집니다. 이미 들어간 필지를 다시 클릭하면 빠집니다. 맞닿은
+                    지번은 경계 없이 하나로 합쳐 배치합니다.
+                  </p>
+                )}
+              </>
+            )}
             <div className="row" style={{ marginTop: 10 }}>
               <button type="button" onClick={() => switchTab('layout')}>
-                이 필지에 배치하기
+                {lots && lots.length > 1 ? '이 부지에 배치하기' : '이 필지에 배치하기'}
               </button>
               <button type="button" className="secondary" onClick={() => setParcel(null)}>
                 선택 해제
@@ -517,7 +623,34 @@ export default function App() {
             <label>
               <input type="checkbox" checked={showCadastral} onChange={(e) => setShowCadastral(e.target.checked)} /> 지적도
             </label>
+            {vworldKey && (
+              <label>
+                <input type="checkbox" checked={showZoning} onChange={(e) => setShowZoning(e.target.checked)} /> 용도지역
+              </label>
+            )}
           </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className={tool === 'measureLine' ? '' : 'secondary'}
+              onClick={() => setTool(tool === 'measureLine' ? 'none' : 'measureLine')}
+            >
+              거리 재기
+            </button>
+            <button
+              type="button"
+              className={tool === 'measureArea' ? '' : 'secondary'}
+              onClick={() => setTool(tool === 'measureArea' ? 'none' : 'measureArea')}
+            >
+              면적 재기
+            </button>
+            <button type="button" className="secondary" onClick={() => setClearMeasuresSeq((n) => n + 1)}>
+              지우기
+            </button>
+          </div>
+          {(tool === 'measureLine' || tool === 'measureArea') && (
+            <p className="hint">지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다.</p>
+          )}
         </section>
 
         </>
@@ -529,6 +662,8 @@ export default function App() {
           vworldKey={vworldKey}
           baseMap={baseMap}
           showCadastral={showCadastral}
+          showZoning={showZoning}
+          clearMeasuresSeq={clearMeasuresSeq}
           parcel={parcel}
           flyTo={flyTo}
           tool={tool}
