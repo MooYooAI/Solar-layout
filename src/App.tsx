@@ -20,7 +20,10 @@ import type { Obstacle } from './lib/shading'
 import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
 import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 
-type Tab = 'parcel' | 'layout' | 'shade' | 'energy'
+import OptimizePanel from './components/OptimizePanel'
+import type { Candidate, OptimizeInput } from './lib/optimize'
+
+type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'ai'
 
 const NO_SHADOWS: Array<{ ring: number[][]; fromSet: boolean }> = []
 
@@ -60,10 +63,15 @@ export default function App() {
   const [withShade, setWithShade] = useState(true)
   const [energy, setEnergy] = useState<EnergyResult | null>(null)
   const [energyBusy, setEnergyBusy] = useState(false)
+  const [optWorker, setOptWorker] = useState<Worker | null>(null)
+  const [optProgress, setOptProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
+  const [optResults, setOptResults] = useState<Candidate[] | null>(null)
+  const [optError, setOptError] = useState<string | null>(null)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
+    setOptResults(null)
     setObstacles([])
     setEnergy(null)
     setSets([])
@@ -167,6 +175,43 @@ export default function App() {
     const height = raw === null ? NaN : Number(raw)
     if (!Number.isFinite(height) || height <= 0) return
     setObstacles((prev) => [...prev, { id: newSetId(), name, ring, height }])
+  }
+
+  // 탐색은 수십 번의 배치·음영 계산이라 화면이 멈추지 않게 워커에서 돌린다.
+  const runOptimize = () => {
+    if (!parcel) return
+    optWorker?.terminate()
+    const w = new Worker(new URL('./lib/optimize.worker.ts', import.meta.url), { type: 'module' })
+    setOptWorker(w)
+    setOptResults(null)
+    setOptError(null)
+    setOptProgress(null)
+    w.onmessage = (e) => {
+      const m = e.data
+      if (m.type === 'progress') setOptProgress({ done: m.done, total: m.total, phase: m.phase })
+      else {
+        if (m.type === 'done') setOptResults(m.results)
+        else setOptError(m.message)
+        w.terminate()
+        setOptWorker(null)
+      }
+    }
+    const input: OptimizeInput = { parcel, base: params, obstacles, performanceRatio }
+    w.postMessage(input)
+  }
+
+  const cancelOptimize = () => {
+    optWorker?.terminate()
+    setOptWorker(null)
+  }
+
+  const applyCandidate = (c: Candidate) => {
+    if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
+    setParams(c.params)
+    setSets(c.sets)
+    setSelected(new Set())
+    setEnergy(null)
+    switchTab('layout')
   }
 
   const runEnergy = () => {
@@ -274,6 +319,11 @@ export default function App() {
                 발전량
               </button>
             </li>
+            <li>
+              <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => switchTab('ai')}>
+                AI 배치
+              </button>
+            </li>
           </ol>
         </header>
 
@@ -311,6 +361,19 @@ export default function App() {
             onObstacles={setObstacles}
             tool={tool}
             onTool={setTool}
+          />
+        )}
+
+        {tab === 'ai' && (
+          <OptimizePanel
+            canRun={!!parcel}
+            running={!!optWorker}
+            progress={optProgress}
+            results={optResults}
+            error={optError}
+            onRun={runOptimize}
+            onCancel={cancelOptimize}
+            onApply={applyCandidate}
           />
         )}
 
