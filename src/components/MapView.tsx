@@ -14,14 +14,17 @@ import Translate from 'ol/interaction/Translate'
 import DragBox from 'ol/interaction/DragBox'
 import { shiftKeyOnly } from 'ol/events/condition'
 import { getCenter } from 'ol/extent'
-import { Fill, Stroke, Style } from 'ol/style'
+import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style'
+import { getArea, getLength } from 'ol/sphere'
+import LineString from 'ol/geom/LineString'
+import Point from 'ol/geom/Point'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import { defaults as defaultControls, ScaleLine } from 'ol/control'
 import MultiPolygon from 'ol/geom/MultiPolygon'
 import Polygon from 'ol/geom/Polygon'
 import type { FeatureLike } from 'ol/Feature'
 import 'ol/ol.css'
-import { CADASTRAL_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
+import { CADASTRAL_WMS, ZONING_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
 import { parcelGeometry, type Parcel } from '../lib/parcel'
 import { moduleQuadsLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
@@ -33,13 +36,19 @@ export interface FlyTarget {
   seq: number
 }
 
-/** draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기 */
-export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle'
+/**
+ * draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기,
+ * measureLine / measureArea: 거리·면적 재기
+ */
+export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea'
 
 interface Props {
   vworldKey: string
   baseMap: BaseMap
   showCadastral: boolean
+  showZoning: boolean
+  /** 값이 바뀌면 측정 결과를 지운다 */
+  clearMeasuresSeq: number
   parcel: Parcel | null
   flyTo: FlyTarget | null
   tool: MapTool
@@ -87,13 +96,53 @@ const setSelectedStyle = new Style({
   fill: new Fill({ color: 'rgba(25, 113, 194, 0.95)' }),
 })
 
+const fmtLen = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(1)} m`)
+const fmtArea = (a: number) =>
+  a >= 1e6 ? `${(a / 1e6).toFixed(3)} ㎢` : `${Math.round(a).toLocaleString('ko-KR')} ㎡ (${Math.round(a / 3.305785).toLocaleString('ko-KR')} 평)`
+
+/** 측정 도형: 선은 총 길이, 면은 면적과 둘레를 가운데에 적는다. 그리는 중에도 같은 스타일을 쓴다. */
+function measureStyle(f: FeatureLike): Style[] {
+  const g = f.getGeometry()
+  const base = new Style({
+    stroke: new Stroke({ color: '#fab005', width: 2.5, lineDash: [6, 4] }),
+    fill: new Fill({ color: 'rgba(250, 176, 5, 0.15)' }),
+    image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#fab005' }) }),
+  })
+  let label = ''
+  let at: Point | undefined
+  if (g instanceof LineString) {
+    label = fmtLen(getLength(g))
+    at = new Point(g.getLastCoordinate())
+  } else if (g instanceof Polygon && getArea(g) > 0) {
+    label = `${fmtArea(getArea(g))}\n둘레 ${fmtLen(getLength(new LineString(g.getCoordinates()[0])))}`
+    at = g.getInteriorPoint()
+  }
+  if (!label || !at) return [base]
+  return [
+    base,
+    new Style({
+      geometry: at,
+      text: new Text({
+        text: label,
+        font: '600 12px Pretendard, sans-serif',
+        fill: new Fill({ color: '#1d2330' }),
+        backgroundFill: new Fill({ color: 'rgba(255, 255, 255, 0.9)' }),
+        padding: [3, 5, 3, 5],
+        offsetY: -14,
+      }),
+    }),
+  ]
+}
+
 export default function MapView(props: Props) {
-  const { vworldKey, baseMap, showCadastral, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade } = props
+  const { vworldKey, baseMap, showCadastral, showZoning, clearMeasuresSeq, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade } = props
   const el = useRef<HTMLDivElement>(null)
   const mapRef = useRef<OlMap | null>(null)
   const baseLayer = useRef(new TileLayer({ zIndex: 0 }))
   const labelLayer = useRef(new TileLayer({ zIndex: 1 }))
+  const zoningLayer = useRef(new TileLayer({ zIndex: 1.5, opacity: 0.55 }))
   const cadastralLayer = useRef(new TileLayer({ zIndex: 2, opacity: 0.9 }))
+  const measureSource = useRef(new VectorSource())
   const parcelSource = useRef(new VectorSource())
   const setSource = useRef(new VectorSource())
   const obstacleSource = useRef(new VectorSource())
@@ -119,6 +168,7 @@ export default function MapView(props: Props) {
       layers: [
         baseLayer.current,
         labelLayer.current,
+        zoningLayer.current,
         cadastralLayer.current,
         new VectorLayer({ source: parcelSource.current, style: parcelStyle, zIndex: 10 }),
         new VectorLayer({
@@ -128,6 +178,7 @@ export default function MapView(props: Props) {
         }),
         setLayer,
         new VectorLayer({ source: obstacleSource.current, style: obstacleStyle, zIndex: 12 }),
+        new VectorLayer({ source: measureSource.current, style: measureStyle, zIndex: 13 }),
       ],
       view: new View({ center: SEOUL, zoom: 12, maxZoom: 22 }),
       controls: defaultControls().extend([new ScaleLine()]),
@@ -135,7 +186,7 @@ export default function MapView(props: Props) {
     map.on('singleclick', (e) => {
       const p = latest.current
       const [lon, lat] = toLonLat(e.coordinate)
-      if (p.tool === 'draw' || p.tool === 'obstacle') return
+      if (p.tool === 'draw' || p.tool === 'obstacle' || p.tool === 'measureLine' || p.tool === 'measureArea') return
       if (p.tool === 'add') return p.onAddSet(lon, lat)
       if (p.tool === 'select') {
         const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f, { layerFilter: (l) => l === setLayer })
@@ -176,6 +227,24 @@ export default function MapView(props: Props) {
       )
     }
   }, [vworldKey, showCadastral])
+
+  useEffect(() => {
+    const show = showZoning && !!vworldKey
+    zoningLayer.current.setVisible(show)
+    if (show && !zoningLayer.current.getSource()) {
+      zoningLayer.current.setSource(
+        new TileWMS({
+          url: ZONING_WMS.url,
+          params: { ...ZONING_WMS.params, KEY: vworldKey, DOMAIN: window.location.origin },
+          crossOrigin: 'anonymous',
+        }),
+      )
+    }
+  }, [vworldKey, showZoning])
+
+  useEffect(() => {
+    measureSource.current.clear()
+  }, [clearMeasuresSeq])
 
   useEffect(() => {
     const src = parcelSource.current
@@ -254,6 +323,18 @@ export default function MapView(props: Props) {
         const ring = (e.feature.getGeometry() as Polygon).getCoordinates()[0].map((c) => toLonLat(c))
         if (tool === 'draw') latest.current.onDrawEnd(ring)
         else latest.current.onObstacleDrawn(ring)
+      })
+      map.addInteraction(draw)
+      return () => {
+        map.removeInteraction(draw)
+      }
+    }
+    if (tool === 'measureLine' || tool === 'measureArea') {
+      // 측정 결과는 지울 때까지 지도에 남긴다.
+      const draw = new Draw({
+        source: measureSource.current,
+        type: tool === 'measureLine' ? 'LineString' : 'Polygon',
+        style: measureStyle,
       })
       map.addInteraction(draw)
       return () => {

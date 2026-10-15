@@ -91,3 +91,4 @@ details.chart summary { cursor: pointer; }
 .lots li { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 6px; }
 .lots small { display: block; color: var(--muted); }
 .lots button.secondary { margin: 0; padding: 4px 10px; font-size: 12px; }
+.row > button.secondary { margin-top: 0; }

@@ -150,6 +150,57 @@ export const CADASTRAL_WMS = {
   },
 }
 
+/** 용도지역 WMS 레이어: 도시(주거·상업·공업·녹지), 관리, 농림, 자연환경보전 */
+const ZONING_LAYERS = ['lt_c_uq111', 'lt_c_uq112', 'lt_c_uq113', 'lt_c_uq114']
+
+export const ZONING_WMS = {
+  url: `${API}/wms`,
+  params: {
+    LAYERS: ZONING_LAYERS.join(','),
+    STYLES: ZONING_LAYERS.join(','),
+    FORMAT: 'image/png',
+    TRANSPARENT: 'true',
+  },
+}
+
+interface ZoningResponse {
+  response: {
+    status: 'OK' | 'NOT_FOUND' | 'ERROR'
+    error?: { text: string }
+    result?: { featureCollection: { features: Array<{ properties: Record<string, string> }> } }
+  }
+}
+
+/** 좌표가 속한 용도지역 이름들(예: 계획관리지역). 네 종류 레이어를 함께 찾는다. */
+export async function getZoningAt(lon: number, lat: number, key: string): Promise<string[]> {
+  const all = await Promise.all(
+    ZONING_LAYERS.map((layer) =>
+      jsonp<ZoningResponse>(`${API}/data`, {
+        service: 'data',
+        request: 'GetFeature',
+        version: '2.0',
+        data: layer.toUpperCase(),
+        geomFilter: `POINT(${lon} ${lat})`,
+        crs: 'EPSG:4326',
+        geometry: 'false',
+        attribute: 'true',
+        size: '10',
+        format: 'json',
+        errorformat: 'json',
+        domain: DOMAIN,
+        key,
+      }).then(
+        (d) =>
+          d.response.status === 'OK'
+            ? (d.response.result?.featureCollection.features ?? []).map((f) => f.properties.uname).filter(Boolean)
+            : [],
+        () => [] as string[],
+      ),
+    ),
+  )
+  return [...new Set(all.flat())]
+}
+
 /** PNU 11번째 자리: 1=일반, 2=산 */
 export function describePnu(pnu: string): { legalDong: string; isMountain: boolean } {
   return { legalDong: pnu.slice(0, 10), isMountain: pnu.charAt(10) === '2' }

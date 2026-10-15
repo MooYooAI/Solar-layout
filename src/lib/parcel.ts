@@ -74,6 +74,14 @@ export function unionRings(rings: number[][][]): number[][][] {
   return merged.map((poly) => poly[0])
 }
 
+/** 링 목록 중 가장 넓은 링 안쪽의 한 점(오목해도 안쪽). 용도지역 조회용. */
+export function interiorPoint(rings: number[][][]): [number, number] {
+  const polys = rings.map((r) => new Polygon([r]))
+  const big = polys.reduce((a, b) => (b.getArea() > a.getArea() ? b : a))
+  const [lon, lat] = big.getInteriorPoint().getCoordinates()
+  return [lon, lat]
+}
+
 export function parcelGeometry(p: Parcel): MultiPolygon {
   return new MultiPolygon(p.rings.map((r) => [r]))
 }
