@@ -120,8 +120,9 @@ export const newSetId = () => `s${Date.now().toString(36)}${(idSeq++).toString(3
 /**
  * 필지 안에 세트를 자동으로 채운다.
  * 세트 방향 기준으로 좌표를 돌린 뒤, 남쪽 열부터 열마다 왼쪽에서 오른쪽으로 들어가는 자리에 채운다.
+ * rowOffset(m)만큼 첫 열을 북쪽으로 밀어 시작할 수 있다. 같은 간격이라도 시작 위치에 따라 들어가는 세트 수가 달라진다.
  */
-export function autoLayout(parcel: Parcel, p: LayoutParams): ModuleSet[] {
+export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0): ModuleSet[] {
   const g = setGeometry(p)
   if (g.width <= 0 || g.depth <= 0) return []
   const frame = LocalFrame.around(parcel.rings)
@@ -138,7 +139,7 @@ export function autoLayout(parcel: Parcel, p: LayoutParams): ModuleSet[] {
     const ys = ring.map((v) => v[1])
     const [minX, maxX] = [Math.min(...xs), Math.max(...xs)]
     const [minY, maxY] = [Math.min(...ys), Math.max(...ys)]
-    for (let cy = minY + p.boundarySetback + g.depth / 2; cy + g.depth / 2 <= maxY; cy += rowPitch) {
+    for (let cy = minY + p.boundarySetback + g.depth / 2 + rowOffset; cy + g.depth / 2 <= maxY; cy += rowPitch) {
       let cx = minX + p.boundarySetback + g.width / 2
       while (cx + g.width / 2 <= maxX) {
         const quad = setQuadLocal([cx, cy], 0, g)
