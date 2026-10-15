@@ -13,7 +13,7 @@
 
 `main`에 올라가면 GitHub Actions가 빌드해서 GitHub Pages에 배포합니다: https://mooyooai.github.io/solar-layout/
 
-처음 한 번은 저장소 Settings > Pages에서 Source를 "GitHub Actions"로 바꿔야 합니다. VWorld 키를 Settings > Secrets and variables > Actions에 `VITE_VWORLD_KEY`로 등록하면 화면에서 키를 넣지 않아도 되고, VWorld 키의 서비스 URL에는 `mooyooai.github.io`를 추가해야 합니다.
+처음 한 번은 저장소 Settings > Pages에서 Source를 "GitHub Actions"로 바꿔야 합니다. VWorld 키는 Settings > Secrets and variables > Actions에 `VITE_VWORLD_KEY`로 등록하고(화면에는 키 입력 칸이 없습니다), VWorld 키의 서비스 URL에는 `mooyooai.github.io`를 추가해야 합니다.
 
 ## 로컬 실행
 
@@ -23,7 +23,7 @@ cp .env.example .env.local   # VITE_VWORLD_KEY 입력 (선택)
 npm run dev
 ```
 
-VWorld 인증키는 [vworld.kr](https://www.vworld.kr)에서 무료로 발급받고, 서비스 URL에 사용할 도메인(개발 중이면 `localhost`)을 등록하세요. `.env.local` 대신 화면의 "VWorld 인증키 설정"에 입력해도 됩니다. 키가 없으면 OpenStreetMap 배경에서 영역을 직접 그려서 쓸 수 있습니다.
+VWorld 인증키는 [vworld.kr](https://www.vworld.kr)에서 무료로 발급받고, 서비스 URL에 사용할 도메인(개발 중이면 `localhost`)을 등록하세요. 키가 없으면 OpenStreetMap 배경에서 영역을 직접 그려서 쓸 수 있습니다.
 
 ## 구조
 
