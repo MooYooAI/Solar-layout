@@ -14,6 +14,10 @@ interface Props {
   onDeleteSelected: () => void
   onRotateSelected: (deg: number) => void
   onClear: () => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
@@ -127,6 +131,14 @@ export default function LayoutPanel(props: Props) {
           </button>
           <button type="button" className="secondary" disabled={!stats.sets} onClick={props.onClear}>
             전체 지우기
+          </button>
+        </div>
+        <div className="row" style={{ marginTop: 10 }}>
+          <button type="button" className="secondary" disabled={!props.canUndo} onClick={props.onUndo} title="Ctrl+Z">
+            ↶ 되돌리기
+          </button>
+          <button type="button" className="secondary" disabled={!props.canRedo} onClick={props.onRedo} title="Ctrl+Shift+Z">
+            ↷ 다시실행
           </button>
         </div>
       </section>
