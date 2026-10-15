@@ -53,3 +53,19 @@ export function rowSpacingForNoShade(
   }
   return worst
 }
+
+/** 균시차(분), Spencer 식 */
+export function equationOfTime(n: number): number {
+  const b = deg2rad((360 / 365) * (n - 81))
+  return 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b)
+}
+
+/** 한국 표준시(KST, 동경 135°) → 태양시(시) */
+export function kstToSolar(kstHour: number, lonDeg: number, n: number): number {
+  return kstHour + (4 * (lonDeg - 135) + equationOfTime(n)) / 60
+}
+
+export function dayOfYear(month: number, day: number): number {
+  const cum = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+  return cum[month - 1] + day
+}

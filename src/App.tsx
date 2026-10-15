@@ -12,10 +12,17 @@ import {
   type LayoutParams,
   type ModuleSet,
 } from './lib/layout'
-import { rowSpacingForNoShade } from './lib/sun'
+import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
 import { LocalFrame } from './lib/geo'
+import ShadePanel from './components/ShadePanel'
+import EnergyPanel from './components/EnergyPanel'
+import type { Obstacle } from './lib/shading'
+import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
+import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 
-type Tab = 'parcel' | 'layout'
+type Tab = 'parcel' | 'layout' | 'shade' | 'energy'
+
+const NO_SHADOWS: Array<{ ring: number[][]; fromSet: boolean }> = []
 
 /** 복사할 때 섞여 들어온 공백·따옴표를 걷어낸다. */
 const cleanKey = (k: string | undefined) => (k ?? '').trim().replace(/^["']|["']$/g, '').trim()
@@ -45,10 +52,20 @@ export default function App() {
   const [params, setParams] = useState<LayoutParams>(DEFAULT_PARAMS)
   const [sets, setSets] = useState<ModuleSet[]>([])
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [obstacles, setObstacles] = useState<Obstacle[]>([])
+  const [shadeDate, setShadeDate] = useState({ month: 12, day: 22 })
+  const [shadeHour, setShadeHour] = useState(12)
+  const [playing, setPlaying] = useState(false)
+  const [performanceRatio, setPerformanceRatio] = useState(0.8)
+  const [withShade, setWithShade] = useState(true)
+  const [energy, setEnergy] = useState<EnergyResult | null>(null)
+  const [energyBusy, setEnergyBusy] = useState(false)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
+    setObstacles([])
+    setEnergy(null)
     setSets([])
     setSelected(new Set())
   }
@@ -117,6 +134,61 @@ export default function App() {
   const switchTab = (t: Tab) => {
     setTab(t)
     setTool('none')
+    setPlaying(false)
+  }
+
+  // 음영 분석 장면: 세트·장애물·설정이 바뀔 때만 다시 만든다.
+  const scene = useMemo(
+    () => (parcel ? buildScene(parcel.rings, sets, obstacles, params, geometry) : null),
+    [parcel, sets, obstacles, params, geometry],
+  )
+  const n = dayOfYear(shadeDate.month, shadeDate.day)
+  const decl = declination(n)
+  const shadeView = useMemo(() => {
+    if (!scene || tab !== 'shade') return null
+    const solar = kstToSolar(shadeHour, scene.frame.lon0, n)
+    return snapshot(scene, decl, solar)
+  }, [scene, tab, shadeHour, n, decl])
+  const dailyLoss = useMemo(
+    () => (scene && tab === 'shade' && sets.length ? dailyShadeLoss(scene, decl) : null),
+    [scene, tab, sets.length, decl],
+  )
+
+  useEffect(() => {
+    if (!playing) return
+    const id = setInterval(() => setShadeHour((h) => (h >= 20 ? 5 : h + 0.25)), 250)
+    return () => clearInterval(id)
+  }, [playing])
+
+  const onObstacleDrawn = (ring: number[][]) => {
+    setTool('none')
+    const name = `장애물 ${obstacles.length + 1}`
+    const raw = window.prompt(`${name} 높이(m)를 입력하세요`, '10')
+    const height = raw === null ? NaN : Number(raw)
+    if (!Number.isFinite(height) || height <= 0) return
+    setObstacles((prev) => [...prev, { id: newSetId(), name, ring, height }])
+  }
+
+  const runEnergy = () => {
+    if (!scene || !sets.length) return
+    setEnergyBusy(true)
+    // 화면이 "계산 중"을 그릴 틈을 준다.
+    setTimeout(() => {
+      const shade = withShade ? shadeTable(scene) : undefined
+      setEnergy(
+        simulateEnergy({
+          latDeg: scene.frame.lat0,
+          tilt: params.tilt,
+          azimuth: params.azimuth,
+          kWp: stats.kWp,
+          performanceRatio,
+          albedo: 0.2,
+          ghi: KOREA_GHI,
+          shade,
+        }),
+      )
+      setEnergyBusy(false)
+    }, 30)
   }
 
   const runAutoLayout = () => {
@@ -193,12 +265,12 @@ export default function App() {
               </button>
             </li>
             <li>
-              <button type="button" disabled>
+              <button type="button" className={tab === 'shade' ? 'active' : ''} onClick={() => switchTab('shade')}>
                 음영
               </button>
             </li>
             <li>
-              <button type="button" disabled>
+              <button type="button" className={tab === 'energy' ? 'active' : ''} onClick={() => switchTab('energy')}>
                 발전량
               </button>
             </li>
@@ -219,6 +291,40 @@ export default function App() {
             onDeleteSelected={deleteSelected}
             onRotateSelected={rotateSelected}
             onClear={clearSets}
+          />
+        )}
+
+        {tab === 'shade' && (
+          <ShadePanel
+            month={shadeDate.month}
+            day={shadeDate.day}
+            hour={shadeHour}
+            onDate={(month, day) => setShadeDate({ month, day })}
+            onHour={setShadeHour}
+            playing={playing}
+            onPlay={setPlaying}
+            sun={shadeView?.sun ?? null}
+            currentShade={shadeView?.overall ?? 0}
+            dailyLoss={dailyLoss}
+            hasSets={sets.length > 0}
+            obstacles={obstacles}
+            onObstacles={setObstacles}
+            tool={tool}
+            onTool={setTool}
+          />
+        )}
+
+        {tab === 'energy' && (
+          <EnergyPanel
+            kWp={stats.kWp}
+            result={energy}
+            busy={energyBusy}
+            performanceRatio={performanceRatio}
+            onPerformanceRatio={setPerformanceRatio}
+            withShade={withShade}
+            onWithShade={setWithShade}
+            onRun={runEnergy}
+            canRun={sets.length > 0}
           />
         )}
 
@@ -350,6 +456,10 @@ export default function App() {
           onSelect={onSelect}
           onMoveSets={onMoveSets}
           onAddSet={onAddSet}
+          obstacles={obstacles}
+          shadows={shadeView?.shadows ?? NO_SHADOWS}
+          setShade={shadeView?.perSet ?? null}
+          onObstacleDrawn={onObstacleDrawn}
         />
       </main>
     </div>
