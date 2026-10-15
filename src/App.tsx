@@ -17,23 +17,23 @@ import { LocalFrame } from './lib/geo'
 
 type Tab = 'parcel' | 'layout'
 
-const KEY_STORAGE = 'vworld-key'
+/** 복사할 때 섞여 들어온 공백·따옴표를 걷어낸다. */
+const cleanKey = (k: string | undefined) => (k ?? '').trim().replace(/^["']|["']$/g, '').trim()
 
-function loadKey(): string {
-  const env = import.meta.env.VITE_VWORLD_KEY as string | undefined
-  if (env) return env
-  try {
-    return localStorage.getItem(KEY_STORAGE) ?? ''
-  } catch {
-    return ''
-  }
+// 키는 빌드할 때 저장소 시크릿(VITE_VWORLD_KEY)에서만 넣는다. 화면에서는 보여주지도 받지도 않는다.
+const VWORLD_KEY = cleanKey(import.meta.env.VITE_VWORLD_KEY as string | undefined)
+
+// 예전 버전이 브라우저에 저장해 둔 키를 지운다.
+try {
+  localStorage.removeItem('vworld-key')
+} catch {
+  /* 저장소를 못 쓰는 환경 */
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 
 export default function App() {
-  const [vworldKey, setVworldKey] = useState(loadKey)
-  const [keyDraft, setKeyDraft] = useState(vworldKey)
+  const vworldKey = VWORLD_KEY
   const [baseMap, setBaseMap] = useState<BaseMap>('Satellite')
   const [showCadastral, setShowCadastral] = useState(true)
   const [query, setQuery] = useState('')
@@ -58,16 +58,6 @@ export default function App() {
   }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-
-  const saveKey = () => {
-    const k = keyDraft.trim()
-    setVworldKey(k)
-    try {
-      localStorage.setItem(KEY_STORAGE, k)
-    } catch {
-      /* 저장 불가 환경이면 이번 세션에서만 사용 */
-    }
-  }
 
   const selectParcelAt = useCallback(
     async (lon: number, lat: number) => {
@@ -243,7 +233,7 @@ export default function App() {
               <a href="https://www.vworld.kr/dev/v4dv_apiDevGuide2_s001.do" target="_blank" rel="noreferrer">
                 vworld.kr
               </a>
-              에서 무료로 발급받고, 서비스 URL에 이 사이트 주소(개발 중이면 localhost)를 등록하세요. 키 없이도 영역을 직접 그려서 쓸 수 있습니다.
+              에서 무료로 발급받아 저장소 시크릿 VITE_VWORLD_KEY(로컬 실행은 .env.local)에 넣으세요. 키 없이도 영역을 직접 그려서 쓸 수 있습니다.
             </p>
           </section>
         )}
@@ -339,15 +329,6 @@ export default function App() {
           </div>
         </section>
 
-        <details className="card">
-          <summary>VWorld 인증키 설정</summary>
-          <div className="row">
-            <input value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} placeholder="인증키" />
-            <button type="button" onClick={saveKey}>
-              저장
-            </button>
-          </div>
-        </details>
         </>
         )}
       </aside>
