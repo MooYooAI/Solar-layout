@@ -22,8 +22,10 @@ import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 
 import OptimizePanel from './components/OptimizePanel'
 import type { Candidate, OptimizeInput } from './lib/optimize'
+import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
+import { DEFAULT_ECON } from './lib/economics'
 
-type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'ai'
+type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'econ' | 'ai'
 
 const NO_SHADOWS: Array<{ ring: number[][]; fromSet: boolean }> = []
 
@@ -67,6 +69,8 @@ export default function App() {
   const [optProgress, setOptProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
   const [optError, setOptError] = useState<string | null>(null)
+  const [econ, setEcon] = useState<EconSettings>(DEFAULT_ECON)
+  const [econHours, setEconHours] = useState(3.6)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
@@ -320,6 +324,11 @@ export default function App() {
               </button>
             </li>
             <li>
+              <button type="button" className={tab === 'econ' ? 'active' : ''} onClick={() => switchTab('econ')}>
+                경제성
+              </button>
+            </li>
+            <li>
               <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => switchTab('ai')}>
                 AI 배치
               </button>
@@ -388,6 +397,19 @@ export default function App() {
             onWithShade={setWithShade}
             onRun={runEnergy}
             canRun={sets.length > 0}
+          />
+        )}
+
+        {tab === 'econ' && (
+          <EconomicsPanel
+            kWp={stats.kWp}
+            energyKWh={energy ? energy.specificYield * stats.kWp : null}
+            landCategory={parcel?.landCategory}
+            settings={econ}
+            onSettings={setEcon}
+            hours={econHours}
+            onHours={setEconHours}
+            onGoEnergy={() => switchTab('energy')}
           />
         )}
 
