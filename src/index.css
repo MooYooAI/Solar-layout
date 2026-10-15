@@ -20,8 +20,8 @@ h2 { font-size: 14px; margin: 0 0 10px; }
 .map-wrap { flex: 1; position: relative; }
 .map { position: absolute; inset: 0; }
 .steps { display: flex; gap: 6px; padding: 0; margin: 0 0 16px; list-style: none; font-size: 12px; }
-.steps li { padding: 4px 10px; border-radius: 999px; background: var(--border); color: var(--muted); }
-.steps li.active { background: var(--accent); color: var(--accent-text); }
+
+
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .card.notice { border-color: var(--accent); }
 .card p { font-size: 13px; line-height: 1.5; margin: 8px 0 0; }
@@ -48,3 +48,12 @@ button.link { background: none; color: var(--accent); padding: 0; text-decoratio
   .panel { width: 100%; border-right: 0; }
   .map-wrap { height: 60vh; }
 }
+.steps button { padding: 4px 10px; border-radius: 999px; background: var(--border); color: var(--muted); font-size: 12px; }
+.steps button.active { background: var(--accent); color: var(--accent-text); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.field { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 12px; color: var(--muted); position: relative; }
+.field input, .field select { width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; color: var(--text); background: var(--surface); }
+.field select { padding-right: 8px; }
+.field em { position: absolute; right: 8px; bottom: 7px; font-style: normal; font-size: 12px; }
+button.block { width: 100%; margin-top: 12px; padding: 10px; }
+.map.tool-add { cursor: crosshair; }

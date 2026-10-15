@@ -1,7 +1,21 @@
-import { useCallback, useState } from 'react'
-import MapView, { type FlyTarget } from './components/MapView'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import MapView, { type FlyTarget, type MapTool } from './components/MapView'
+import LayoutPanel from './components/LayoutPanel'
 import { getParcelAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
 import { parcelArea, parcelFromFeature, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
+import {
+  autoLayout,
+  DEFAULT_PARAMS,
+  layoutStats,
+  newSetId,
+  setGeometry,
+  type LayoutParams,
+  type ModuleSet,
+} from './lib/layout'
+import { rowSpacingForNoShade } from './lib/sun'
+import { LocalFrame } from './lib/geo'
+
+type Tab = 'parcel' | 'layout'
 
 const KEY_STORAGE = 'vworld-key'
 
@@ -24,9 +38,24 @@ export default function App() {
   const [showCadastral, setShowCadastral] = useState(true)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ParcelSearchItem[]>([])
-  const [parcel, setParcel] = useState<Parcel | null>(null)
+  const [parcel, setParcelState] = useState<Parcel | null>(null)
   const [flyTo, setFlyTo] = useState<FlyTarget | null>(null)
-  const [drawing, setDrawing] = useState(false)
+  const [tab, setTab] = useState<Tab>('parcel')
+  const [tool, setTool] = useState<MapTool>('none')
+  const [params, setParams] = useState<LayoutParams>(DEFAULT_PARAMS)
+  const [sets, setSets] = useState<ModuleSet[]>([])
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const drawing = tool === 'draw'
+  // 필지가 바뀌면 이전 배치는 의미가 없다.
+  const setParcel = (p: Parcel | null) => {
+    setParcelState(p)
+    setSets([])
+    setSelected(new Set())
+  }
+  const setDrawing = (on: boolean | ((d: boolean) => boolean)) => {
+    const next = typeof on === 'function' ? on(drawing) : on
+    setTool(next ? 'draw' : 'none')
+  }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -81,11 +110,81 @@ export default function App() {
   }
 
   const onDrawEnd = (ring: number[][]) => {
-    setDrawing(false)
+    setTool('none')
     setParcel({ address: '직접 그린 영역', rings: [ring], source: 'manual' })
   }
 
-  const area = parcel ? parcelArea(parcel) : 0
+  const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
+  const geometry = useMemo(() => setGeometry(params), [params])
+  const stats = layoutStats(sets, geometry, area)
+  const suggestedRowSpacing = useMemo(() => {
+    if (!parcel) return null
+    const { lat0 } = LocalFrame.around(parcel.rings)
+    return rowSpacingForNoShade(lat0, geometry.height - params.groundClearance, params.azimuth)
+  }, [parcel, geometry, params.groundClearance, params.azimuth])
+
+
+  const switchTab = (t: Tab) => {
+    setTab(t)
+    setTool('none')
+  }
+
+  const runAutoLayout = () => {
+    if (!parcel) return
+    if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
+    setSets(autoLayout(parcel, params))
+    setSelected(new Set())
+  }
+
+  const onSelect = (ids: string[], additive: boolean) => {
+    setSelected((prev) => {
+      if (!additive) return new Set(ids)
+      const next = new Set(prev)
+      // 클릭 한 번은 토글, 영역 선택은 추가
+      if (ids.length === 1 && prev.has(ids[0])) next.delete(ids[0])
+      else ids.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  const onMoveSets = (moved: Array<{ id: string; lon: number; lat: number }>) => {
+    const byId = new Map(moved.map((m) => [m.id, m]))
+    setSets((prev) => prev.map((s) => (byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)))
+  }
+
+  const onAddSet = (lon: number, lat: number) => {
+    const s: ModuleSet = { id: newSetId(), lon, lat, azimuth: params.azimuth }
+    setSets((prev) => [...prev, s])
+    setSelected(new Set([s.id]))
+  }
+
+  const deleteSelected = useCallback(() => {
+    setSets((prev) => prev.filter((s) => !selected.has(s.id)))
+    setSelected(new Set())
+  }, [selected])
+
+  const rotateSelected = (deg: number) =>
+    setSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: s.azimuth + deg } : s)))
+
+  const clearSets = () => {
+    if (!window.confirm('배치한 세트를 모두 지울까요?')) return
+    setSets([])
+    setSelected(new Set())
+  }
+
+  useEffect(() => {
+    if (tab !== 'layout') return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === 'INPUT') return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
+        e.preventDefault()
+        deleteSelected()
+      }
+      if (e.key === 'Escape') setSelected(new Set())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tab, selected, deleteSelected])
 
   return (
     <div className="app">
@@ -93,12 +192,48 @@ export default function App() {
         <header>
           <h1>태양광 배치 설계</h1>
           <ol className="steps">
-            <li className="active">필지</li>
-            <li>배치</li>
-            <li>음영</li>
-            <li>발전량</li>
+            <li>
+              <button type="button" className={tab === 'parcel' ? 'active' : ''} onClick={() => switchTab('parcel')}>
+                필지
+              </button>
+            </li>
+            <li>
+              <button type="button" className={tab === 'layout' ? 'active' : ''} onClick={() => switchTab('layout')}>
+                배치
+              </button>
+            </li>
+            <li>
+              <button type="button" disabled>
+                음영
+              </button>
+            </li>
+            <li>
+              <button type="button" disabled>
+                발전량
+              </button>
+            </li>
           </ol>
         </header>
+
+        {tab === 'layout' && (
+          <LayoutPanel
+            params={params}
+            onParams={setParams}
+            suggestedRowSpacing={suggestedRowSpacing}
+            stats={stats}
+            canLayout={!!parcel}
+            tool={tool}
+            onTool={setTool}
+            selectedCount={selected.size}
+            onAutoLayout={runAutoLayout}
+            onDeleteSelected={deleteSelected}
+            onRotateSelected={rotateSelected}
+            onClear={clearSets}
+          />
+        )}
+
+        {tab === 'parcel' && (
+        <>
 
         {!vworldKey && (
           <section className="card notice">
@@ -178,9 +313,14 @@ export default function App() {
                 </>
               )}
             </dl>
-            <button type="button" className="secondary" onClick={() => setParcel(null)}>
-              선택 해제
-            </button>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button type="button" onClick={() => switchTab('layout')}>
+                이 필지에 배치하기
+              </button>
+              <button type="button" className="secondary" onClick={() => setParcel(null)}>
+                선택 해제
+              </button>
+            </div>
           </section>
         )}
 
@@ -208,6 +348,8 @@ export default function App() {
             </button>
           </div>
         </details>
+        </>
+        )}
       </aside>
 
       <main className="map-wrap">
@@ -217,9 +359,16 @@ export default function App() {
           showCadastral={showCadastral}
           parcel={parcel}
           flyTo={flyTo}
-          drawing={drawing}
+          tool={tool}
+          sets={sets}
+          params={params}
+          geometry={geometry}
+          selected={selected}
           onMapClick={selectParcelAt}
           onDrawEnd={onDrawEnd}
+          onSelect={onSelect}
+          onMoveSets={onMoveSets}
+          onAddSet={onAddSet}
         />
       </main>
     </div>
