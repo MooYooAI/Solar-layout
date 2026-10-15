@@ -1,9 +1,10 @@
 // 월평균 일사량으로 발전량을 계산한다.
 // 수평면 일사량 → (Erbs) 산란 비율 → (Collares-Pereira & Rabl, Liu-Jordan) 시간별 분배
-// → 경사면 일사량(등방성 하늘 모델) → 음영으로 가려진 직달분 차감 → 성능계수.
+// → 경사면 일사량(등방성 하늘 모델) → 음영으로 가려진 직달분 차감 → (선택) 시간별 모듈 온도 손실 → 성능계수.
 
 import { deg2rad } from './geo'
 import { declination, sunPosition } from './sun'
+import { tempFactor, type TempModel } from './climate'
 
 /** 한국 평균 수평면 일일 일사량(kWh/㎡/일), 1~12월. 기상청 일사량 평년값 수준의 대표값. */
 export const KOREA_GHI = [2.35, 3.15, 4.05, 4.9, 5.3, 4.95, 4.05, 4.25, 3.85, 3.35, 2.4, 2.05]
@@ -28,6 +29,8 @@ export interface EnergyOptions {
    * 없으면 음영 없음.
    */
   shade?: (month: number, solarHour: number) => number
+  /** 있으면 시간마다 모듈 온도 손실을 따로 계산한다. 이때 성능계수에는 온도 외 손실만 넣는다. */
+  temperature?: TempModel
 }
 
 export interface MonthlyEnergy {
@@ -44,6 +47,8 @@ export interface EnergyResult {
   annualNoShade: number
   specificYield: number // kWh/kWp
   shadeLoss: number // 0~1
+  /** 온도 손실(0~1, 음수면 이득). 온도 모델을 안 쓰면 0 */
+  tempLoss: number
 }
 
 /** 하루 대기권 밖 수평면 일사량(kWh/㎡) */
@@ -61,6 +66,8 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
   const beta = deg2rad(o.tilt)
   const gamma = deg2rad(o.azimuth)
   const monthly: MonthlyEnergy[] = []
+  let poaTotal = 0
+  let effTotal = 0
 
   for (let m = 0; m < 12; m++) {
     const n = REP_DAY[m]
@@ -81,6 +88,9 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
 
     let poaDay = 0
     let poaShadedDay = 0
+    // 온도 보정까지 곱한 값(온도 모델이 없으면 위와 같다)
+    let effDay = 0
+    let effShadedDay = 0
     const dt = 0.25
     for (let t = 12 - (ws * 12) / Math.PI + dt / 2; t < 12 + (ws * 12) / Math.PI; t += dt) {
       const w = deg2rad(15 * (t - 12))
@@ -101,19 +111,26 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
       const diffT = (Id * (1 + Math.cos(beta))) / 2
       const reflT = (I * o.albedo * (1 - Math.cos(beta))) / 2
       const shade = o.shade ? o.shade(m, t) : 0
-      poaDay += beamT + diffT + reflT
+      const poa = beamT + diffT + reflT
       // 그림자가 진 모듈은 직달분을 잃고, 산란은 하늘이 일부 가려지는 만큼 약간 줄어든다(근사 5%).
-      poaShadedDay += beamT * (1 - shade) + diffT * (1 - 0.05 * shade) + reflT
+      const poaShaded = beamT * (1 - shade) + diffT * (1 - 0.05 * shade) + reflT
+      poaDay += poa
+      poaShadedDay += poaShaded
+      // dt시간 동안의 kWh/㎡ → 평균 W/㎡
+      effDay += o.temperature ? poa * tempFactor(o.temperature, m, t, (poa / dt) * 1000) : poa
+      effShadedDay += o.temperature ? poaShaded * tempFactor(o.temperature, m, t, (poaShaded / dt) * 1000) : poaShaded
     }
     const days = MONTH_DAYS[m]
-    const kWhNoShade = poaDay * days * o.kWp * o.performanceRatio
+    const kWhNoShade = effDay * days * o.kWp * o.performanceRatio
     monthly.push({
       month: m + 1,
       ghi: H * days,
       poa: poaDay * days,
-      kWh: poaShadedDay * days * o.kWp * o.performanceRatio,
+      kWh: effShadedDay * days * o.kWp * o.performanceRatio,
       kWhNoShade,
     })
+    poaTotal += poaDay * days
+    effTotal += effDay * days
   }
   const annualKWh = monthly.reduce((s, x) => s + x.kWh, 0)
   const annualNoShade = monthly.reduce((s, x) => s + x.kWhNoShade, 0)
@@ -123,5 +140,6 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
     annualNoShade,
     specificYield: o.kWp ? annualKWh / o.kWp : 0,
     shadeLoss: annualNoShade ? 1 - annualKWh / annualNoShade : 0,
+    tempLoss: poaTotal ? 1 - effTotal / poaTotal : 0,
   }
 }
