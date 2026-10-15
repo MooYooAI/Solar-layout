@@ -57,3 +57,26 @@ button.link { background: none; color: var(--accent); padding: 0; text-decoratio
 .field em { position: absolute; right: 8px; bottom: 7px; font-style: normal; font-size: 12px; }
 button.block { width: 100%; margin-top: 12px; padding: 10px; }
 .map.tool-add { cursor: crosshair; }
+.time-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.time-row input[type='range'] { flex: 1; accent-color: var(--accent); }
+.time-row button { width: 36px; padding: 6px 0; }
+.time-row strong { font-variant-numeric: tabular-nums; font-size: 14px; }
+.obstacles { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+.obstacles li { display: grid; grid-template-columns: 1fr 80px auto; gap: 6px; align-items: center; }
+.obstacles li > input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; min-width: 0; }
+.obstacles button.secondary { margin: 0; padding: 6px 10px; }
+.field.inline { display: block; }
+.hero { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.hero strong { font-size: 28px; color: var(--text); margin-right: 4px; }
+.chart { margin-top: 14px; }
+.chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .bar { fill: var(--accent); opacity: 0.85; }
+.chart .bar.active { opacity: 1; }
+.chart .axis { stroke: var(--border); stroke-width: 1; }
+.chart .tick { font-size: 9px; fill: var(--muted); text-anchor: middle; }
+.chart .tip { font-size: 10px; fill: var(--text); text-anchor: middle; font-weight: 600; }
+.month-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.month-table th, .month-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.month-table th:first-child, .month-table td:first-child { text-align: left; }
+.map.tool-obstacle { cursor: crosshair; }
