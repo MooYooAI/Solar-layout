@@ -170,7 +170,7 @@ export default function MapView(props: Props) {
       cadastralLayer.current.setSource(
         new TileWMS({
           url: CADASTRAL_WMS.url,
-          params: { ...CADASTRAL_WMS.params, KEY: vworldKey, DOMAIN: window.location.hostname },
+          params: { ...CADASTRAL_WMS.params, KEY: vworldKey, DOMAIN: window.location.origin },
           crossOrigin: 'anonymous',
         }),
       )

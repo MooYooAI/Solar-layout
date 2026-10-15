@@ -3,6 +3,9 @@
 
 const API = 'https://api.vworld.kr/req'
 
+// 인증키 발급 때 등록한 서비스 URL과 같아야 한다 (예: https://mooyooai.github.io).
+const DOMAIN = window.location.origin
+
 let jsonpSeq = 0
 
 function jsonp<T>(url: string, params: Record<string, string>, timeoutMs = 10000): Promise<T> {
@@ -69,6 +72,7 @@ export async function searchParcel(query: string, key: string): Promise<ParcelSe
     category: 'parcel',
     format: 'json',
     errorformat: 'json',
+    domain: DOMAIN,
     key,
   })
   const { status, error, result } = data.response
@@ -120,7 +124,7 @@ export async function getParcelAt(lon: number, lat: number, key: string): Promis
     size: '1',
     format: 'json',
     errorformat: 'json',
-    domain: window.location.hostname,
+    domain: DOMAIN,
     key,
   })
   const { status, error, result } = data.response
