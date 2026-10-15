@@ -171,6 +171,10 @@ interface ZoningResponse {
   }
 }
 
+// 이름은 uname 속성에 있다. 없으면 '…지역'으로 끝나는 값을 쓴다.
+const zoneName = (f: { properties: Record<string, string> }) =>
+  f.properties.uname || Object.values(f.properties).find((v) => typeof v === 'string' && /지역$/.test(v))
+
 /** 좌표가 속한 용도지역 이름들(예: 계획관리지역). 네 종류 레이어를 함께 찾는다. */
 export async function getZoningAt(lon: number, lat: number, key: string): Promise<string[]> {
   const all = await Promise.all(
@@ -192,7 +196,7 @@ export async function getZoningAt(lon: number, lat: number, key: string): Promis
       }).then(
         (d) =>
           d.response.status === 'OK'
-            ? (d.response.result?.featureCollection.features ?? []).map((f) => f.properties.uname).filter(Boolean)
+            ? (d.response.result?.featureCollection.features ?? []).map(zoneName).filter((n): n is string => !!n)
             : [],
         () => [] as string[],
       ),
