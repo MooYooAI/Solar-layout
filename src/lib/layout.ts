@@ -230,3 +230,50 @@ export function layoutStats(sets: ModuleSet[], g: SetGeometry, parcelArea: numbe
     coverage: parcelArea > 0 ? (sets.length * g.width * g.depth) / parcelArea : 0,
   }
 }
+
+/**
+ * 3D 보기용 모듈 사각형. 세트 중심 기준 로컬 좌표(m, +x 동, +y 북)와 지면 위 높이(m).
+ * 앞(남쪽) 끝이 지상고에서 시작해 경사각만큼 올라간다.
+ */
+export function moduleQuads3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Array<Array<[number, number, number]>> {
+  const r = mapRotation(s.azimuth)
+  const t = deg2rad(p.tilt)
+  const cos = Math.cos(t)
+  const tan = Math.tan(t)
+  const along = (p.portrait ? p.moduleWidth : p.moduleLength) / 1000
+  const across = ((p.portrait ? p.moduleLength : p.moduleWidth) / 1000) * cos
+  const gapX = p.moduleGap / 1000
+  const gapY = gapX * cos
+  const lift = (y: number) => p.groundClearance + (y + g.depth / 2) * tan
+  const quads: Array<Array<[number, number, number]>> = []
+  for (let row = 0; row < p.setRows; row++) {
+    const y0 = -g.depth / 2 + row * (across + gapY)
+    for (let col = 0; col < p.setCols; col++) {
+      const x0 = -g.width / 2 + col * (along + gapX)
+      const corners: Vec[] = [
+        [x0, y0],
+        [x0 + along, y0],
+        [x0 + along, y0 + across],
+        [x0, y0 + across],
+      ]
+      quads.push(corners.map((c) => [...rotate(c, r), lift(c[1])] as [number, number, number]))
+    }
+  }
+  return quads
+}
+
+/** 3D 보기용 가대 기둥 위치: 세트 로컬 좌표(m)와 기둥 높이(m). 앞뒤 두 줄. */
+export function setPosts3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Array<[number, number, number]> {
+  const r = mapRotation(s.azimuth)
+  const n = Math.max(2, Math.ceil(g.width / 3) + 1)
+  const inset = Math.min(0.3, g.width / 4)
+  const out: Array<[number, number, number]> = []
+  const yF = -g.depth / 2 + Math.min(0.2, g.depth / 4)
+  const yB = g.depth / 2 - Math.min(0.2, g.depth / 4)
+  const tan = Math.tan(deg2rad(p.tilt))
+  for (let i = 0; i < n; i++) {
+    const x = -g.width / 2 + inset + ((g.width - 2 * inset) * i) / (n - 1)
+    for (const y of [yF, yB]) out.push([...rotate([x, y], r), p.groundClearance + (y + g.depth / 2) * tan])
+  }
+  return out
+}

@@ -32,6 +32,7 @@ import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
 import type { ElecResult } from '../lib/electrical'
 import { GROUP_COLORS } from '../lib/palette'
+import { shared } from '../lib/viewState'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 
 export interface FlyTarget {
@@ -245,7 +246,11 @@ export default function MapView(props: Props) {
         new VectorLayer({ source: obstacleSource.current, style: obstacleStyle, zIndex: 12 }),
         new VectorLayer({ source: measureSource.current, style: measureStyle, zIndex: 13 }),
       ],
-      view: new View({ center: SEOUL, zoom: 12, maxZoom: 22 }),
+      view: new View({
+        center: shared.view ? fromLonLat([shared.view.lon, shared.view.lat]) : SEOUL,
+        zoom: shared.view?.zoom ?? 12,
+        maxZoom: 22,
+      }),
       controls: defaultControls().extend([new ScaleLine()]),
     })
     map.on('singleclick', (e) => {
@@ -261,6 +266,11 @@ export default function MapView(props: Props) {
         return
       }
       p.onMapClick(lon, lat)
+    })
+    map.on('moveend', () => {
+      const v = map.getView()
+      const [lon, lat] = toLonLat(v.getCenter()!)
+      shared.view = { lon, lat, zoom: v.getZoom() ?? 12, bearing: shared.view?.bearing ?? 0, pitch: shared.view?.pitch ?? 0 }
     })
     mapRef.current = map
     return () => map.setTarget(undefined)
@@ -317,6 +327,8 @@ export default function MapView(props: Props) {
     if (!parcel) return
     const geom = parcelGeometry(parcel).transform('EPSG:4326', 'EPSG:3857')
     src.addFeature(new Feature(geom))
+    if (shared.fitted === parcel) return
+    shared.fitted = parcel
     mapRef.current?.getView().fit(geom.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 20, duration: 400 })
   }, [parcel])
 
@@ -420,7 +432,8 @@ export default function MapView(props: Props) {
   }, [shadows])
 
   useEffect(() => {
-    if (!flyTo) return
+    if (!flyTo || shared.flySeq === flyTo.seq) return
+    shared.flySeq = flyTo.seq
     mapRef.current?.getView().animate({ center: fromLonLat([flyTo.lon, flyTo.lat]), zoom: flyTo.zoom ?? 18, duration: 500 })
   }, [flyTo])
 

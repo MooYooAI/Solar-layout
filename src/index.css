@@ -438,3 +438,92 @@ details.chart summary { cursor: pointer; }
   .report { position: static; overflow: visible; background: #fff; }
   .report-page { margin: 0; padding: 0; border: 0; max-width: none; }
 }
+
+/* ── 2D/3D 지도 전환 ── */
+.map-mode {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: oklch(99% 0.003 80 / 0.94);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 3px oklch(20% 0.01 80 / 0.12);
+}
+.map-mode button { height: 26px; padding: 0 10px; background: transparent; color: var(--ink-2); font-weight: 600; }
+.map-mode button:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.map-mode button.on, .map-mode button.on:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.map-mode select { height: 26px; margin-left: 4px; padding: 0 4px; font-size: 12px; }
+.map-mode span { margin: 0 6px; font-size: 12px; color: var(--muted); }
+.map-loading { display: grid; place-items: center; font-size: 13px; color: var(--muted); }
+/* maplibregl-map이 position: relative를 넣어 높이가 0이 되지 않게 */
+.map.map3d { position: absolute; }
+.map3d .maplibregl-ctrl-group { border-radius: var(--r-sm); }
+.map3d-label {
+  font: 600 11px Pretendard, sans-serif;
+  color: #1d2330;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── 측면도 ── */
+.drawing.details { overflow: auto; padding: 12px; background: #fff; }
+.drawing.details .hint { font-size: 12px; margin: 8px 4px 0; line-height: 1.5; }
+.side-elev { display: block; width: 100%; height: auto; font-family: Pretendard, sans-serif; }
+.side-elev text { font-size: 12px; fill: #343a40; }
+.side-elev .se-title { font-weight: 600; fill: #1d2330; }
+.side-elev .se-ground { stroke: #495057; stroke-width: 1.5; }
+.side-elev .se-hatch { stroke: #adb5bd; stroke-width: 1; }
+.side-elev .se-module { stroke: #1c408c; stroke-width: 5; stroke-linecap: butt; }
+.side-elev .se-post { stroke: #868e96; stroke-width: 3; }
+.side-elev .se-rail { stroke: #868e96; stroke-width: 2; }
+.side-elev .se-dim line { stroke: #868e96; stroke-width: 1; }
+.side-elev .se-dim text { font-size: 11px; fill: #495057; }
+.side-elev .se-angle { stroke: #e8590c; stroke-width: 1.2; fill: none; }
+.side-elev .se-label { font-size: 11px; fill: #495057; }
+.side-elev .se-sun line { stroke: #f59f00; stroke-width: 1.5; }
+.side-elev .se-ok { fill: #2b8a3e; font-weight: 600; }
+.side-elev .se-warn { fill: #c92a2a; font-weight: 600; }
+.map-mode .map-mode-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line-strong); }
+.dd-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.dd-tabs button { height: 26px; padding: 0 9px; font-size: 12px; background: var(--surface); color: var(--ink-2); border-color: var(--line-strong); }
+.dd-tabs button:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.dd-tabs button[aria-selected='true'], .dd-tabs button[aria-selected='true']:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.drawing.details .empty { position: static; padding: 40px 12px; }
+.dd-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.dd-pick select { height: 28px; }
+.side-elev .dd-module { fill: #1c408c; stroke: #ced4da; stroke-width: 1; }
+.side-elev .dd-post-back { stroke: #ced4da; stroke-width: 3; }
+.side-elev .dd-member { stroke: #868e96; stroke-width: 3; }
+.side-elev .dd-brace { stroke: #adb5bd; stroke-width: 2; }
+.side-elev .dd-purlin { fill: #fff; stroke: #495057; stroke-width: 1.5; }
+.side-elev .dd-pile { stroke: #495057; stroke-width: 4; stroke-dasharray: 6 3; }
+.side-elev .dd-footing { fill: #e9ecef; stroke: #495057; stroke-width: 1.2; }
+.side-elev .dd-callout circle { fill: #e8590c; }
+.side-elev .dd-callout polyline { fill: none; stroke: #e8590c; stroke-width: 1; }
+.side-elev .dd-callout text { font-size: 11px; fill: #1d2330; }
+.side-elev .dd-frame { fill: #f1f3f5; stroke: #495057; stroke-width: 1.5; }
+.side-elev .dd-cell { fill: #1c408c; }
+.side-elev .dd-split { stroke: #fff; stroke-width: 2; }
+.side-elev .dd-back { fill: #f8f9fa; stroke: #868e96; stroke-width: 1; }
+.side-elev .dd-jbox { fill: #343a40; }
+.side-elev .dd-cable { stroke: #343a40; stroke-width: 1.5; }
+.side-elev .dd-led { fill: #2b8a3e; }
+.side-elev .dd-fin { stroke: #868e96; stroke-width: 1.5; }
+.side-elev .dd-pin-pos { fill: #c92a2a; }
+.side-elev .dd-pin-neg { fill: #343a40; }
+.side-elev .dd-spec text, .side-elev .dd-legend text { font-size: 11px; fill: #495057; }
+.side-elev .dd-small { font-size: 11px; fill: #343a40; }
+.side-elev .dd-tiny { font-size: 9px; fill: #868e96; }
+.side-elev .dd-pv { fill: #1c408c; stroke: #ced4da; stroke-width: 1; }
+.side-elev .dd-wire { stroke: #343a40; stroke-width: 1.2; }
+.side-elev .dd-pos { stroke: #c92a2a; stroke-width: 1.4; }
+.side-elev .dd-neg { stroke: #343a40; stroke-width: 1.4; }
+.side-elev .dd-fuse { fill: #fff; stroke: #343a40; stroke-width: 1; }

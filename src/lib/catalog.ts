@@ -87,3 +87,28 @@ export const INVERTERS: InverterSpec[] = [
   { id: 'i100', label: '100kW 스트링 (1100V, 380V)', kw: 100, maxDcV: 1100, mpptMinV: 200, mpptMaxV: 1000, acV: 380 },
   { id: 'i300', label: '300kW 스트링 (1500V, 800V)', kw: 300, maxDcV: 1500, mpptMinV: 500, mpptMaxV: 1500, acV: 800 },
 ]
+
+/** 인버터 외형(mm, kg). 같은 용량대 스트링 인버터의 흔한 크기를 대표하는 참고값이다. */
+export interface InverterSize {
+  w: number
+  h: number
+  d: number
+  kg: number
+}
+
+const INVERTER_SIZES: Array<[number, InverterSize]> = [
+  [30, { w: 640, h: 530, d: 270, kg: 40 }],
+  [50, { w: 1075, h: 555, d: 300, kg: 74 }],
+  [100, { w: 1035, h: 700, d: 365, kg: 90 }],
+  [300, { w: 1048, h: 732, d: 395, kg: 112 }],
+]
+
+/** 정격 출력(kW)에 가장 가까운 용량대의 외형 */
+export function inverterSize(kw: number): InverterSize {
+  let best = INVERTER_SIZES[0]
+  for (const e of INVERTER_SIZES) if (Math.abs(e[0] - kw) < Math.abs(best[0] - kw)) best = e
+  return best[1]
+}
+
+/** 모듈 두께(mm) 참고값 */
+export const MODULE_THICKNESS = 35
