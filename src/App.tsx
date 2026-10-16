@@ -30,6 +30,8 @@ import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
 import { DEFAULT_ECON } from './lib/economics'
 import ReportView from './components/ReportView'
 import ElectricalPanel from './components/ElectricalPanel'
+import SidePanel from './components/SidePanel'
+import Resizer from './components/Resizer'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
 import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult } from './lib/buildable'
@@ -56,17 +58,31 @@ import { buildSld, sldToDxf, sldToSvg } from './lib/export/sld'
 
 type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ' | 'ai' | 'export'
 
-const TABS: Array<[Tab, string]> = [
-  ['parcel', '필지'],
-  ['terrain', '지형'],
-  ['layout', '배치'],
-  ['elec', '전기'],
-  ['shade', '음영'],
-  ['energy', '발전량'],
-  ['econ', '경제성'],
-  ['ai', 'AI 설계'],
-  ['export', '내보내기'],
+const TABS: Array<[Tab, string, string]> = [
+  ['parcel', '필지', '지번을 검색하거나 영역을 그려 부지를 정합니다.'],
+  ['terrain', '지형', '경사·절성토를 보고 설계 가능 영역을 정합니다.'],
+  ['layout', '배치', '모듈·세트·간격을 정하고 자동 배치합니다.'],
+  ['elec', '전기', '스트링과 인버터를 묶고 케이블을 잡습니다.'],
+  ['shade', '음영', '날짜·시각별 그림자와 하루 음영 손실을 봅니다.'],
+  ['energy', '발전량', '음영·온도를 반영해 월별·연간 발전량을 냅니다.'],
+  ['econ', '경제성', '설치비·판매 단가로 회수기간과 IRR을 봅니다.'],
+  ['ai', 'AI 설계', '여러 배치안을 탐색해 나란히 비교합니다.'],
+  ['export', '내보내기', '도면(DXF)과 표(CSV)를 받습니다.'],
 ]
+
+/** 왼쪽 입력 패널·오른쪽 작업면 폭(px). 사용자가 끈 값을 브라우저에 기억한다. */
+const DEFAULT_PANES = { left: 372, right: 400 }
+const PANE_LIMITS = { left: [300, 640], right: [300, 760] } as const
+const clampPane = (k: 'left' | 'right', v: number) => Math.round(Math.min(PANE_LIMITS[k][1], Math.max(PANE_LIMITS[k][0], v)))
+function loadPanes() {
+  try {
+    const v = JSON.parse(localStorage.getItem('solar-panes') ?? 'null')
+    if (v && Number.isFinite(v.left) && Number.isFinite(v.right)) return { left: clampPane('left', v.left), right: clampPane('right', v.right) }
+  } catch {
+    /* 저장소를 못 쓰는 환경 */
+  }
+  return DEFAULT_PANES
+}
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
 const DESIGN_DEBOUNCE = 400
@@ -127,6 +143,17 @@ export default function App() {
   const [econ, setEcon] = useState<EconSettings>(DEFAULT_ECON)
   const [econHours, setEconHours] = useState(3.6)
   const [showReport, setShowReport] = useState(false)
+  const [panes, setPanes] = useState(loadPanes)
+  const paneStart = useRef(panes)
+  // 지도만 크게 보기(양쪽 패널 접기)
+  const [mapFocus, setMapFocus] = useState(false)
+  useEffect(() => {
+    try {
+      localStorage.setItem('solar-panes', JSON.stringify(panes))
+    } catch {
+      /* 저장소를 못 쓰는 환경 */
+    }
+  }, [panes])
   const [terrain, setTerrain] = useState<TerrainResult | null>(null)
   const [terrainBusy, setTerrainBusy] = useState(false)
   const [terrainError, setTerrainError] = useState<string | null>(null)
@@ -322,7 +349,9 @@ export default function App() {
   }, [parcel, geometry, params.groundClearance, params.azimuth])
 
 
+  const panelRef = useRef<HTMLElement>(null)
   const switchTab = (t: Tab) => {
+    if (t !== tab) panelRef.current?.scrollTo({ top: 0 })
     setTab(t)
     setTool('none')
     setPlaying(false)
@@ -485,10 +514,11 @@ export default function App() {
     setSelected(new Set())
   }
 
+  // 배치 편집 단축키. 오른쪽 작업면이 늘 보이므로 어느 단계에서든 듣는다.
   useEffect(() => {
-    if (tab !== 'layout') return
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
+      if (showReport) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
         e.preventDefault()
         deleteSelected()
@@ -717,26 +747,79 @@ export default function App() {
     },
   ]
 
+  const stepDone: Partial<Record<Tab, boolean>> = {
+    parcel: !!parcel,
+    terrain: !!terrain,
+    layout: sets.length > 0,
+    elec: !!design?.elec,
+    energy: !!energy,
+    econ: !!econResult,
+  }
+
   return (
     <>
-    <div className="app">
-      <aside className={tab === 'ai' ? 'panel wide' : 'panel'}>
-        <header>
-          <div className="title-row">
-            <h1>태양광 배치 설계</h1>
-            <button type="button" className="secondary" disabled={!parcel} onClick={() => setShowReport(true)}>
-              보고서
-            </button>
-          </div>
-          <ol className="steps">
-            {TABS.map(([t, label]) => (
-              <li key={t}>
-                <button type="button" className={tab === t ? 'active' : ''} onClick={() => switchTab(t)}>
-                  {label}
-                </button>
-              </li>
-            ))}
-          </ol>
+    <div
+      className={mapFocus ? 'app map-focus' : 'app'}
+      style={{ '--left': `${tab === 'ai' ? Math.max(panes.left, 520) : panes.left}px`, '--right': `${panes.right}px` } as React.CSSProperties}
+    >
+      <header className="topbar">
+        <div className="brand">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <rect x="3" y="9" width="18" height="11" rx="1.5" transform="skewX(-12) translate(2 0)" />
+            <path d="M8 9v11M13 9v11M3.5 14.5h17" />
+            <circle cx="18.5" cy="4.5" r="2.2" />
+          </svg>
+          <span>태양광 배치 설계</span>
+        </div>
+        <p className="site" title={parcel?.address}>
+          {parcel ? (
+            <>
+              <strong>{parcel.address}</strong>
+              <span>
+                {fmt(area)} ㎡{parcel.landCategory ? ` · ${parcel.landCategory}` : ''}
+                {sets.length > 0 && ` · ${fmt(stats.kWp, 1)} kWp`}
+              </span>
+            </>
+          ) : (
+            <span>부지를 아직 고르지 않았습니다</span>
+          )}
+        </p>
+        <div className="topbar-actions">
+          <button type="button" className="ghost" onClick={() => setMapFocus((f) => !f)} aria-pressed={mapFocus}>
+            {mapFocus ? '패널 펼치기' : '지도 크게'}
+          </button>
+          <button type="button" className="outline" disabled={!parcel} onClick={() => setShowReport(true)}>
+            보고서
+          </button>
+        </div>
+      </header>
+
+      <nav className="rail" aria-label="설계 단계">
+        <ol>
+          {TABS.map(([t, label], i) => (
+            <li key={t}>
+              <button
+                type="button"
+                className={tab === t ? 'active' : stepDone[t] ? 'done' : ''}
+                aria-current={tab === t ? 'step' : undefined}
+                onClick={() => {
+                  switchTab(t)
+                  setMapFocus(false)
+                }}
+              >
+                <b>{stepDone[t] && tab !== t ? '✓' : i + 1}</b>
+                <span>{label}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </nav>
+
+      <aside className="panel" aria-labelledby="panel-title" ref={panelRef}>
+        <header className="panel-head">
+          <p className="eyebrow">{`${String(TABS.findIndex(([t]) => t === tab) + 1).padStart(2, '0')} 단계`}</p>
+          <h1 id="panel-title">{TABS.find(([t]) => t === tab)![1]}</h1>
+          <p>{TABS.find(([t]) => t === tab)![2]}</p>
         </header>
 
         {tab === 'layout' && (
@@ -744,19 +827,8 @@ export default function App() {
             params={params}
             onParams={setParams}
             suggestedRowSpacing={suggestedRowSpacing}
-            stats={stats}
             canLayout={!!parcel}
-            tool={tool}
-            onTool={setTool}
-            selectedCount={selected.size}
             onAutoLayout={runAutoLayout}
-            onDeleteSelected={deleteSelected}
-            onRotateSelected={rotateSelected}
-            onClear={clearSets}
-            canUndo={history.past.length > 0}
-            canRedo={history.future.length > 0}
-            onUndo={undo}
-            onRedo={redo}
             geometry={geometry}
             onModule={onModule}
             maskActive={!!mask}
@@ -771,8 +843,6 @@ export default function App() {
             metrics={design?.metrics ?? null}
             busy={designBusy}
             hasSets={sets.length > 0}
-            moduleWatt={params.moduleWatt}
-            title={parcel?.address ?? ''}
           />
         )}
 
@@ -1099,6 +1169,14 @@ export default function App() {
         )}
       </aside>
 
+      <Resizer
+        label="왼쪽 패널 폭"
+        area="lr"
+        onStart={() => (paneStart.current = panes)}
+        onResize={(dx) => setPanes((p) => ({ ...p, left: clampPane('left', paneStart.current.left + dx) }))}
+        onReset={() => setPanes((p) => ({ ...p, left: DEFAULT_PANES.left }))}
+      />
+
       <main className="map-wrap">
         <MapView
           vworldKey={vworldKey}
@@ -1128,6 +1206,42 @@ export default function App() {
           elec={tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null}
         />
       </main>
+
+      <Resizer
+        label="오른쪽 작업면 폭"
+        area="rr"
+        onStart={() => (paneStart.current = panes)}
+        onResize={(dx) => setPanes((p) => ({ ...p, right: clampPane('right', paneStart.current.right - dx) }))}
+        onReset={() => setPanes((p) => ({ ...p, right: DEFAULT_PANES.right }))}
+      />
+
+      <aside className="side" aria-label="가배치 도면과 편집">
+        <SidePanel
+          parcel={parcel}
+          sets={sets}
+          params={params}
+          geometry={geometry}
+          stats={stats}
+          obstacles={obstacles}
+          selected={selected}
+          tool={tool}
+          onTool={setTool}
+          elec={design?.elec ?? null}
+          elecParams={elec}
+          designBusy={designBusy}
+          onSelect={onSelect}
+          onMoveSets={onMoveSets}
+          onAddSet={onAddSet}
+          onAutoLayout={runAutoLayout}
+          onDeleteSelected={deleteSelected}
+          onRotateSelected={rotateSelected}
+          onClear={clearSets}
+          canUndo={history.past.length > 0}
+          canRedo={history.future.length > 0}
+          onUndo={undo}
+          onRedo={redo}
+        />
+      </aside>
     </div>
     {showReport && parcel && (
       <ReportView
