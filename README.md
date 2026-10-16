@@ -10,6 +10,7 @@
 4. **AI 최적 배치** (완료): 경사각·방위각·열 이격거리·첫 열 위치를 바꿔 수십 가지 배치를 만들고, 음영을 반영한 연간 발전량으로 "발전량 최대", "균형", "효율 최대" 세 안을 골라 바로 적용
 5. **경제성 검토**: 설치단가, 판매 방식(고정가격 계약 또는 SMP+REC 현물, 용량·지목별 REC 가중치 참고값), 운영비·토지 임대료, 효율 감소, 융자(비율·이자율·상환·거치, 원리금균등/원금균등)로 회수기간, 자기자본·사업 IRR, NPV, 누적 현금흐름, 융자 상환표 계산
 6. **입지검토 보고서**: 부지 개요(지번·지목·면적·용도지역·공시지가), 벡터 배치도(동지 정오 그림자 포함), 배치 조건과 결과, 계절별 음영, 월별 발전량, 경제성을 한 장에 모아 인쇄하거나 PDF로 저장
+5. **지형 경사·절성토 분석** (완료): 필지 표고를 자동으로 불러와 평균·최대 경사, 경사 구간 면적, 남향 비율을 계산하고, 경사면 정지(최대 경사 지정) 또는 수평 정지 기준 절토·성토량과 깊이를 지도 색으로 표시
 
 ## 바로 열기
 
@@ -39,7 +40,11 @@ VWorld 인증키는 [vworld.kr](https://www.vworld.kr)에서 무료로 발급받
 - `src/lib/energy.ts`: 월별 일사량 → 경사면 일사량 → 발전량
 - `src/lib/climate.ts`: 권역별 월평균 기온, 모듈 온도 보정
 - `src/lib/optimize.ts`, `optimize.worker.ts`: 최적 배치 탐색(웹 워커에서 실행)
+- `src/lib/terrain.ts`, `terrainColors.ts`: 표고 타일 불러오기, 경사·절성토 계산, 지도 색 구간
 - `src/components/LayoutPanel.tsx`: 배치 탭
+- `src/components/TerrainPanel.tsx`: 지형 탭
+- `src/components/MapView.tsx`: OpenLayers 지도
+- `src/App.tsx`: 사이드 패널
 - `src/components/ShadePanel.tsx`, `EnergyPanel.tsx`: 음영·발전량 탭
 
 ## 계산 방식
@@ -53,3 +58,4 @@ VWorld 인증키는 [vworld.kr](https://www.vworld.kr)에서 무료로 발급받
 - `src/components/ReportView.tsx`: 입지검토 보고서(인쇄용)
 - `src/components/MapView.tsx`: OpenLayers 지도
 - `src/App.tsx`: 사이드 패널
+- 지형: AWS 공개 표고 타일(Terrarium, 한국은 SRTM 약 30m 원자료)을 줌 15로 받아 쌍선형 보간한다. 필지를 3m 격자(셀이 2만5천 개를 넘으면 키움)로 나눠 셀마다 표고와 경사·향을 구하고, 계획면은 최소제곱 평면(기울기는 최대 경사로 제한) 또는 수평면으로 두고 높이를 절토량=성토량이 되게 맞춘다. 개략 검토용이며 인허가·시공 물량은 측량 자료로 다시 산정해야 한다.
