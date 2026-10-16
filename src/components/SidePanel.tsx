@@ -1,0 +1,169 @@
+import { useMemo, useState } from 'react'
+import PlanEditor from './PlanEditor'
+import type { MapTool } from './MapView'
+import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
+import type { Parcel } from '../lib/parcel'
+import type { Obstacle } from '../lib/shading'
+import type { ElecParams, ElecResult } from '../lib/electrical'
+import { buildSld, sldToSvg } from '../lib/export/sld'
+
+interface Props {
+  parcel: Parcel | null
+  sets: ModuleSet[]
+  params: LayoutParams
+  geometry: SetGeometry
+  stats: LayoutStats
+  obstacles: Obstacle[]
+  selected: ReadonlySet<string>
+  tool: MapTool
+  onTool: (t: MapTool) => void
+  elec: ElecResult | null
+  elecParams: ElecParams
+  designBusy: boolean
+  onSelect: (ids: string[], additive: boolean) => void
+  onMoveSets: (moved: Array<{ id: string; lon: number; lat: number }>) => void
+  onAddSet: (lon: number, lat: number) => void
+  onAutoLayout: () => void
+  onDeleteSelected: () => void
+  onRotateSelected: (deg: number) => void
+  onClear: () => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
+}
+
+const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
+
+/** 오른쪽 작업면: 가배치 도면을 보고 바로 고치는 곳, 전기 설계가 끝나면 단선결선도도 본다. */
+export default function SidePanel(props: Props) {
+  const { parcel, stats, tool, onTool, selected } = props
+  const [view, setView] = useState<'plan' | 'sld'>('plan')
+  const n = selected.size
+  const sld = useMemo(
+    () =>
+      view === 'sld' && props.elec
+        ? sldToSvg(buildSld(props.elec, props.elecParams, { title: parcel?.address ?? '', moduleWatt: props.params.moduleWatt, date: '' }), false)
+        : null,
+    [view, props.elec, props.elecParams, parcel, props.params.moduleWatt],
+  )
+
+  return (
+    <div className="side-inner">
+      <div className="side-head">
+        <div className="seg" role="tablist" aria-label="오른쪽 보기">
+          <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
+            가배치 도면
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'sld'} onClick={() => setView('sld')}>
+            단선결선도
+          </button>
+        </div>
+      </div>
+
+      <dl className="kpis">
+        <div>
+          <dt>설비용량</dt>
+          <dd>
+            {fmt(stats.kWp, 1)}
+            <small>kWp</small>
+          </dd>
+        </div>
+        <div>
+          <dt>모듈</dt>
+          <dd>
+            {fmt(stats.modules)}
+            <small>장</small>
+          </dd>
+        </div>
+        <div>
+          <dt>세트</dt>
+          <dd>
+            {fmt(stats.sets)}
+            <small>개</small>
+          </dd>
+        </div>
+        <div>
+          <dt>점유율</dt>
+          <dd>
+            {fmt(stats.coverage * 100, 1)}
+            <small>%</small>
+          </dd>
+        </div>
+      </dl>
+
+      {view === 'plan' ? (
+        <>
+          <div className="drawing">
+            {parcel ? (
+              <PlanEditor
+                parcel={parcel}
+                sets={props.sets}
+                params={props.params}
+                geometry={props.geometry}
+                obstacles={props.obstacles}
+                selected={selected}
+                tool={tool}
+                elec={props.elec}
+                onSelect={props.onSelect}
+                onMoveSets={props.onMoveSets}
+                onAddSet={props.onAddSet}
+              />
+            ) : (
+              <p className="empty">필지를 고르거나 영역을 그리면 여기에 배치도가 그려집니다.</p>
+            )}
+          </div>
+
+          <div className="toolbar" role="toolbar" aria-label="배치 편집">
+            <button type="button" className="primary" disabled={!parcel} onClick={props.onAutoLayout}>
+              자동 배치
+            </button>
+            <button type="button" className={tool === 'select' ? 'toggle on' : 'toggle'} disabled={!parcel} onClick={() => onTool(tool === 'select' ? 'none' : 'select')}>
+              지도에서 선택
+            </button>
+            <button type="button" className={tool === 'add' ? 'toggle on' : 'toggle'} disabled={!parcel} onClick={() => onTool(tool === 'add' ? 'none' : 'add')}>
+              세트 추가
+            </button>
+          </div>
+          <div className="toolbar" role="toolbar" aria-label="선택한 세트">
+            <button type="button" className="ghost" disabled={!n} onClick={() => props.onRotateSelected(-5)} title="반시계 5°">
+              ⟲ 5°
+            </button>
+            <button type="button" className="ghost" disabled={!n} onClick={() => props.onRotateSelected(5)} title="시계 5°">
+              ⟳ 5°
+            </button>
+            <button type="button" className="ghost" disabled={!n} onClick={props.onDeleteSelected}>
+              삭제{n > 0 && ` ${n}`}
+            </button>
+            <span className="toolbar-sep" />
+            <button type="button" className="ghost icon" disabled={!props.canUndo} onClick={props.onUndo} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기">
+              ↶
+            </button>
+            <button type="button" className="ghost icon" disabled={!props.canRedo} onClick={props.onRedo} title="다시실행 (Ctrl+Shift+Z)" aria-label="다시실행">
+              ↷
+            </button>
+            <button type="button" className="ghost danger" disabled={!stats.sets} onClick={props.onClear}>
+              전체 지우기
+            </button>
+          </div>
+          <p className="hint">
+            {tool === 'add'
+              ? '도면이나 지도를 클릭한 자리에 세트가 놓입니다.'
+              : tool === 'select'
+                ? '지도에서도 세트를 끌어 옮길 수 있습니다. Shift+드래그로 영역 선택.'
+                : '도면에서 세트를 끌어 옮기고, Shift+클릭으로 여러 개를 고릅니다. 화살표 키로 10 cm(Shift는 1 m)씩 움직이고 Delete로 지웁니다.'}
+          </p>
+        </>
+      ) : (
+        <div className="drawing sld">
+          {props.elec ? (
+            // 우리가 만든 SVG 문자열만 넣는다
+            <div className="sld-preview" dangerouslySetInnerHTML={{ __html: sld ?? '' }} />
+          ) : (
+            <p className="empty">{props.designBusy ? '전기 설계를 계산하는 중입니다.' : '세트를 배치하면 스트링·인버터 구성으로 단선결선도를 그립니다.'}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

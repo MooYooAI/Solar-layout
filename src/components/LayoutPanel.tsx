@@ -1,24 +1,12 @@
-import type { LayoutParams, LayoutStats, SetGeometry } from '../lib/layout'
+import type { LayoutParams, SetGeometry } from '../lib/layout'
 import { MODULES, RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
-import type { MapTool } from './MapView'
 
 interface Props {
   params: LayoutParams
   onParams: (p: LayoutParams) => void
   suggestedRowSpacing: number | null
-  stats: LayoutStats
   canLayout: boolean
-  tool: MapTool
-  onTool: (t: MapTool) => void
-  selectedCount: number
   onAutoLayout: () => void
-  onDeleteSelected: () => void
-  onRotateSelected: (deg: number) => void
-  onClear: () => void
-  canUndo: boolean
-  canRedo: boolean
-  onUndo: () => void
-  onRedo: () => void
   geometry: SetGeometry
   onModule: (m: ModuleSpec) => void
   /** 설계 가능 영역을 자동 배치에 반영 중인지 */
@@ -54,7 +42,7 @@ function Field(props: {
 }
 
 export default function LayoutPanel(props: Props) {
-  const { params: p, onParams, stats, tool, onTool, selectedCount } = props
+  const { params: p, onParams } = props
   const set = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => onParams({ ...p, [k]: v })
   const preset = MODULES.find((m) => m.length === p.moduleLength && m.width === p.moduleWidth && m.watt === p.moduleWatt)
   const pitch = props.geometry.depth + p.rowSpacing
@@ -161,59 +149,9 @@ export default function LayoutPanel(props: Props) {
         </button>
         {!props.canLayout && <p className="hint">먼저 필지 탭에서 필지를 선택하세요.</p>}
         {props.maskActive && <p className="hint">지형 탭의 설계 가능 영역(경사·배수 제외 구역)을 피해서 배치합니다.</p>}
+        <p className="hint">배치한 세트는 오른쪽 가배치 도면이나 지도에서 옮기고, 더하고, 지울 수 있습니다.</p>
       </section>
 
-      <section className="card">
-        <h2>수동 편집</h2>
-        <div className="row">
-          <button type="button" className={tool === 'select' ? '' : 'secondary'} onClick={() => onTool(tool === 'select' ? 'none' : 'select')}>
-            선택·이동
-          </button>
-          <button type="button" className={tool === 'add' ? '' : 'secondary'} onClick={() => onTool(tool === 'add' ? 'none' : 'add')}>
-            세트 추가
-          </button>
-        </div>
-        {tool === 'select' && (
-          <p className="hint">세트를 클릭해 고르고 끌어서 옮깁니다. Shift+클릭으로 추가 선택, Shift+드래그로 영역 선택, Delete 키로 삭제합니다.</p>
-        )}
-        {tool === 'add' && <p className="hint">지도를 클릭한 자리에 세트가 놓입니다.</p>}
-        <div className="row" style={{ marginTop: 10 }}>
-          <button type="button" className="secondary" disabled={!selectedCount} onClick={() => props.onRotateSelected(-5)}>
-            ⟲ 5°
-          </button>
-          <button type="button" className="secondary" disabled={!selectedCount} onClick={() => props.onRotateSelected(5)}>
-            ⟳ 5°
-          </button>
-          <button type="button" className="secondary" disabled={!selectedCount} onClick={props.onDeleteSelected}>
-            선택 삭제 {selectedCount > 0 && `(${selectedCount})`}
-          </button>
-          <button type="button" className="secondary" disabled={!stats.sets} onClick={props.onClear}>
-            전체 지우기
-          </button>
-        </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <button type="button" className="secondary" disabled={!props.canUndo} onClick={props.onUndo} title="Ctrl+Z">
-            ↶ 되돌리기
-          </button>
-          <button type="button" className="secondary" disabled={!props.canRedo} onClick={props.onRedo} title="Ctrl+Shift+Z">
-            ↷ 다시실행
-          </button>
-        </div>
-      </section>
-
-      <section className="card">
-        <h2>배치 결과</h2>
-        <dl className="facts">
-          <dt>세트</dt>
-          <dd>{fmt(stats.sets)} 개</dd>
-          <dt>모듈</dt>
-          <dd>{fmt(stats.modules)} 장</dd>
-          <dt>설비용량</dt>
-          <dd>{fmt(stats.kWp, 2)} kWp</dd>
-          <dt>점유율</dt>
-          <dd>{fmt(stats.coverage * 100, 1)} %</dd>
-        </dl>
-      </section>
     </>
   )
 }

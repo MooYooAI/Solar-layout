@@ -1,8 +1,6 @@
-import { useMemo } from 'react'
 import { INVERTERS } from '../lib/catalog'
 import { stringRange, type ElecParams, type ElecResult } from '../lib/electrical'
 import type { DesignMetrics } from '../lib/design'
-import { buildSld, sldToSvg } from '../lib/export/sld'
 
 interface Props {
   elec: ElecParams
@@ -11,8 +9,6 @@ interface Props {
   metrics: DesignMetrics | null
   busy: boolean
   hasSets: boolean
-  moduleWatt: number
-  title: string
 }
 
 const fmt = (n: number, d = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d })
@@ -34,10 +30,6 @@ export default function ElectricalPanel(props: Props) {
     </label>
   )
   const range = stringRange(e)
-  const svg = useMemo(
-    () => (r ? sldToSvg(buildSld(r, e, { title: props.title, moduleWatt: props.moduleWatt, date: '' }), false) : null),
-    [r, e, props.title, props.moduleWatt],
-  )
 
   return (
     <>
@@ -149,16 +141,10 @@ export default function ElectricalPanel(props: Props) {
             ))}
             <p className="hint">
               세트를 열마다 지그재그로 이어 스트링을 만들고, 이웃한 스트링을 인버터에 고르게 묶었습니다. 지도에서 세트 색이 인버터 묶음이고,
-              점선은 인버터에서 수배전반(부지 경계 가장 가까운 곳)까지 AC 케이블 경로입니다.
+              점선은 인버터에서 수배전반(부지 경계 가장 가까운 곳)까지 AC 케이블 경로입니다. 단선결선도는 오른쪽 작업면에서 볼 수 있습니다.
             </p>
           </section>
 
-          <section className="card">
-            <h2>단선결선도 미리보기</h2>
-            {/* 우리가 만든 SVG 문자열만 넣는다 */}
-            <div className="sld-preview" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
-            <p className="hint">내보내기 탭에서 SVG·DXF로 받을 수 있습니다.</p>
-          </section>
         </>
       )}
     </>

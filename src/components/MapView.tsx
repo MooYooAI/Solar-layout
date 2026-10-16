@@ -31,6 +31,7 @@ import type { Obstacle } from '../lib/shading'
 import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
 import type { ElecResult } from '../lib/electrical'
+import { GROUP_COLORS } from '../lib/palette'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 
 export interface FlyTarget {
@@ -144,8 +145,6 @@ function measureStyle(f: FeatureLike): Style[] {
   ]
 }
 
-// 인버터 묶음 색(세트 채우기)
-const GROUP_COLORS = ['#1c408c', '#2b8a3e', '#c2255c', '#e67700', '#5f3dc4', '#0b7285', '#a61e4d', '#5c940d']
 const groupStyles = GROUP_COLORS.map(
   (c) => new Style({ stroke: new Stroke({ color: '#ffffff', width: 0.6 }), fill: new Fill({ color: c }) }),
 )
