@@ -1,4 +1,5 @@
-import type { LayoutParams, LayoutStats } from '../lib/layout'
+import type { LayoutParams, LayoutStats, SetGeometry } from '../lib/layout'
+import { MODULES, RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { MapTool } from './MapView'
 
 interface Props {
@@ -18,6 +19,10 @@ interface Props {
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  geometry: SetGeometry
+  onModule: (m: ModuleSpec) => void
+  /** 설계 가능 영역을 자동 배치에 반영 중인지 */
+  maskActive: boolean
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
@@ -51,11 +56,32 @@ function Field(props: {
 export default function LayoutPanel(props: Props) {
   const { params: p, onParams, stats, tool, onTool, selectedCount } = props
   const set = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => onParams({ ...p, [k]: v })
+  const preset = MODULES.find((m) => m.length === p.moduleLength && m.width === p.moduleWidth && m.watt === p.moduleWatt)
+  const pitch = props.geometry.depth + p.rowSpacing
 
   return (
     <>
       <section className="card">
         <h2>모듈</h2>
+        <label className="field" style={{ marginBottom: 8 }}>
+          <span>모듈 종류</span>
+          <select
+            value={preset?.id ?? 'custom'}
+            onChange={(e) => {
+              const m = MODULES.find((x) => x.id === e.target.value)
+              if (m) props.onModule(m)
+            }}
+          >
+            {MODULES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+            <option value="custom" disabled>
+              직접 입력
+            </option>
+          </select>
+        </label>
         <div className="grid2">
           <Field label="긴 변" unit="mm" value={p.moduleLength} onChange={set('moduleLength')} />
           <Field label="짧은 변" unit="mm" value={p.moduleWidth} onChange={set('moduleWidth')} />
@@ -72,6 +98,25 @@ export default function LayoutPanel(props: Props) {
 
       <section className="card">
         <h2>세트 구성과 설치</h2>
+        <label className="field" style={{ marginBottom: 8 }}>
+          <span>구조물(래킹)</span>
+          <select
+            value={p.racking}
+            onChange={(e) => {
+              const r = e.target.value as RackingType
+              onParams({ ...p, racking: r, groundClearance: RACKING[r].groundClearance })
+            }}
+          >
+            {(Object.keys(RACKING) as RackingType[]).map((k) => (
+              <option key={k} value={k}>
+                {RACKING[k].label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+          {RACKING[p.racking].detail}
+        </p>
         <div className="grid2">
           <Field label="가로 장수" unit="장" value={p.setCols} min={1} onChange={set('setCols')} />
           <Field label="단 수" unit="단" value={p.setRows} min={1} onChange={set('setRows')} />
@@ -89,6 +134,18 @@ export default function LayoutPanel(props: Props) {
           <Field label="세트 간격" unit="mm" value={p.setGap} step={50} onChange={set('setGap')} />
           <Field label="열 이격거리" unit="m" value={p.rowSpacing} step={0.1} onChange={set('rowSpacing')} />
           <Field label="경계 이격" unit="m" value={p.boundarySetback} step={0.1} onChange={set('boundarySetback')} />
+          <Field
+            label="피치(열 중심 간격)"
+            unit="m"
+            value={Math.round(pitch * 100) / 100}
+            step={0.1}
+            min={props.geometry.depth}
+            onChange={(v) => set('rowSpacing')(Math.max(0, Math.round((v - props.geometry.depth) * 100) / 100))}
+          />
+          <label className="field">
+            <span>지면 피복률(GCR)</span>
+            <input value={pitch > 0 ? `${((props.geometry.slope / pitch) * 100).toFixed(0)} %` : '-'} readOnly />
+          </label>
         </div>
         {props.suggestedRowSpacing !== null && (
           <p className="hint">
@@ -103,6 +160,7 @@ export default function LayoutPanel(props: Props) {
           자동 배치
         </button>
         {!props.canLayout && <p className="hint">먼저 필지 탭에서 필지를 선택하세요.</p>}
+        {props.maskActive && <p className="hint">지형 탭의 설계 가능 영역(경사·배수 제외 구역)을 피해서 배치합니다.</p>}
       </section>
 
       <section className="card">

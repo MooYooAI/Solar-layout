@@ -15,6 +15,8 @@ import {
 import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
 import { deg2rad, LocalFrame, rotate, type Vec } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
+import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
+import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
 import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
@@ -22,12 +24,52 @@ import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
 import OptimizePanel from './components/OptimizePanel'
-import type { Candidate, OptimizeInput } from './lib/optimize'
+import { STRATEGIES, type Candidate, type OptimizeInput } from './lib/optimize'
+import { runOptimizePool } from './lib/optimizePool'
 import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
 import { DEFAULT_ECON } from './lib/economics'
 import ReportView from './components/ReportView'
+import ElectricalPanel from './components/ElectricalPanel'
+import ExportPanel, { type ExportItem } from './components/ExportPanel'
+import type { Scenario } from './components/OptimizePanel'
+import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult } from './lib/buildable'
+import { sampleElevGrid, type ElevGrid } from './lib/elevation'
+import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
+import { DEFAULT_COSTS, type CostParams } from './lib/costs'
+import type { DesignInput, DesignResult } from './lib/design'
+import type { EconResult } from './lib/economics'
+import { RACKING, type ModuleSpec } from './lib/catalog'
+import {
+  arraysCsv,
+  capexCsv,
+  cashflowCsv,
+  compareCsv,
+  download,
+  invertersCsv,
+  layoutDxf,
+  monthlyCsv,
+  parcelZone,
+  stringsCsv,
+  type CompareRow,
+} from './lib/export/exports'
+import { buildSld, sldToDxf, sldToSvg } from './lib/export/sld'
 
-type Tab = 'parcel' | 'layout' | 'shade' | 'energy' | 'econ' | 'ai'
+type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ' | 'ai' | 'export'
+
+const TABS: Array<[Tab, string]> = [
+  ['parcel', '필지'],
+  ['terrain', '지형'],
+  ['layout', '배치'],
+  ['elec', '전기'],
+  ['shade', '음영'],
+  ['energy', '발전량'],
+  ['econ', '경제성'],
+  ['ai', 'AI 설계'],
+  ['export', '내보내기'],
+]
+
+/** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
+const DESIGN_DEBOUNCE = 400
 
 const NO_SHADOWS: Array<{ ring: number[][]; fromSet: boolean }> = []
 
@@ -78,18 +120,41 @@ export default function App() {
   const [withShade, setWithShade] = useState(true)
   const [energy, setEnergy] = useState<EnergyResult | null>(null)
   const [energyBusy, setEnergyBusy] = useState(false)
-  const [optWorker, setOptWorker] = useState<Worker | null>(null)
+  const [optRun, setOptRun] = useState<{ cancel: () => void } | null>(null)
   const [optProgress, setOptProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
   const [optError, setOptError] = useState<string | null>(null)
   const [econ, setEcon] = useState<EconSettings>(DEFAULT_ECON)
   const [econHours, setEconHours] = useState(3.6)
   const [showReport, setShowReport] = useState(false)
+  const [terrain, setTerrain] = useState<TerrainResult | null>(null)
+  const [terrainBusy, setTerrainBusy] = useState(false)
+  const [terrainError, setTerrainError] = useState<string | null>(null)
+  const [gradingMode, setGradingMode] = useState<GradingMode>('plane')
+  const [maxDesignSlope, setMaxDesignSlope] = useState(15)
+  const [terrainView, setTerrainView] = useState<TerrainView>('slope')
+  const demCache = useRef<{ parcel: Parcel; dem: Dem } | null>(null)
+  const [elevGrid, setElevGrid] = useState<ElevGrid | null>(null)
+  const [buildOptions, setBuildOptions] = useState<BuildableOptions>(DEFAULT_BUILDABLE)
+  const [buildable, setBuildable] = useState<BuildableResult | null>(null)
+  const [useMask, setUseMask] = useState(true)
+  const [elec, setElec] = useState<ElecParams>(DEFAULT_ELEC)
+  const [costs, setCosts] = useState<CostParams>(DEFAULT_COSTS)
+  const [capexMode, setCapexMode] = useState<'unit' | 'design'>('design')
+  // 설계 지표 계산 결과와 그 계산에 쓴 입력
+  const [designState, setDesignState] = useState<{ input: DesignInput; result: DesignResult | null } | null>(null)
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [econResult, setEconResult] = useState<EconResult | null>(null)
   const drawing = tool === 'draw'
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
     setParcelState(p)
     if (!p) setAddingLot(false)
+    setTerrain(null)
+    setTerrainError(null)
+    setElevGrid(null)
+    setBuildable(null)
+    setScenarios([])
     setOptResults(null)
     setObstacles([])
     setEnergy(null)
@@ -296,37 +361,47 @@ export default function App() {
   }
 
   // 탐색은 수십 번의 배치·음영 계산이라 화면이 멈추지 않게 워커에서 돌린다.
-  const runOptimize = () => {
+  const runOptimize = async () => {
     if (!parcel) return
-    optWorker?.terminate()
-    const w = new Worker(new URL('./lib/optimize.worker.ts', import.meta.url), { type: 'module' })
-    setOptWorker(w)
+    optRun?.cancel()
+    setOptRun({ cancel: () => {} })
     setOptResults(null)
     setOptError(null)
-    setOptProgress(null)
-    w.addEventListener('message', (e) => {
-      const m = e.data
-      if (m.type === 'progress') setOptProgress({ done: m.done, total: m.total, phase: m.phase })
-      else {
-        if (m.type === 'done') setOptResults(m.results)
-        else setOptError(m.message)
-        w.terminate()
-        setOptWorker(null)
-      }
-    })
-    const input: OptimizeInput = { parcel, base: params, obstacles, performanceRatio, temperature }
-    w.postMessage(input)
+    // 지형을 아직 안 불러왔으면 먼저 불러온다(실패해도 지형 없이 진행).
+    let t: { grid: ElevGrid; buildable: BuildableResult } | null = elevGrid && buildable ? { grid: elevGrid, buildable } : null
+    if (!t) {
+      setOptProgress({ done: 0, total: 1, phase: '지형 불러오는 중' })
+      t = await ensureTerrain().catch(() => null)
+    }
+    const input: OptimizeInput = {
+      parcel,
+      base: params,
+      obstacles,
+      performanceRatio,
+      temperature,
+      elec,
+      costs,
+      econ,
+      grid: t?.grid ?? null,
+      mask: useMask ? (t?.buildable.mask ?? null) : null,
+    }
+    const run = runOptimizePool(input, (done, total, phase) => setOptProgress({ done, total, phase }))
+    setOptRun(run)
+    run.promise.then(
+      (results) => setOptResults(results),
+      (e: Error) => setOptError(e.message),
+    ).finally(() => setOptRun((cur) => (cur === run ? null : cur)))
   }
 
   const cancelOptimize = () => {
-    optWorker?.terminate()
-    setOptWorker(null)
+    optRun?.cancel()
+    setOptRun(null)
   }
 
-  const applyCandidate = (c: Candidate) => {
+  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
-    setParams(c.params)
-    editSets(c.sets)
+    setParams(nextParams)
+    editSets(nextSets)
     setSelected(new Set())
     setEnergy(null)
     switchTab('layout')
@@ -338,9 +413,12 @@ export default function App() {
     return nearestStation(f.lat0, f.lon0)
   }, [parcel])
   const station = (stationId === 'auto' ? autoStation : STATIONS.find((s) => s.id === stationId)) ?? STATIONS[0]
-  const temperature: TempModel | undefined = tempOn
-    ? { temp: station.temp, coeffPct: tempCoeff, noct: DEFAULT_NOCT }
-    : undefined
+  const stationTemp = station.temp
+  const temperature: TempModel | undefined = useMemo(
+    () => (tempOn ? { temp: stationTemp, coeffPct: tempCoeff, noct: DEFAULT_NOCT } : undefined),
+    [tempOn, stationTemp, tempCoeff],
+  )
+  const mask = useMask && buildable ? buildable.mask : null
 
   const runEnergy = () => {
     if (!scene || !sets.length) return
@@ -368,7 +446,7 @@ export default function App() {
   const runAutoLayout = () => {
     if (!parcel) return
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
-    editSets(autoLayout(parcel, params))
+    editSets(autoLayout(parcel, params, 0, mask))
     setSelected(new Set())
   }
 
@@ -432,10 +510,217 @@ export default function App() {
     // 핸들러가 매번 최신 배치를 쓰도록 렌더마다 다시 건다.
   })
 
+  /** 표고 타일을 받아 격자와 설계 가능 영역을 만든다(필지당 한 번). */
+  const ensureTerrain = async (): Promise<{ grid: ElevGrid; buildable: BuildableResult }> => {
+    if (!parcel) throw new Error('필지가 없습니다.')
+    if (demCache.current?.parcel !== parcel) demCache.current = { parcel, dem: await loadDem(parcel, 15, 120) }
+    const grid = elevGrid ?? sampleElevGrid(parcel, demCache.current.dem)
+    const b = buildable ?? computeBuildable(parcel, grid, buildOptions)
+    setElevGrid(grid)
+    setBuildable(b)
+    return { grid, buildable: b }
+  }
+  const changeBuildOptions = (o: BuildableOptions) => {
+    setBuildOptions(o)
+    if (parcel && elevGrid) setBuildable(computeBuildable(parcel, elevGrid, o))
+  }
+
+  const runTerrain = async (mode = gradingMode, maxSlope = maxDesignSlope) => {
+    if (!parcel) return
+    setTerrainBusy(true)
+    setTerrainError(null)
+    try {
+      await ensureTerrain()
+      if (!terrain) setTerrainView('buildable')
+      setTerrain(analyzeTerrain(parcel, demCache.current!.dem, { cell: 3, mode, maxDesignSlopePct: maxSlope }))
+    } catch (e) {
+      setTerrainError(`표고 자료를 불러오지 못했습니다. (${e instanceof Error ? e.message : String(e)})`)
+    } finally {
+      setTerrainBusy(false)
+    }
+  }
+  // 이미 분석했다면 방식·경사를 바꿀 때 바로 다시 계산한다(표고는 캐시).
+  const changeGrading = (mode: GradingMode, maxSlope: number) => {
+    setGradingMode(mode)
+    setMaxDesignSlope(maxSlope)
+    if (terrain) void runTerrain(mode, maxSlope)
+  }
+
+  // 현재 배치의 설계 지표(전기·발전량·토공·설치비·LCOE)를 편집이 멈출 때마다 워커에서 다시 계산한다.
+  const designInput = useMemo<DesignInput | null>(
+    () =>
+      parcel && sets.length
+        ? { parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, grid: elevGrid }
+        : null,
+    [parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, elevGrid],
+  )
+  const designWorker = useRef<Worker | null>(null)
+  const designPending = useRef<{ seq: number; input: DesignInput } | null>(null)
+  useEffect(() => {
+    const w = new Worker(new URL('./lib/design.worker.ts', import.meta.url), { type: 'module' })
+    w.addEventListener('message', (e) => {
+      const m = e.data
+      const pending = designPending.current
+      if (!pending || m.seq !== pending.seq) return
+      setDesignState({ input: pending.input, result: m.type === 'done' ? m.result : null })
+    })
+    designWorker.current = w
+    return () => w.terminate()
+  }, [])
+  useEffect(() => {
+    if (!designInput) return
+    const id = setTimeout(() => {
+      const seq = (designPending.current?.seq ?? 0) + 1
+      designPending.current = { seq, input: designInput }
+      designWorker.current?.postMessage({ seq, input: designInput })
+    }, DESIGN_DEBOUNCE)
+    return () => clearTimeout(id)
+  }, [designInput])
+  // 다시 계산하는 동안에는 직전 결과를 그대로 보여 준다.
+  const design = designInput ? (designState?.result ?? null) : null
+  const designBusy = !!designInput && designState?.input !== designInput
+
+  const onModule = (m: ModuleSpec) => {
+    setParams({ ...params, moduleLength: m.length, moduleWidth: m.width, moduleWatt: m.watt })
+    setElec({ ...elec, voc: m.voc, vmp: m.vmp, isc: m.isc, imp: m.imp, betaVoc: m.betaVoc, gammaPmax: m.gammaPmax })
+  }
+
+  const saveScenario = () => {
+    if (!design) return
+    const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
+    if (name === null) return
+    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics }])
+  }
+
+  const today = () => new Date().toISOString().slice(0, 10)
+  // 파일 이름은 영문으로 둔다(일부 브라우저가 한글 다운로드 이름을 'download'로 바꾼다).
+  const fileBase = () => `solar-${parcel?.pnu ?? 'site'}-${today()}`
+  const compareRows = (): CompareRow[] => {
+    const row = (name: string, p: LayoutParams, m: DesignResult['metrics']): CompareRow => ({
+      name,
+      m,
+      tilt: p.tilt,
+      azimuth: p.azimuth,
+      rowSpacing: p.rowSpacing,
+      pitch: setGeometry(p).depth + p.rowSpacing,
+      racking: RACKING[p.racking].label,
+    })
+    return [
+      ...(design ? [row('현재 배치', params, design.metrics)] : []),
+      ...scenarios.map((sc) => row(sc.name, sc.params, sc.metrics)),
+      ...(optResults ?? []).map((c) => row(`AI ${STRATEGIES[c.strategy].label}`, c.params, c.metrics)),
+    ]
+  }
+  const noDesign = !parcel ? '필지를 먼저 고르세요.' : !sets.length ? '배치를 먼저 하세요.' : !design ? '계산 중입니다.' : undefined
+  const noElec = noDesign ?? (!design?.elec ? '전기 설계를 할 수 없는 조건입니다.' : undefined)
+  const sldDrawing = () =>
+    buildSld(design!.elec!, elec, { title: parcel?.address ?? '', moduleWatt: params.moduleWatt, date: today() })
+  const exportGroups: Array<{ title: string; note?: React.ReactNode; items: ExportItem[] }> = [
+    {
+      title: '도면 (DXF)',
+      note: parcel
+        ? `좌표는 EPSG:${parcelZone(parcel).epsg}(GRS80 ${parcelZone(parcel).name}) 평면좌표(m)라 연속지적도·측량도면과 바로 겹칩니다. 레이어: 부지경계, 등고선, 경사·배수 제외 구역, 물길, 어레이, 모듈, 인버터, AC 케이블, 수배전반.`
+        : undefined,
+      items: [
+        {
+          key: 'layout-dxf',
+          label: '배치도 DXF',
+          detail: '필지 경계, 모듈·어레이, 전기, 지형(불러왔으면) 레이어',
+          disabled: !parcel ? '필지를 먼저 고르세요.' : !sets.length ? '배치를 먼저 하세요.' : undefined,
+          run: () => {
+            const { text } = layoutDxf({
+              parcel: parcel!,
+              sets,
+              params,
+              geometry,
+              obstacles,
+              elec: design?.elec ?? null,
+              buildable,
+              grid: elevGrid,
+              kWp: stats.kWp,
+              date: today(),
+            })
+            download(`${fileBase()}-layout.dxf`, text, 'application/dxf')
+          },
+        },
+        {
+          key: 'sld-dxf',
+          label: '단선결선도 DXF',
+          detail: 'PV 스트링 → 인버터 → 집합반 → (변압기) → 한전 계통',
+          disabled: noElec,
+          run: () => download(`${fileBase()}-sld.dxf`, sldToDxf(sldDrawing()), 'application/dxf'),
+        },
+        {
+          key: 'sld-svg',
+          label: '단선결선도 SVG',
+          detail: '브라우저·문서에 바로 넣는 그림 파일',
+          disabled: noElec,
+          run: () => download(`${fileBase()}-sld.svg`, sldToSvg(sldDrawing()), 'image/svg+xml'),
+        },
+      ],
+    },
+    {
+      title: '표 (CSV)',
+      note: '엑셀에서 바로 열립니다(UTF-8).',
+      items: [
+        {
+          key: 'arrays',
+          label: '어레이 목록',
+          detail: '어레이별 좌표(TM·경위도), 모듈 수, 인버터, 지반고·경사, 절성토',
+          disabled: noDesign,
+          run: () =>
+            download(`${fileBase()}-arrays.csv`, arraysCsv(parcel!, sets, geometry, params.moduleWatt, design!.elec, design!.earth), 'text/csv'),
+        },
+        {
+          key: 'strings',
+          label: '스트링 결선표',
+          detail: '스트링별 인버터, 지나는 어레이, DC 케이블 길이·손실',
+          disabled: noElec,
+          run: () => download(`${fileBase()}-strings.csv`, stringsCsv(sets, design!.elec!), 'text/csv'),
+        },
+        {
+          key: 'inverters',
+          label: '인버터·AC 케이블',
+          detail: '인버터별 용량, 위치, AC 케이블 길이·규격·전압강하',
+          disabled: noElec,
+          run: () => download(`${fileBase()}-inverters.csv`, invertersCsv(design!.elec!), 'text/csv'),
+        },
+        {
+          key: 'monthly',
+          label: '월별 발전량',
+          detail: '일사량과 발전량(음영·온도·클리핑·케이블 손실 반영)',
+          disabled: noDesign,
+          run: () => download(`${fileBase()}-monthly-energy.csv`, monthlyCsv(design!.metrics), 'text/csv'),
+        },
+        {
+          key: 'capex',
+          label: '설치비 내역',
+          detail: '항목별 물량·단가·금액',
+          disabled: noDesign,
+          run: () => download(`${fileBase()}-capex.csv`, capexCsv(design!.metrics), 'text/csv'),
+        },
+        {
+          key: 'compare',
+          label: '배치안 비교',
+          detail: '현재·저장·AI 배치안의 발전량, 토공, CAPEX, LCOE, IRR',
+          disabled: compareRows().length ? undefined : '비교할 배치안이 없습니다.',
+          run: () => download(`${fileBase()}-layout-comparison.csv`, compareCsv(compareRows()), 'text/csv'),
+        },
+        {
+          key: 'cashflow',
+          label: '연도별 현금흐름',
+          detail: '경제성 탭 조건의 매출·운영비·원리금·누적 현금흐름',
+          disabled: econResult ? undefined : '경제성 탭을 한 번 열면 받을 수 있습니다.',
+          run: () => download(`${fileBase()}-cashflow.csv`, cashflowCsv(econResult!), 'text/csv'),
+        },
+      ],
+    },
+  ]
+
   return (
     <>
     <div className="app">
-      <aside className="panel">
+      <aside className={tab === 'ai' ? 'panel wide' : 'panel'}>
         <header>
           <div className="title-row">
             <h1>태양광 배치 설계</h1>
@@ -444,36 +729,13 @@ export default function App() {
             </button>
           </div>
           <ol className="steps">
-            <li>
-              <button type="button" className={tab === 'parcel' ? 'active' : ''} onClick={() => switchTab('parcel')}>
-                필지
-              </button>
-            </li>
-            <li>
-              <button type="button" className={tab === 'layout' ? 'active' : ''} onClick={() => switchTab('layout')}>
-                배치
-              </button>
-            </li>
-            <li>
-              <button type="button" className={tab === 'shade' ? 'active' : ''} onClick={() => switchTab('shade')}>
-                음영
-              </button>
-            </li>
-            <li>
-              <button type="button" className={tab === 'energy' ? 'active' : ''} onClick={() => switchTab('energy')}>
-                발전량
-              </button>
-            </li>
-            <li>
-              <button type="button" className={tab === 'econ' ? 'active' : ''} onClick={() => switchTab('econ')}>
-                경제성
-              </button>
-            </li>
-            <li>
-              <button type="button" className={tab === 'ai' ? 'active' : ''} onClick={() => switchTab('ai')}>
-                AI 배치
-              </button>
-            </li>
+            {TABS.map(([t, label]) => (
+              <li key={t}>
+                <button type="button" className={tab === t ? 'active' : ''} onClick={() => switchTab(t)}>
+                  {label}
+                </button>
+              </li>
+            ))}
           </ol>
         </header>
 
@@ -495,9 +757,50 @@ export default function App() {
             canRedo={history.future.length > 0}
             onUndo={undo}
             onRedo={redo}
+            geometry={geometry}
+            onModule={onModule}
+            maskActive={!!mask}
           />
         )}
 
+        {tab === 'elec' && (
+          <ElectricalPanel
+            elec={elec}
+            onElec={setElec}
+            result={design?.elec ?? null}
+            metrics={design?.metrics ?? null}
+            busy={designBusy}
+            hasSets={sets.length > 0}
+            moduleWatt={params.moduleWatt}
+            title={parcel?.address ?? ''}
+          />
+        )}
+
+        {tab === 'export' && <ExportPanel groups={exportGroups} busy={designBusy} />}
+
+        {tab === 'terrain' && (
+          <TerrainPanel
+            canRun={!!parcel}
+            busy={terrainBusy}
+            error={terrainError}
+            result={terrain}
+            mode={gradingMode}
+            onMode={(m) => changeGrading(m, maxDesignSlope)}
+            maxSlope={maxDesignSlope}
+            onMaxSlope={(v) => changeGrading(gradingMode, v)}
+            view={terrainView}
+            onView={setTerrainView}
+            onRun={() => void runTerrain()}
+            buildOptions={buildOptions}
+            onBuildOptions={changeBuildOptions}
+            buildable={buildable}
+            useMask={useMask}
+            onUseMask={setUseMask}
+            earth={design?.earth ?? null}
+            racking={params.racking}
+            hasSets={sets.length > 0}
+          />
+        )}
         {tab === 'shade' && (
           <ShadePanel
             month={shadeDate.month}
@@ -521,13 +824,20 @@ export default function App() {
         {tab === 'ai' && (
           <OptimizePanel
             canRun={!!parcel}
-            running={!!optWorker}
+            running={!!optRun}
             progress={optProgress}
             results={optResults}
             error={optError}
-            onRun={runOptimize}
+            onRun={() => void runOptimize()}
             onCancel={cancelOptimize}
             onApply={applyCandidate}
+            current={design?.metrics ?? null}
+            currentBusy={designBusy}
+            scenarios={scenarios}
+            onSaveCurrent={saveScenario}
+            onRemoveScenario={(id) => setScenarios((prev) => prev.filter((x) => x.id !== id))}
+            maskActive={!!mask}
+            hasGrid={!!elevGrid}
           />
         )}
 
@@ -554,7 +864,7 @@ export default function App() {
 
         {tab === 'econ' && (
           <EconomicsPanel
-            kWp={stats.kWp}
+            kWp={capexMode === 'design' && design ? design.metrics.kWp : stats.kWp}
             energyKWh={energy ? energy.specificYield * stats.kWp : null}
             landCategory={parcel?.landCategory}
             settings={econ}
@@ -562,6 +872,14 @@ export default function App() {
             hours={econHours}
             onHours={setEconHours}
             onGoEnergy={() => switchTab('energy')}
+            capexMode={capexMode}
+            onCapexMode={setCapexMode}
+            designCapex={design?.metrics.capex ?? null}
+            designKWh={design?.metrics.annualKWh ?? null}
+            costs={costs}
+            onCosts={setCosts}
+            racking={params.racking}
+            onResult={setEconResult}
           />
         )}
 
@@ -804,6 +1122,10 @@ export default function App() {
           shadows={shadeView?.shadows ?? NO_SHADOWS}
           setShade={shadeView?.perSet ?? null}
           onObstacleDrawn={onObstacleDrawn}
+          terrainCells={terrain?.cells ?? null}
+          terrainView={tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'}
+          buildable={buildable}
+          elec={tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null}
         />
       </main>
     </div>

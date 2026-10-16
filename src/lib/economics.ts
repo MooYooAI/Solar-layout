@@ -40,9 +40,13 @@ export interface EconInput {
   /** 거치 기간(년), 이자만 낸다 */
   graceYears: number
   repayment: Repayment
+  /** 총 설치비(만원)를 직접 주면 kWp × 설치단가 대신 쓴다(설계 기반 산출) */
+  capex?: number
 }
 
-export const DEFAULT_ECON: Omit<EconInput, 'kWp' | 'annualKWh'> = {
+export type EconSettings = Omit<EconInput, 'kWp' | 'annualKWh' | 'capex'>
+
+export const DEFAULT_ECON: EconSettings = {
   unitCost: 125,
   saleMode: 'fixed',
   fixedPrice: 150,
@@ -105,6 +109,9 @@ export interface EconResult {
   projectIrr: number | null
   /** 자기자본 기준 NPV(만원) */
   npv: number
+  /** 균등화 발전원가(원/kWh) */
+  lcoe: number
+  opex: number
 }
 
 export function loanSchedule(amount: number, ratePct: number, years: number, grace: number, mode: Repayment): LoanYear[] {
@@ -147,8 +154,24 @@ export function irr(flows: number[]): number | null {
   return (lo + hi) / 2
 }
 
+/**
+ * 균등화 발전원가(LCOE, 원/kWh) = (설치비 + 운영비 현재가치 합) / (발전량 현재가치 합).
+ * 설치비·운영비는 만원, 발전량은 1년차 kWh. 해마다 효율 감소를 반영한다.
+ */
+export function lcoe(capex: number, opexPerYear: number, annualKWh: number, degradationPct: number, years: number, discountPct: number): number {
+  const d = discountPct / 100
+  let cost = capex
+  let energy = 0
+  for (let y = 1; y <= years; y++) {
+    const df = (1 + d) ** y
+    cost += opexPerYear / df
+    energy += (annualKWh * (1 - degradationPct / 100) ** (y - 1)) / df
+  }
+  return energy > 0 ? (cost * 10000) / energy : NaN
+}
+
 export function evaluate(i: EconInput): EconResult {
-  const capex = i.kWp * i.unitCost
+  const capex = i.capex ?? i.kWp * i.unitCost
   const loan = (capex * Math.min(100, Math.max(0, i.loanRatio))) / 100
   const equity = capex - loan
   const unitPrice = i.saleMode === 'fixed' ? i.fixedPrice : i.smp + (i.recPrice / 1000) * i.recWeight
@@ -198,5 +221,7 @@ export function evaluate(i: EconInput): EconResult {
     equityIrr: equity > 0 ? irr(equityFlows) : null,
     projectIrr: irr(projectFlows),
     npv,
+    lcoe: lcoe(capex, opex, i.annualKWh, i.degradation, i.years, i.discountRate),
+    opex,
   }
 }

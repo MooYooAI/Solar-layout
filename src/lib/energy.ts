@@ -31,6 +31,20 @@ export interface EnergyOptions {
   shade?: (month: number, solarHour: number) => number
   /** 있으면 시간마다 모듈 온도 손실을 따로 계산한다. 이때 성능계수에는 온도 외 손실만 넣는다. */
   temperature?: TempModel
+  /** 인버터 AC 정격 합계(kW). 있으면 DC 출력이 이를 넘는 만큼 잘리는 클리핑 손실을 뺀다. */
+  acLimitKW?: number
+}
+
+// 월평균 하루로는 맑은 날 한낮의 출력 봉우리가 뭉개져 클리핑이 과소평가된다.
+// 맑은 날(평균의 1.35배)과 흐린 날(0.65배)이 반씩이라고 보고 두 날을 따로 자른다.
+const SKY_STATES: Array<[weight: number, scale: number]> = [
+  [0.5, 1.35],
+  [0.5, 0.65],
+]
+function clipped(kw: number, limit: number, hours: number): number {
+  let e = 0
+  for (const [w, k] of SKY_STATES) e += w * Math.max(0, k * kw - limit) * hours
+  return e
 }
 
 export interface MonthlyEnergy {
@@ -49,6 +63,8 @@ export interface EnergyResult {
   shadeLoss: number // 0~1
   /** 온도 손실(0~1, 음수면 이득). 온도 모델을 안 쓰면 0 */
   tempLoss: number
+  /** 인버터 클리핑 손실(0~1). AC 한도를 안 주면 0 */
+  clipLoss: number
 }
 
 /** 하루 대기권 밖 수평면 일사량(kWh/㎡) */
@@ -68,6 +84,8 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
   const monthly: MonthlyEnergy[] = []
   let poaTotal = 0
   let effTotal = 0
+  let clipTotal = 0
+  let beforeClipTotal = 0
 
   for (let m = 0; m < 12; m++) {
     const n = REP_DAY[m]
@@ -91,6 +109,9 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
     // 온도 보정까지 곱한 값(온도 모델이 없으면 위와 같다)
     let effDay = 0
     let effShadedDay = 0
+    // 클리핑으로 잘린 kWh(하루, 시스템 전체)
+    let clipDay = 0
+    let clipNoShadeDay = 0
     const dt = 0.25
     for (let t = 12 - (ws * 12) / Math.PI + dt / 2; t < 12 + (ws * 12) / Math.PI; t += dt) {
       const w = deg2rad(15 * (t - 12))
@@ -117,18 +138,28 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
       poaDay += poa
       poaShadedDay += poaShaded
       // dt시간 동안의 kWh/㎡ → 평균 W/㎡
-      effDay += o.temperature ? poa * tempFactor(o.temperature, m, t, (poa / dt) * 1000) : poa
-      effShadedDay += o.temperature ? poaShaded * tempFactor(o.temperature, m, t, (poaShaded / dt) * 1000) : poaShaded
+      const eff = o.temperature ? poa * tempFactor(o.temperature, m, t, (poa / dt) * 1000) : poa
+      const effShaded = o.temperature ? poaShaded * tempFactor(o.temperature, m, t, (poaShaded / dt) * 1000) : poaShaded
+      effDay += eff
+      effShadedDay += effShaded
+      if (o.acLimitKW !== undefined) {
+        // kWh/㎡ per dt → 평균 kW/㎡ = 시스템 kW / kWp
+        clipDay += clipped((effShaded / dt) * o.kWp * o.performanceRatio, o.acLimitKW, dt)
+        clipNoShadeDay += clipped((eff / dt) * o.kWp * o.performanceRatio, o.acLimitKW, dt)
+      }
     }
     const days = MONTH_DAYS[m]
-    const kWhNoShade = effDay * days * o.kWp * o.performanceRatio
+    const kWhNoShade = (effDay * o.kWp * o.performanceRatio - clipNoShadeDay) * days
+    const beforeClip = effShadedDay * days * o.kWp * o.performanceRatio
     monthly.push({
       month: m + 1,
       ghi: H * days,
       poa: poaDay * days,
-      kWh: effShadedDay * days * o.kWp * o.performanceRatio,
+      kWh: beforeClip - clipDay * days,
       kWhNoShade,
     })
+    clipTotal += clipDay * days
+    beforeClipTotal += beforeClip
     poaTotal += poaDay * days
     effTotal += effDay * days
   }
@@ -141,5 +172,6 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
     specificYield: o.kWp ? annualKWh / o.kWp : 0,
     shadeLoss: annualNoShade ? 1 - annualKWh / annualNoShade : 0,
     tempLoss: poaTotal ? 1 - effTotal / poaTotal : 0,
+    clipLoss: beforeClipTotal ? clipTotal / beforeClipTotal : 0,
   }
 }

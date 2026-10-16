@@ -131,3 +131,33 @@ details.chart summary { cursor: pointer; }
   .report { position: static; overflow: visible; background: #fff; }
   .report-page { margin: 0; padding: 0; border: 0; max-width: none; }
 }
+.legend { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 4px; font-size: 12px; }
+.legend li { display: grid; grid-template-columns: 12px 64px 1fr 34px; gap: 6px; align-items: center; }
+.legend.compact { grid-template-columns: 1fr 1fr; }
+.legend.compact li { grid-template-columns: 12px 1fr; }
+.legend i { width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--border); }
+.legend .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.legend .bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
+.legend b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 설계 자동화·비교·내보내기 */
+.checklist { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; }
+.table-scroll { overflow-x: auto; margin: 0 -4px; }
+.month-table.compare { min-width: 720px; }
+.month-table.compare th { white-space: nowrap; font-weight: 600; color: var(--muted); }
+.month-table.compare td.best { font-weight: 700; color: var(--accent); }
+.month-table.compare td small { color: var(--muted); }
+.month-table td.actions { white-space: nowrap; }
+.month-table td.actions button { margin-left: 6px; font-size: 12px; }
+.month-table .basis { display: block; color: var(--muted); font-size: 11px; }
+.month-table tr.total td { font-weight: 700; border-top: 2px solid var(--border); }
+.exports { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.exports li { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.exports li:first-child { border-top: 0; padding-top: 0; }
+.exports strong { display: block; font-size: 13px; }
+.exports small { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.exports button.secondary { margin: 0; flex-shrink: 0; }
+.sld-preview { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.sld-preview svg { display: block; width: 100%; height: auto; }
+.panel.wide { width: 540px; }
+@media (max-width: 720px) { .panel.wide { width: 100%; } }

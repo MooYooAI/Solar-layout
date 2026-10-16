@@ -1,9 +1,16 @@
-import { optimize, type OptimizeInput } from './optimize'
+import { evaluateTask, type Evaluated, type OptimizeInput, type Task } from './optimize'
 
-self.onmessage = (e: MessageEvent<OptimizeInput>) => {
+// 후보 배치 묶음을 받아 하나씩 평가한다. 여러 워커가 나눠 맡는다(optimizePool).
+self.onmessage = (e: MessageEvent<{ input: OptimizeInput; tasks: Task[]; quick: boolean }>) => {
   try {
-    const results = optimize(e.data, (done, total, phase) => self.postMessage({ type: 'progress', done, total, phase }))
-    self.postMessage({ type: 'done', results })
+    const { input, tasks, quick } = e.data
+    const out: Evaluated[] = []
+    for (const t of tasks) {
+      const c = evaluateTask(input, t, quick)
+      if (c) out.push(c)
+      self.postMessage({ type: 'progress' })
+    }
+    self.postMessage({ type: 'done', results: out })
   } catch (err) {
     self.postMessage({ type: 'error', message: (err as Error).message })
   }
