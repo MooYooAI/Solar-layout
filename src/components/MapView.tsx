@@ -29,6 +29,8 @@ import { parcelGeometry, type Parcel } from '../lib/parcel'
 import { moduleQuadsLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
 import type { TerrainCell } from '../lib/terrain'
+import type { BuildableResult } from '../lib/buildable'
+import type { ElecResult } from '../lib/electrical'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 
 export interface FlyTarget {
@@ -63,7 +65,11 @@ interface Props {
   /** 세트별 그늘 비율. 음영 탭에서만 채운다. */
   setShade: ReadonlyMap<string, number> | null
   terrainCells: TerrainCell[] | null
-  terrainView: 'slope' | 'cutfill' | 'none'
+  terrainView: 'slope' | 'cutfill' | 'buildable' | 'none'
+  /** 설계 가능 영역(제외 구역·물길). terrainView가 'buildable'일 때 그린다. */
+  buildable: BuildableResult | null
+  /** 전기 설계(인버터별 세트 색, 인버터, AC 케이블, 수배전반). 있으면 그린다. */
+  elec: ElecResult | null
   onObstacleDrawn: (ring: number[][]) => void
   onMapClick: (lon: number, lat: number) => void
   onDrawEnd: (ring: number[][]) => void
@@ -138,11 +144,39 @@ function measureStyle(f: FeatureLike): Style[] {
   ]
 }
 
+// 인버터 묶음 색(세트 채우기)
+const GROUP_COLORS = ['#1c408c', '#2b8a3e', '#c2255c', '#e67700', '#5f3dc4', '#0b7285', '#a61e4d', '#5c940d']
+const groupStyles = GROUP_COLORS.map(
+  (c) => new Style({ stroke: new Stroke({ color: '#ffffff', width: 0.6 }), fill: new Fill({ color: c }) }),
+)
+const excludedStyles = {
+  slope: new Style({ fill: new Fill({ color: 'rgba(201, 42, 42, 0.38)' }) }),
+  drain: new Style({ fill: new Fill({ color: 'rgba(25, 113, 194, 0.45)' }) }),
+}
+const channelStyle = new Style({ stroke: new Stroke({ color: '#1864ab', width: 2 }) })
+const cableStyle = new Style({ stroke: new Stroke({ color: '#f08c00', width: 2, lineDash: [6, 3] }) })
+function elecPointStyle(f: FeatureLike): Style {
+  const sb = f.get('kind') === 'switchboard'
+  return new Style({
+    image: sb
+      ? new CircleStyle({ radius: 7, fill: new Fill({ color: '#f08c00' }), stroke: new Stroke({ color: '#fff', width: 2 }) })
+      : new CircleStyle({ radius: 5, fill: new Fill({ color: '#fff' }), stroke: new Stroke({ color: '#f08c00', width: 2.5 }) }),
+    text: new Text({
+      text: f.get('label'),
+      font: '600 11px Pretendard, sans-serif',
+      offsetY: -13,
+      fill: new Fill({ color: '#1d2330' }),
+      backgroundFill: new Fill({ color: 'rgba(255,255,255,0.85)' }),
+      padding: [1, 3, 1, 3],
+    }),
+  })
+}
+
 const slopeStyles = SLOPE_COLORS.map((c) => new Style({ fill: new Fill({ color: c }), stroke: new Stroke({ color: c, width: 1 }) }))
 const cutFillStyles = CUTFILL_COLORS.map((c) => new Style({ fill: new Fill({ color: c }), stroke: new Stroke({ color: c, width: 1 }) }))
 
 export default function MapView(props: Props) {
-  const { vworldKey, baseMap, showCadastral, showZoning, clearMeasuresSeq, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView } = props
+  const { vworldKey, baseMap, showCadastral, showZoning, clearMeasuresSeq, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView, buildable, elec } = props
   const el = useRef<HTMLDivElement>(null)
   const mapRef = useRef<OlMap | null>(null)
   const baseLayer = useRef(new TileLayer({ zIndex: 0 }))
@@ -155,6 +189,8 @@ export default function MapView(props: Props) {
   const obstacleSource = useRef(new VectorSource())
   const shadowSource = useRef(new VectorSource())
   const terrainSource = useRef(new VectorSource())
+  const buildSource = useRef(new VectorSource())
+  const elecSource = useRef(new VectorSource())
   const selectedFeatures = useRef(new Collection<Feature>())
   // OL handlers are bound once; read the latest props through a ref.
   const latest = useRef(props)
@@ -168,7 +204,9 @@ export default function MapView(props: Props) {
         const id = f.getId() as string
         if (latest.current.selected.has(id)) return setSelectedStyle
         const shade = latest.current.setShade?.get(id) ?? 0
-        return shade > 0 ? shadedStyles[Math.min(3, Math.floor(shade * 4))] : setStyle
+        if (shade > 0) return shadedStyles[Math.min(3, Math.floor(shade * 4))]
+        const inv = latest.current.elec?.setInverter[id]
+        return inv !== undefined ? groupStyles[inv % groupStyles.length] : setStyle
       },
     })
     const map = new OlMap({
@@ -187,7 +225,18 @@ export default function MapView(props: Props) {
               ? cutFillStyles[cutFillClass(f.get('dz'))]
               : slopeStyles[slopeClass(f.get('slope'))],
         }),
+        new VectorLayer({
+          source: buildSource.current,
+          zIndex: 9.5,
+          style: (f: FeatureLike) => (f.get('kind') === 'channel' ? channelStyle : excludedStyles[f.get('kind') as 'slope' | 'drain']),
+        }),
         new VectorLayer({ source: parcelSource.current, style: parcelStyle, zIndex: 10 }),
+        new VectorLayer({
+          source: elecSource.current,
+          zIndex: 12.5,
+          declutter: true,
+          style: (f: FeatureLike) => (f.getGeometry()?.getType() === 'LineString' ? cableStyle : elecPointStyle(f)),
+        }),
         new VectorLayer({
           source: shadowSource.current,
           zIndex: 10.5,
@@ -312,7 +361,7 @@ export default function MapView(props: Props) {
   useEffect(() => {
     const src = terrainSource.current
     src.clear()
-    if (!terrainCells || terrainView === 'none') return
+    if (!terrainCells || (terrainView !== 'slope' && terrainView !== 'cutfill')) return
     src.addFeatures(
       terrainCells.map((c) => {
         const f = new Feature(new Polygon([c.ring]).transform('EPSG:4326', 'EPSG:3857'))
@@ -322,6 +371,42 @@ export default function MapView(props: Props) {
       }),
     )
   }, [terrainCells, terrainView])
+
+  useEffect(() => {
+    const src = buildSource.current
+    src.clear()
+    if (!buildable || terrainView !== 'buildable') return
+    const feats: Feature[] = buildable.excluded.map((e) => {
+      const f = new Feature(new Polygon([e.ring]).transform('EPSG:4326', 'EPSG:3857'))
+      f.set('kind', e.kind)
+      return f
+    })
+    for (const [a, b] of buildable.channels) {
+      const f = new Feature(new LineString([a, b]).transform('EPSG:4326', 'EPSG:3857'))
+      f.set('kind', 'channel')
+      feats.push(f)
+    }
+    src.addFeatures(feats)
+  }, [buildable, terrainView])
+
+  useEffect(() => {
+    const src = elecSource.current
+    src.clear()
+    setSource.current.changed()
+    if (!elec) return
+    const feats: Feature[] = []
+    for (const inv of elec.inverters) {
+      feats.push(new Feature(new LineString(inv.path).transform('EPSG:4326', 'EPSG:3857')))
+      const f = new Feature(new Point(fromLonLat(inv.lonlat)))
+      f.set('label', `INV-${inv.id}`)
+      feats.push(f)
+    }
+    const sb = new Feature(new Point(fromLonLat(elec.switchboard)))
+    sb.set('kind', 'switchboard')
+    sb.set('label', '수배전반')
+    feats.push(sb)
+    src.addFeatures(feats)
+  }, [elec])
 
   useEffect(() => {
     const src = shadowSource.current

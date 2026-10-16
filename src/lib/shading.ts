@@ -124,30 +124,36 @@ export interface ShadowPoly {
 
 export function shadowPolygons(casters: Caster[], v: Vec): ShadowPoly[] {
   return casters.map((c) => {
-    const ring = convexHull(c.points.map((pt) => project(pt, v)))
-    const xs = ring.map((q) => q[0])
-    const ys = ring.map((q) => q[1])
-    return {
-      ring,
-      setId: c.setId,
-      minX: Math.min(...xs),
-      minY: Math.min(...ys),
-      maxX: Math.max(...xs),
-      maxY: Math.max(...ys),
+    const projected = c.points.map((pt) => project(pt, v))
+    // 세트 경사면(평면 사각형)을 한 방향으로 투영하면 꼭짓점 순서가 그대로인 볼록 사각형이라 껍질 계산이 필요 없다.
+    const ring = c.setId !== undefined && projected.length === 4 ? [...projected, projected[0]] : convexHull(projected)
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
     }
+    return { ring, setId: c.setId, minX, minY, maxX, maxY }
   })
 }
 
+/** 격자 칸 번호 → 숫자 키(필지 단위 좌표라 ±50만 칸 안에 든다) */
+const cellKey = (i: number, j: number) => (i + 500_000) * 1_000_003 + (j + 500_000)
+
 /** 격자 버킷으로 그림자 다각형을 빠르게 찾는다. */
 class ShadowIndex {
-  private cells = new Map<string, ShadowPoly[]>()
+  private cells = new Map<number, ShadowPoly[]>()
   private readonly size: number
   constructor(polys: ShadowPoly[], size = 10) {
     this.size = size
     for (const sp of polys) {
       for (let i = Math.floor(sp.minX / size); i <= Math.floor(sp.maxX / size); i++)
         for (let j = Math.floor(sp.minY / size); j <= Math.floor(sp.maxY / size); j++) {
-          const k = `${i},${j}`
+          const k = cellKey(i, j)
           const list = this.cells.get(k)
           if (list) list.push(sp)
           else this.cells.set(k, [sp])
@@ -155,7 +161,7 @@ class ShadowIndex {
     }
   }
   shaded(pt: Vec, ownSet?: string): boolean {
-    const list = this.cells.get(`${Math.floor(pt[0] / this.size)},${Math.floor(pt[1] / this.size)}`)
+    const list = this.cells.get(cellKey(Math.floor(pt[0] / this.size), Math.floor(pt[1] / this.size)))
     if (!list) return false
     for (const sp of list) {
       if (sp.setId !== undefined && sp.setId === ownSet) continue
