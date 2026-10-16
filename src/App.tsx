@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView, { type FlyTarget, type MapTool } from './components/MapView'
 import LayoutPanel from './components/LayoutPanel'
+
+// 3D 지도(MapLibre)는 무거워서 처음 3D로 볼 때 따로 읽는다.
+const Map3D = lazy(() => import('./components/Map3D'))
+/** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
+const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
 import { getParcelAt, getZoningAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
@@ -118,6 +123,10 @@ export default function App() {
   const [flyTo, setFlyTo] = useState<FlyTarget | null>(null)
   const [tab, setTab] = useState<Tab>('parcel')
   const [tool, setTool] = useState<MapTool>('none')
+  const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d')
+  const [exaggeration, setExaggeration] = useState(1)
+  const [camera, setCamera] = useState<{ view: 'top' | 'front' | 'side'; seq: number } | null>(null)
+  const turnCamera = (view: 'top' | 'front' | 'side') => setCamera((c) => ({ view, seq: (c?.seq ?? 0) + 1 }))
   const [params, setParams] = useState<LayoutParams>(DEFAULT_PARAMS)
   const [sets, setSets] = useState<ModuleSet[]>([])
   // 배치 편집 이력(되돌리기·다시실행). 필지가 바뀌면 비운다.
@@ -756,6 +765,10 @@ export default function App() {
     econ: !!econResult,
   }
 
+  const show3d = mapMode === '3d' && !TOOLS_2D.has(tool)
+  const mapTerrainView = tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'
+  const mapElec = tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null
+
   return (
     <>
     <div
@@ -1178,33 +1191,101 @@ export default function App() {
       />
 
       <main className="map-wrap">
-        <MapView
-          vworldKey={vworldKey}
-          baseMap={baseMap}
-          showCadastral={showCadastral}
-          showZoning={showZoning}
-          clearMeasuresSeq={clearMeasuresSeq}
-          parcel={parcel}
-          flyTo={flyTo}
-          tool={tool}
-          sets={sets}
-          params={params}
-          geometry={geometry}
-          selected={selected}
-          onMapClick={onMapClick}
-          onDrawEnd={onDrawEnd}
-          onSelect={onSelect}
-          onMoveSets={onMoveSets}
-          onAddSet={onAddSet}
-          obstacles={obstacles}
-          shadows={shadeView?.shadows ?? NO_SHADOWS}
-          setShade={shadeView?.perSet ?? null}
-          onObstacleDrawn={onObstacleDrawn}
-          terrainCells={terrain?.cells ?? null}
-          terrainView={tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'}
-          buildable={buildable}
-          elec={tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null}
-        />
+        {show3d ? (
+          <Suspense fallback={<div className="map map-loading">3D 지도를 불러오는 중…</div>}>
+            <Map3D
+              vworldKey={vworldKey}
+              baseMap={baseMap}
+              showCadastral={showCadastral}
+              showZoning={showZoning}
+              parcel={parcel}
+              flyTo={flyTo}
+              tool={tool}
+              sets={sets}
+              params={params}
+              geometry={geometry}
+              selected={selected}
+              onMapClick={onMapClick}
+              onSelect={onSelect}
+              onAddSet={onAddSet}
+              obstacles={obstacles}
+              shadows={shadeView?.shadows ?? NO_SHADOWS}
+              setShade={shadeView?.perSet ?? null}
+              terrainCells={terrain?.cells ?? null}
+              terrainView={mapTerrainView}
+              buildable={buildable}
+              elec={mapElec}
+              exaggeration={exaggeration}
+              camera={camera}
+            />
+          </Suspense>
+        ) : (
+          <MapView
+            vworldKey={vworldKey}
+            baseMap={baseMap}
+            showCadastral={showCadastral}
+            showZoning={showZoning}
+            clearMeasuresSeq={clearMeasuresSeq}
+            parcel={parcel}
+            flyTo={flyTo}
+            tool={tool}
+            sets={sets}
+            params={params}
+            geometry={geometry}
+            selected={selected}
+            onMapClick={onMapClick}
+            onDrawEnd={onDrawEnd}
+            onSelect={onSelect}
+            onMoveSets={onMoveSets}
+            onAddSet={onAddSet}
+            obstacles={obstacles}
+            shadows={shadeView?.shadows ?? NO_SHADOWS}
+            setShade={shadeView?.perSet ?? null}
+            onObstacleDrawn={onObstacleDrawn}
+            terrainCells={terrain?.cells ?? null}
+            terrainView={mapTerrainView}
+            buildable={buildable}
+            elec={mapElec}
+          />
+        )}
+        <div className="map-mode" role="group" aria-label="지도 보기">
+          <button type="button" className={show3d ? '' : 'on'} aria-pressed={!show3d} onClick={() => setMapMode('2d')}>
+            2D
+          </button>
+          <button
+            type="button"
+            className={show3d ? 'on' : ''}
+            aria-pressed={show3d}
+            onClick={() => {
+              setMapMode('3d')
+              if (TOOLS_2D.has(tool)) setTool('none')
+            }}
+          >
+            3D
+          </button>
+          {show3d && (
+            <>
+              <span className="map-mode-sep" />
+              <button type="button" onClick={() => turnCamera('top')} title="위에서 내려다보기">
+                위
+              </button>
+              <button type="button" onClick={() => turnCamera('front')} title="남쪽에서 모듈 정면 보기">
+                정면
+              </button>
+              <button type="button" onClick={() => turnCamera('side')} title="동쪽에서 경사 단면 보기">
+                측면
+              </button>
+            </>
+          )}
+          {show3d && (
+            <select aria-label="지형 높이 과장" value={exaggeration} onChange={(e) => setExaggeration(Number(e.target.value))}>
+              <option value={1}>높이 1×</option>
+              <option value={2}>높이 2×</option>
+              <option value={3}>높이 3×</option>
+            </select>
+          )}
+          {mapMode === '3d' && !show3d && <span>그리기 중에는 2D</span>}
+        </div>
       </main>
 
       <Resizer

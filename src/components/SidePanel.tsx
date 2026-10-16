@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import PlanEditor from './PlanEditor'
+import DetailDrawings from './DetailDrawings'
+import { LocalFrame } from '../lib/geo'
 import type { MapTool } from './MapView'
 import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
@@ -38,7 +40,7 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 /** 오른쪽 작업면: 가배치 도면을 보고 바로 고치는 곳, 전기 설계가 끝나면 단선결선도도 본다. */
 export default function SidePanel(props: Props) {
   const { parcel, stats, tool, onTool, selected } = props
-  const [view, setView] = useState<'plan' | 'sld'>('plan')
+  const [view, setView] = useState<'plan' | 'side' | 'sld'>('plan')
   const n = selected.size
   const sld = useMemo(
     () =>
@@ -54,6 +56,9 @@ export default function SidePanel(props: Props) {
         <div className="seg" role="tablist" aria-label="오른쪽 보기">
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             가배치 도면
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'side'} onClick={() => setView('side')}>
+            상세 도면
           </button>
           <button type="button" role="tab" aria-selected={view === 'sld'} onClick={() => setView('sld')}>
             단선결선도
@@ -154,6 +159,14 @@ export default function SidePanel(props: Props) {
                 : '도면에서 세트를 끌어 옮기고, Shift+클릭으로 여러 개를 고릅니다. 화살표 키로 10 cm(Shift는 1 m)씩 움직이고 Delete로 지웁니다.'}
           </p>
         </>
+      ) : view === 'side' ? (
+        <DetailDrawings
+          params={props.params}
+          geometry={props.geometry}
+          lat={parcel ? LocalFrame.around(parcel.rings).lat0 : 36.5}
+          elec={props.elec}
+          elecParams={props.elecParams}
+        />
       ) : (
         <div className="drawing sld">
           {props.elec ? (
