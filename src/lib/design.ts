@@ -12,6 +12,7 @@ import { KOREA_GHI, simulateEnergy, type EnergyResult } from './energy'
 import { layoutStats, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import { parcelArea, type Parcel } from './parcel'
 import type { Obstacle } from './shading'
+import type { Horizon } from './horizon'
 
 export interface DesignInput {
   parcel: Parcel
@@ -24,6 +25,8 @@ export interface DesignInput {
   costs: CostParams
   econ: EconSettings
   grid?: ElevGrid | null
+  /** 주변 지형 지평선(있으면 산 그늘을 넣는다) */
+  horizon?: Horizon | null
 }
 
 export interface DesignMetrics {
@@ -85,7 +88,7 @@ export function evaluateDesign(d: DesignInput, o: EvalOptions = {}): DesignResul
   const stats = layoutStats(d.sets, g, parcelArea(d.parcel))
   const elec = designElectrical(d.parcel, d.sets, d.params, g, d.elec)
   const kWdc = elec?.kWdc ?? stats.kWp
-  const scene = buildScene(d.parcel.rings, d.sets, d.obstacles, d.params, g, spreadSample(d.sets, o.maxShadeSets ?? Infinity))
+  const scene = buildScene(d.parcel.rings, d.sets, d.obstacles, d.params, g, spreadSample(d.sets, o.maxShadeSets ?? Infinity), d.horizon ?? null)
   const energy = simulateEnergy({
     latDeg: scene.frame.lat0,
     tilt: d.params.tilt,

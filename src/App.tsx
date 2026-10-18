@@ -37,6 +37,7 @@ import ReportView from './components/ReportView'
 import ElectricalPanel from './components/ElectricalPanel'
 import SidePanel from './components/SidePanel'
 import Resizer from './components/Resizer'
+import { loadHorizon, type Horizon } from './lib/horizon'
 import { loadTimeline, MERGE_MS, parcelKey, saveTimeline, TIMELINE_MAX, type TimelineEntry } from './lib/timeline'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
@@ -455,9 +456,26 @@ export default function App() {
   }
 
   // 음영 분석 장면: 세트·장애물·설정이 바뀔 때만 다시 만든다.
+  // 주변 산의 지평선. 부지가 바뀌면 반경 5 km 표고를 받아 다시 만든다(실패하면 지형 그늘 없이 계산).
+  const [horizonOn, setHorizonOn] = useState(true)
+  const [horizonState, setHorizonState] = useState<{ parcel: Parcel; horizon: Horizon | null; error: string | null } | null>(null)
+  useEffect(() => {
+    if (!parcel) return
+    let alive = true
+    loadHorizon(parcel).then(
+      (h) => alive && setHorizonState({ parcel, horizon: h, error: null }),
+      (e: Error) => alive && setHorizonState({ parcel, horizon: null, error: e.message }),
+    )
+    return () => {
+      alive = false
+    }
+  }, [parcel])
+  const horizonFresh = horizonState?.parcel === parcel ? horizonState : null
+  const horizon = horizonOn ? (horizonFresh?.horizon ?? null) : null
+
   const scene = useMemo(
-    () => (parcel ? buildScene(parcel.rings, sets, obstacles, params, geometry) : null),
-    [parcel, sets, obstacles, params, geometry],
+    () => (parcel ? buildScene(parcel.rings, sets, obstacles, params, geometry, sets, horizon) : null),
+    [parcel, sets, obstacles, params, geometry, horizon],
   )
   const n = dayOfYear(shadeDate.month, shadeDate.day)
   const decl = declination(n)
@@ -510,6 +528,7 @@ export default function App() {
       econ,
       grid: t?.grid ?? null,
       mask: useMask ? (t?.buildable.mask ?? null) : null,
+      horizon,
     }
     const run = runOptimizePool(input, (done, total, phase) => setOptProgress({ done, total, phase }))
     setOptRun(run)
@@ -685,9 +704,9 @@ export default function App() {
   const designInput = useMemo<DesignInput | null>(
     () =>
       parcel && sets.length
-        ? { parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, grid: elevGrid }
+        ? { parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon }
         : null,
-    [parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, elevGrid],
+    [parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, elevGrid, horizon],
   )
   const designWorker = useRef<Worker | null>(null)
   const designPending = useRef<{ seq: number; input: DesignInput } | null>(null)
@@ -998,6 +1017,14 @@ export default function App() {
             onObstacles={setObstacles}
             tool={tool}
             onTool={setTool}
+            horizon={horizonFresh?.horizon ?? null}
+            horizonError={horizonFresh?.error ?? null}
+            horizonLoading={!!parcel && !horizonFresh}
+            horizonOn={horizonOn}
+            onHorizonOn={setHorizonOn}
+            terrainBlocked={shadeView?.terrainBlocked ?? false}
+            decl={decl}
+            lat={scene?.frame.lat0 ?? null}
           />
         )}
 

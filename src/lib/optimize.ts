@@ -9,6 +9,7 @@ import type { TempModel } from './climate'
 import type { BuildMask } from './buildable'
 import type { CostParams } from './costs'
 import { evaluateDesign, type DesignMetrics } from './design'
+import type { Horizon } from './horizon'
 import type { EconSettings } from './economics'
 import type { ElecParams } from './electrical'
 import type { ElevGrid } from './elevation'
@@ -38,6 +39,8 @@ export interface OptimizeInput {
   grid?: ElevGrid | null
   /** 설계 가능 영역. 있으면 제외 구역을 피해 배치한다. */
   mask?: BuildMask | null
+  /** 주변 지형 지평선 */
+  horizon?: Horizon | null
 }
 
 export interface Candidate {
@@ -119,6 +122,7 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
       costs: o.costs,
       econ: o.econ,
       grid: o.grid,
+      horizon: o.horizon,
     },
     quick ? { shade: 'quick', maxShadeSets: COARSE_SHADE_SETS } : { shade: 'medium', maxShadeSets: FINE_SHADE_SETS },
   )

@@ -5,11 +5,14 @@ import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
 import { buildCasters, sampleAll, shadedFractions, shadowPolygons, shadowVector, type Obstacle } from './shading'
 import { declination, sunPosition, type SunPos } from './sun'
 import { REP_DAY } from './energy'
+import { sunBehindTerrain, type Horizon } from './horizon'
 
 export interface Scene {
   frame: LocalFrame
   casters: ReturnType<typeof buildCasters>
   samples: ReturnType<typeof sampleAll>
+  /** 주변 지형 지평선. 해가 그 아래면 부지 전체가 그늘이다. */
+  horizon: Horizon | null
 }
 
 export function buildScene(
@@ -20,6 +23,7 @@ export function buildScene(
   g: SetGeometry,
   /** 그늘 비율을 잴 세트(기본: 전부). 그림자는 항상 모든 세트·장애물이 드리운다. */
   sampleSets: ModuleSet[] = sets,
+  horizon: Horizon | null = null,
 ): Scene {
   const frame = LocalFrame.around(rings)
   // 일부 세트만 잴 때는 그 세트 근처(그림자가 닿을 수 있는 거리)의 세트만 그림자를 드리우게 해 계산을 줄인다.
@@ -32,7 +36,7 @@ export function buildScene(
       return centers.some(([cx, cy]) => Math.abs(cx - x) <= reach && Math.abs(cy - y) <= reach)
     })
   }
-  return { frame, casters: buildCasters(casterSets, obstacles, p, g, frame), samples: sampleAll(sampleSets, p, g, frame) }
+  return { frame, casters: buildCasters(casterSets, obstacles, p, g, frame), samples: sampleAll(sampleSets, p, g, frame), horizon }
 }
 
 /**
@@ -54,18 +58,32 @@ export interface ShadeSnapshot {
   perSet: Map<string, number>
   /** 전체 모듈 중 그늘진 비율 */
   overall: number
+  /** 해가 주변 산 뒤에 있어 부지 전체가 그늘인지 */
+  terrainBlocked: boolean
+}
+
+/** 이 해 위치에서 모듈 평균 그늘 비율(지형에 가리면 1) */
+function shadeAt(scene: Scene, sun: SunPos): number {
+  const v = shadowVector(sun)
+  if (!v) return 0
+  if (sunBehindTerrain(scene.horizon, sun)) return 1
+  return mean(shadedFractions(scene.samples, scene.casters, v))
 }
 
 export function snapshot(scene: Scene, declDeg: number, solarHour: number): ShadeSnapshot {
   const sun = sunPosition(scene.frame.lat0, declDeg, solarHour)
   const v = shadowVector(sun)
-  if (!v) return { sun, shadows: [], perSet: new Map(), overall: 0 }
+  if (!v) return { sun, shadows: [], perSet: new Map(), overall: 0, terrainBlocked: false }
+  if (sunBehindTerrain(scene.horizon, sun)) {
+    const perSet = new Map([...scene.samples.keys()].map((id) => [id, 1]))
+    return { sun, shadows: [], perSet, overall: perSet.size ? 1 : 0, terrainBlocked: true }
+  }
   const shadows = shadowPolygons(scene.casters, v).map((sp) => ({
     ring: sp.ring.map((q) => scene.frame.toLonLat(q)),
     fromSet: sp.setId !== undefined,
   }))
   const perSet = shadedFractions(scene.samples, scene.casters, v)
-  return { sun, shadows, perSet, overall: mean(perSet) }
+  return { sun, shadows, perSet, overall: mean(perSet), terrainBlocked: false }
 }
 
 function mean(m: Map<string, number>): number {
@@ -81,11 +99,10 @@ export function dailyShadeLoss(scene: Scene, declDeg: number): number {
   let s = 0
   for (let t = 5; t <= 19; t += 0.5) {
     const sun = sunPosition(scene.frame.lat0, declDeg, t)
-    const v = shadowVector(sun)
-    if (!v) continue
+    if (!shadowVector(sun)) continue
     const weight = Math.sin(sun.altitude)
     w += weight
-    s += weight * mean(shadedFractions(scene.samples, scene.casters, v))
+    s += weight * shadeAt(scene, sun)
   }
   return w ? s / w : 0
 }
@@ -107,8 +124,7 @@ export function shadeTable(scene: Scene, quality: ShadeQuality | boolean = 'full
   for (const m of computed) {
     const row: number[] = []
     for (let t = 0; t <= 24; t += step) {
-      const v = shadowVector(sunPosition(scene.frame.lat0, decs[m], t))
-      row.push(v ? mean(shadedFractions(scene.samples, scene.casters, v)) : 0)
+      row.push(shadeAt(scene, sunPosition(scene.frame.lat0, decs[m], t)))
     }
     rows.set(m, row)
   }
