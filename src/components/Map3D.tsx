@@ -464,23 +464,34 @@ function setWms(map: MlMap, id: string, tiles: string[] | null, opacity: number,
 }
 
 /**
- * 지형을 켠 채 처음 가는 곳으로 옮기면 그곳 높이 타일이 아직 없어 높이 0을 기준으로 카메라를 잡는다.
- * 타일이 들어와 지면이 올라오면 기울어진 카메라가 엉뚱한 곳을 비추게 되므로(첫 검색에서만 위치가 틀리던 원인),
- * 타일이 다 읽힌 뒤 같은 이동을 한 번 더 한다. 그 사이 사용자가 지도를 움직였거나 새 이동이 시작됐으면 건드리지 않는다.
+ * 지형을 켠 채 처음 가는 곳으로 옮기면 그곳 높이 타일이 아직 없어 화면 중심의 높이를 0으로 잡는다.
+ * 애니메이션 이동(fitBounds·flyTo·easeTo)은 끝난 뒤에도 이 높이를 고치지 않아서, 산지에서는 카메라가
+ * 땅 높이에 붙은 채 필지보다 수백 m 앞쪽을 비춘다(3D에서만 위치가 틀리던 원인). 높이 타일이 들어올 때마다
+ * 중심 높이와 실제 지면 높이를 비교해 다르면 같은 중심으로 jumpTo해 높이를 다시 잡는다.
+ * 사용자가 지도를 움직였거나 새 이동이 시작됐으면 손대지 않는다.
  */
 let settleSeq = 0
-function settle(map: MlMap, move: (again: boolean) => void) {
+function settle(map: MlMap, move: () => void) {
   const seq = ++settleSeq
-  move(false)
+  move()
   let userMoved = false
   const onStart = (e: { originalEvent?: unknown }) => {
     if (e.originalEvent) userMoved = true
   }
+  const fix = () => {
+    if (userMoved || seq !== settleSeq || map.isMoving() || !map.terrain) return
+    const center = map.getCenter()
+    const ground = map.terrain.getElevationForLngLatZoom(center, map.transform.tileZoom)
+    if (Math.abs(ground - map.getCenterElevation()) > 1) map.jumpTo({ center })
+  }
   map.on('movestart', onStart)
-  map.once('idle', () => {
+  map.on('moveend', fix)
+  map.on('sourcedata', fix)
+  setTimeout(() => {
     map.off('movestart', onStart)
-    if (!userMoved && seq === settleSeq) move(true)
-  })
+    map.off('moveend', fix)
+    map.off('sourcedata', fix)
+  }, 15000)
 }
 
 export default function Map3D(props: Props) {
@@ -603,13 +614,13 @@ export default function Map3D(props: Props) {
       const lons = pts.map((c) => c[0])
       const lats = pts.map((c) => c[1])
       const pitch = map.getPitch() || 60
-      settle(map, (again) =>
+      settle(map, () =>
         map.fitBounds(
           [
             [Math.min(...lons), Math.min(...lats)],
             [Math.max(...lons), Math.max(...lats)],
           ],
-          { padding: 80, maxZoom: 19, pitch, duration: again ? 300 : 600 },
+          { padding: 80, maxZoom: 19, pitch, duration: 600 },
         ),
       )
     })
@@ -620,7 +631,7 @@ export default function Map3D(props: Props) {
     shared.flySeq = flyTo.seq
     whenReady(() => {
       const map = mapRef.current!
-      settle(map, (again) => map.flyTo({ center: [flyTo.lon, flyTo.lat] as LngLatLike, zoom: (flyTo.zoom ?? 18) - 1, duration: again ? 300 : 800 }))
+      settle(map, () => map.flyTo({ center: [flyTo.lon, flyTo.lat] as LngLatLike, zoom: (flyTo.zoom ?? 18) - 1, duration: 800 }))
     })
   }, [flyTo])
 
