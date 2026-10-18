@@ -63,7 +63,13 @@ export function setCorners3D(s: ModuleSet, p: LayoutParams, g: SetGeometry, fram
 }
 
 /**
- * 모듈마다 경사면 위의 표본점 2개(아래쪽 1/4, 위쪽 3/4 지점).
+ * 경사면을 따라 잴 표본점 위치(모듈 길이 비율). 앞열 그림자는 뒷열 모듈 아래 끝부터 얇게 올라오므로
+ * 아래쪽 1/8 지점까지 봐야 동지 정오처럼 띠 모양으로 걸치는 그늘을 놓치지 않는다.
+ */
+const SAMPLE_AT = [0.125, 0.375, 0.625, 0.875]
+
+/**
+ * 모듈마다 경사면 위의 표본점 4개(아래에서 1/8, 3/8, 5/8, 7/8 지점).
  * 반환: 세트별 [모듈][표본점] 3D 좌표.
  */
 export function moduleSamples(s: ModuleSet, p: LayoutParams, g: SetGeometry, frame: LocalFrame): Vec3[][] {
@@ -78,7 +84,7 @@ export function moduleSamples(s: ModuleSet, p: LayoutParams, g: SetGeometry, fra
   for (let row = 0; row < p.setRows; row++) {
     for (let col = 0; col < p.setCols; col++) {
       const x = -g.width / 2 + col * (along + gap) + along / 2
-      const pts: Vec3[] = [0.25, 0.75].map((f) => {
+      const pts: Vec3[] = SAMPLE_AT.map((f) => {
         const s = row * (across + gap) + f * across // 경사면을 따라 잰 거리
         const [rx, ry] = rotate([x, -g.depth / 2 + s * cos], r)
         return [rx + c[0], ry + c[1], p.groundClearance + s * sin]
