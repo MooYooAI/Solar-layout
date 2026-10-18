@@ -111,13 +111,36 @@ interface DataResponse {
 }
 
 /** 좌표(경위도)가 포함된 연속지적도 필지 한 개를 가져온다. */
-export async function getParcelAt(lon: number, lat: number, key: string): Promise<ParcelFeature | null> {
+export function getParcelAt(lon: number, lat: number, key: string): Promise<ParcelFeature | null> {
+  return getParcel({ geomFilter: `POINT(${lon} ${lat})` }, key)
+}
+
+/** PNU(19자리)로 연속지적도 필지 한 개를 가져온다. */
+export function getParcelByPnu(pnu: string, key: string): Promise<ParcelFeature | null> {
+  return getParcel({ attrFilter: `pnu:=:${pnu}` }, key)
+}
+
+const isPnu = (s: string) => /^\d{19}$/.test(s)
+
+/**
+ * 검색 결과의 필지. 검색 API의 대표점은 필지 밖(도로·이웃 필지, 건물 출입구 등)에 찍히는 경우가 있어
+ * 점으로 찾으면 다른 필지가 잡힌다. 결과 id가 PNU면 PNU로 정확히 찾고, 아닐 때만 대표점으로 찾는다.
+ */
+export async function getParcelForResult(it: ParcelSearchItem, key: string): Promise<ParcelFeature | null> {
+  if (isPnu(it.id)) {
+    const f = await getParcelByPnu(it.id, key).catch(() => null)
+    if (f) return f
+  }
+  return getParcelAt(it.lon, it.lat, key)
+}
+
+async function getParcel(filter: { geomFilter: string } | { attrFilter: string }, key: string): Promise<ParcelFeature | null> {
   const data = await jsonp<DataResponse>(`${API}/data`, {
     service: 'data',
     request: 'GetFeature',
     version: '2.0',
     data: 'LP_PA_CBND_BUBUN',
-    geomFilter: `POINT(${lon} ${lat})`,
+    ...filter,
     crs: 'EPSG:4326',
     geometry: 'true',
     attribute: 'true',

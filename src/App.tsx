@@ -6,7 +6,7 @@ import LayoutPanel from './components/LayoutPanel'
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
 const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
-import { getParcelAt, getZoningAt, searchParcel, type BaseMap, type ParcelSearchItem } from './lib/vworld'
+import { getParcelAt, getParcelForResult, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
   autoLayout,
@@ -244,14 +244,15 @@ export default function App() {
   const [addingLot, setAddingLot] = useState(false)
   const lots = parcel?.lots
 
-  const selectParcelAt = useCallback(
-    async (lon: number, lat: number) => {
+  // 필지를 찾아 부지로 삼는다. 지도는 부지가 바뀌면 그 필지에 맞춰 움직인다.
+  const selectParcel = useCallback(
+    async (find: () => Promise<ParcelFeature | null>, notFound: () => void) => {
       if (!vworldKey) return
       setBusy(true)
       setMessage(null)
       try {
-        const f = await getParcelAt(lon, lat, vworldKey)
-        if (!f) setMessage('이 위치에서 필지를 찾지 못했습니다.')
+        const f = await find()
+        if (!f) notFound()
         else if (addingLot && lots) {
           const lot = lotFromFeature(f)
           const removing = lots.some((l) => l.pnu === lot.pnu)
@@ -275,6 +276,11 @@ export default function App() {
     },
     [vworldKey, addingLot, lots, parcel, sets.length, obstacles.length],
   )
+  const selectParcelAt = (lon: number, lat: number) =>
+    selectParcel(
+      () => getParcelAt(lon, lat, vworldKey),
+      () => setMessage('이 위치에서 필지를 찾지 못했습니다.'),
+    )
 
   // 부지가 바뀌면 아직 모르는 지번의 용도지역을 찾아 둔다. 결과가 오기 전(undefined)은 조회 중으로 본다.
   const zoningRequested = useRef(new Set<string>())
@@ -343,10 +349,16 @@ export default function App() {
     }
   }
 
-  const pickResult = (it: ParcelSearchItem) => {
-    setFlyTo({ lon: it.lon, lat: it.lat, seq: Date.now() })
-    void selectParcelAt(it.lon, it.lat)
-  }
+  // 검색 대표점으로 먼저 날아가지 않는다. 대표점이 필지 밖에 찍히면 엉뚱한 곳을 보여 주기 때문이다.
+  // 필지를 찾으면 지도가 그 경계에 맞춰지고, 못 찾을 때만 대표점으로 옮긴다.
+  const pickResult = (it: ParcelSearchItem) =>
+    void selectParcel(
+      () => getParcelForResult(it, vworldKey),
+      () => {
+        setFlyTo({ lon: it.lon, lat: it.lat, seq: Date.now() })
+        setMessage('이 주소의 지적 경계를 찾지 못했습니다. 지도에서 필지를 클릭해 주세요.')
+      },
+    )
 
   // 사각형 수치 입력: 가로(동서)·세로(남북) m, 회전(도, 시계 방향)
   const [rect, setRect] = useState({ width: 50, depth: 30, rotation: 0 })
