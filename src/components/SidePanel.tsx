@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import PlanEditor from './PlanEditor'
 import DetailDrawings from './DetailDrawings'
+import Timeline from './Timeline'
+import type { TimelineEntry } from '../lib/timeline'
 import { LocalFrame } from '../lib/geo'
 import type { MapTool } from './MapView'
 import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
@@ -33,6 +35,10 @@ interface Props {
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  timeline: TimelineEntry[]
+  timelineAt: string | null
+  onRestore: (e: TimelineEntry) => void
+  onClearTimeline: () => void
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
@@ -40,7 +46,7 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 /** 오른쪽 작업면: 가배치 도면을 보고 바로 고치는 곳, 전기 설계가 끝나면 단선결선도도 본다. */
 export default function SidePanel(props: Props) {
   const { parcel, stats, tool, onTool, selected } = props
-  const [view, setView] = useState<'plan' | 'side' | 'sld'>('plan')
+  const [view, setView] = useState<'plan' | 'side' | 'sld' | 'history'>('plan')
   const n = selected.size
   const sld = useMemo(
     () =>
@@ -55,13 +61,17 @@ export default function SidePanel(props: Props) {
       <div className="side-head">
         <div className="seg" role="tablist" aria-label="오른쪽 보기">
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
-            가배치 도면
+            배치도
           </button>
           <button type="button" role="tab" aria-selected={view === 'side'} onClick={() => setView('side')}>
-            상세 도면
+            상세도
           </button>
           <button type="button" role="tab" aria-selected={view === 'sld'} onClick={() => setView('sld')}>
-            단선결선도
+            결선도
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'history'} onClick={() => setView('history')}>
+            타임라인
+            {props.timeline.length > 0 && <span className="count">{props.timeline.length}</span>}
           </button>
         </div>
       </div>
@@ -115,7 +125,19 @@ export default function SidePanel(props: Props) {
                 onAddSet={props.onAddSet}
               />
             ) : (
-              <p className="empty">필지를 고르거나 영역을 그리면 여기에 배치도가 그려집니다.</p>
+              <p className="empty">
+                필지를 고르거나 영역을 그리면 여기에 배치도가 그려집니다.
+                {props.timeline.length > 0 && (
+                  <>
+                    <br />
+                    이전 작업은{' '}
+                    <button type="button" className="link" onClick={() => setView('history')}>
+                      타임라인
+                    </button>
+                    에서 이어 할 수 있습니다.
+                  </>
+                )}
+              </p>
             )}
           </div>
 
@@ -159,6 +181,13 @@ export default function SidePanel(props: Props) {
                 : '도면에서 세트를 끌어 옮기고, Shift+클릭으로 여러 개를 고릅니다. 화살표 키로 10 cm(Shift는 1 m)씩 움직이고 Delete로 지웁니다.'}
           </p>
         </>
+      ) : view === 'history' ? (
+        <Timeline
+          entries={props.timeline}
+          currentId={props.timelineAt}
+          onRestore={props.onRestore}
+          onClear={props.onClearTimeline}
+        />
       ) : view === 'side' ? (
         <DetailDrawings
           params={props.params}
