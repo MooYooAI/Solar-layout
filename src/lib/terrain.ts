@@ -44,6 +44,11 @@ export async function loadDem(parcel: Parcel, zoom = 15, margin = 30): Promise<D
   const ys = pts.map((p) => p[1])
   const sw = frame.toLonLat([Math.min(...xs) - margin, Math.min(...ys) - margin])
   const ne = frame.toLonLat([Math.max(...xs) + margin, Math.max(...ys) + margin])
+  return loadDemBounds(sw, ne, zoom)
+}
+
+/** 경위도 사각형(남서·북동)을 덮는 표고 타일을 받아 보간 함수를 만든다. */
+export async function loadDemBounds(sw: Vec, ne: Vec, zoom: number): Promise<Dem> {
   const [px0, py1] = lonLatToPixel(sw[0], sw[1], zoom)
   const [px1, py0] = lonLatToPixel(ne[0], ne[1], zoom)
   const tx0 = Math.floor(px0 / TILE)
