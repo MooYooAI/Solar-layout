@@ -575,3 +575,30 @@ details.chart summary { cursor: pointer; }
 .horizon .tick { font-size: 9px; fill: var(--muted); }
 .horizon figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .horizon.dim { opacity: 0.45; }
+
+/* 배치도 2D/3D 전환과 3D 보기 */
+.plan-dim { position: absolute; left: 8px; top: 8px; z-index: 2; box-shadow: 0 1px 2px oklch(24% 0.02 255 / 0.12); }
+.plan-dim button { height: 24px; padding: 0 10px; font-size: 12px; }
+.plan-3d { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.plan-3d:active { cursor: grabbing; }
+.plan-3d-views { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 16px); }
+.plan-3d-views .toolbar-sep { width: 1px; align-self: stretch; margin: 2px; background: var(--line); }
+
+/* 도면 클릭 확대 */
+.zoomable { position: relative; cursor: zoom-in; border-radius: var(--r-sm); outline-offset: 2px; }
+.zoomable:focus-visible { outline: 2px solid var(--accent); }
+.zoomable-hint { position: absolute; right: 4px; bottom: 4px; padding: 2px 6px; font-size: 11px; color: var(--ink-2); background: oklch(100% 0 0 / 0.85); border: 1px solid var(--line); border-radius: var(--r-sm); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.zoomable:hover .zoomable-hint, .zoomable:focus-visible .zoomable-hint { opacity: 1; }
+@media (hover: none) { .zoomable-hint { opacity: 1; } }
+.zoom-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: oklch(20% 0.02 255 / 0.55); }
+.zoom-panel { display: flex; flex-direction: column; width: min(1200px, 100%); height: min(900px, 100%); background: #fff; border-radius: var(--r-md); box-shadow: 0 12px 40px oklch(20% 0.02 255 / 0.3); overflow: hidden; }
+.zoom-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.zoom-tools { display: flex; align-items: center; gap: 4px; }
+.zoom-tools button { height: 28px; }
+.zoom-tools button.icon { width: 28px; font-size: 16px; }
+.zoom-pct { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.zoom-body { flex: 1; display: flex; overflow: auto; padding: 16px; }
+/* 자동 여백: 작으면 가운데, 넘치면 왼쪽부터 스크롤 */
+.zoom-content { flex: none; margin: auto; }
+.zoom-content .side-elev, .zoom-content .sld-preview svg { width: 100%; height: auto; }
+.zoom-content .sld-preview svg { display: block; }

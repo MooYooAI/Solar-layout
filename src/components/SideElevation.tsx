@@ -17,11 +17,13 @@ const fmt = (n: number, d = 2) => n.toLocaleString('ko-KR', { maximumFractionDig
 export default function SideElevation({ params: p, geometry: g, lat }: Props) {
   const W = 400
   const pad = 30
+  // 왼쪽은 '지상고' 치수 글자가 잘리지 않게 넉넉히 둔다.
+  const padL = 86
   const span = g.depth * 2 + p.rowSpacing
-  const s = (W - pad * 2) / Math.max(span, 1)
-  const H = Math.max(g.height * s, 60) + 150
+  const s = (W - padL - pad) / Math.max(span, 1)
+  const H = Math.max(g.height * s, 60) + 170
   const groundY = H - 78
-  const X = (m: number) => pad + m * s
+  const X = (m: number) => padL + m * s
   const Y = (m: number) => groundY - m * s
 
   const tilt = deg2rad(p.tilt)
@@ -105,7 +107,7 @@ export default function SideElevation({ params: p, geometry: g, lat }: Props) {
       {alt > 0 && (
         <g className="se-sun">
           <line x1={X(g.depth)} y1={Y(g.height)} x2={X(shadowTip)} y2={Y(p.groundClearance)} />
-          <line x1={X(g.depth) - 60 / tanAlt} y1={Y(g.height) - 60} x2={X(g.depth)} y2={Y(g.height)} strokeDasharray="2 3" />
+          <line x1={X(g.depth) - 40 / tanAlt} y1={Y(g.height) - 40} x2={X(g.depth)} y2={Y(g.height)} strokeDasharray="2 3" />
         </g>
       )}
 
@@ -128,7 +130,8 @@ export default function SideElevation({ params: p, geometry: g, lat }: Props) {
         경사면 {fmt(g.slope)} m
       </text>
 
-      <text x={W - pad} y={20} textAnchor="end" className={margin >= 0 ? 'se-ok' : 'se-warn'}>
+      {/* 제목과 겹치지 않게 판정은 둘째 줄에 둔다 */}
+      <text x={pad} y={38} className={margin >= 0 ? 'se-ok' : 'se-warn'}>
         {alt > 0
           ? `동지 정오 태양고도 ${fmt(alt, 1)}° · ${margin >= 0 ? `그림자 여유 ${fmt(margin)} m` : `뒷열에 ${fmt(-margin)} m 그늘`}`
           : '동지 정오에 해가 뜨지 않는 위도'}

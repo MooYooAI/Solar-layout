@@ -1,8 +1,8 @@
 // 지도 화면과 발전량 계산이 함께 쓰는 음영 분석 묶음.
 
 import { LocalFrame, type Vec } from './geo'
-import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
-import { buildCasters, sampleAll, shadedFractions, shadowPolygons, shadowVector, type Obstacle } from './shading'
+import { moduleQuads3D, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
+import { buildCasters, project, sampleAll, shadedFractions, ShadowIndex, shadowPolygons, shadowVector, type Obstacle, type Vec3 } from './shading'
 import { declination, sunPosition, type SunPos } from './sun'
 import { REP_DAY } from './energy'
 import { sunBehindTerrain, type Horizon } from './horizon'
@@ -84,6 +84,53 @@ export function snapshot(scene: Scene, declDeg: number, solarHour: number): Shad
   }))
   const perSet = shadedFractions(scene.samples, scene.casters, v)
   return { sun, shadows, perSet, overall: mean(perSet), terrainBlocked: false }
+}
+
+/** 모듈 표면의 그늘 칸. 모듈마다 nu(가로) × nv(경사 방향) 칸, moduleQuads3D 순서대로 1이면 그늘. */
+export interface PanelShade {
+  nu: number
+  nv: number
+  cells: Map<string, Uint8Array>
+}
+
+/** 칸 수가 이보다 많으면 모듈당 칸을 줄인다(계산 부담). */
+const MAX_PANEL_CELLS = 150_000
+
+/**
+ * 3D 지도에서 모듈 표면에 그림자를 그리기 위한 칸별 그늘 여부.
+ * 지면 그림자는 옆이나 정면에서 보면 판에 가려 안 보이므로, 판 위에 떨어진 그림자를 직접 칠한다.
+ */
+export function panelShadeCells(scene: Scene, sets: ModuleSet[], p: LayoutParams, g: SetGeometry, sun: SunPos): PanelShade | null {
+  const v = shadowVector(sun)
+  if (!v || !sets.length) return null
+  const dense = sets.length * g.modules * 12 <= MAX_PANEL_CELLS
+  const nu = dense ? 3 : 1
+  const nv = dense ? 4 : 2
+  const blocked = sunBehindTerrain(scene.horizon, sun)
+  const index = blocked ? null : new ShadowIndex(shadowPolygons(scene.casters, v))
+  const cells = new Map<string, Uint8Array>()
+  for (const s of sets) {
+    const quads = moduleQuads3D(s, p, g)
+    const out = new Uint8Array(quads.length * nu * nv)
+    if (blocked) out.fill(1)
+    else {
+      const [cx, cy] = scene.frame.toLocal([s.lon, s.lat])
+      let k = 0
+      for (const q of quads)
+        for (let j = 0; j < nv; j++)
+          for (let i = 0; i < nu; i++) {
+            const u = (i + 0.5) / nu
+            const w = (j + 0.5) / nv
+            const pt = [0, 1, 2].map(
+              (d) => (1 - u) * (1 - w) * q[0][d] + u * (1 - w) * q[1][d] + u * w * q[2][d] + (1 - u) * w * q[3][d],
+            )
+            const world: Vec3 = [pt[0] + cx, pt[1] + cy, pt[2]]
+            out[k++] = index!.shaded(project(world, v), s.id) ? 1 : 0
+          }
+    }
+    cells.set(s.id, out)
+  }
+  return { nu, nv, cells }
 }
 
 function mean(m: Map<string, number>): number {

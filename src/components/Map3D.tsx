@@ -21,6 +21,7 @@ import type { Obstacle } from '../lib/shading'
 import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
 import type { ElecResult } from '../lib/electrical'
+import type { PanelShade } from '../lib/analysis'
 import { GROUP_COLORS } from '../lib/palette'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 import { shared } from '../lib/viewState'
@@ -50,6 +51,8 @@ interface Props {
   obstacles: Obstacle[]
   shadows: Array<{ ring: number[][]; fromSet: boolean }>
   setShade: ReadonlyMap<string, number> | null
+  /** 모듈 표면에 떨어진 그림자(칸별). 있으면 세트 전체 색 대신 그늘진 칸만 어둡게 칠한다. */
+  panelShade: PanelShade | null
   terrainCells: TerrainCell[] | null
   terrainView: 'slope' | 'cutfill' | 'buildable' | 'none'
   buildable: BuildableResult | null
@@ -112,6 +115,7 @@ const PANEL = hexRgb('#1c408c')
 const PANEL_SELECTED = hexRgb('#1971c2')
 const SELECT_EDGE = hexRgb('#ffd43b')
 const POST = hexRgb('#adb5bd')
+const PANEL_SHADOW = hexRgb('#141821')
 const FRAME = hexRgb('#ced4da')
 const GROUP_RGB = GROUP_COLORS.map(hexRgb)
 const shadeRgb = (k: number): [number, number, number] => [
@@ -121,9 +125,9 @@ const shadeRgb = (k: number): [number, number, number] => [
 ]
 
 /** 판 색: 2D 지도와 같은 규칙(선택 > 음영 > 인버터 묶음 > 기본) */
-function setColor(id: string, p: Pick<Props, 'selected' | 'setShade' | 'elec'>): [number, number, number] {
+function setColor(id: string, p: Pick<Props, 'selected' | 'setShade' | 'elec' | 'panelShade'>): [number, number, number] {
   if (p.selected.has(id)) return PANEL_SELECTED
-  const shade = p.setShade?.get(id) ?? 0
+  const shade = p.panelShade ? 0 : (p.setShade?.get(id) ?? 0)
   if (shade > 0) return shadeRgb((Math.min(3, Math.floor(shade * 4)) + 1) / 4)
   const inv = p.elec?.setInverter[id]
   return inv !== undefined ? GROUP_RGB[inv % GROUP_RGB.length] : PANEL
@@ -171,13 +175,27 @@ function buildMesh(
     // 모듈마다 테두리(프레임)를 두르고 안쪽 셀 면을 살짝 띄워 한 장씩 구분되게 한다. 선택한 세트는 노란 테두리.
     const frame = sel ? SELECT_EDGE : FRAME
     const inset = sel ? 0.86 : 0.94
-    for (const q of moduleQuads3D(s, p.params, p.geometry)) {
+    const cells = p.panelShade?.cells.get(s.id)
+    const nu = p.panelShade?.nu ?? 1
+    const nv = p.panelShade?.nv ?? 1
+    moduleQuads3D(s, p.params, p.geometry).forEach((q, m) => {
       const w = q.map(at)
       const c: V3 = [(w[0][0] + w[2][0]) / 2, (w[0][1] + w[2][1]) / 2, (w[0][2] + w[2][2]) / 2]
       const inner = w.map((v) => [c[0] + (v[0] - c[0]) * inset, c[1] + (v[1] - c[1]) * inset, c[2] + (v[2] - c[2]) * inset + 0.01] as V3)
       quad(w, frame, !sel)
-      quad(inner, col)
-    }
+      if (!cells) {
+        quad(inner, col)
+        return
+      }
+      // 그늘 칸만 어둡게: 옆·정면에서 봐도 판 위에 진 그림자가 보인다.
+      const lerp = (u: number, t: number): V3 =>
+        [0, 1, 2].map((d) => (1 - u) * (1 - t) * inner[0][d] + u * (1 - t) * inner[1][d] + u * t * inner[2][d] + (1 - u) * t * inner[3][d]) as V3
+      for (let j = 0; j < nv; j++)
+        for (let i = 0; i < nu; i++) {
+          const dark = cells[(m * nv + j) * nu + i] === 1
+          quad([lerp(i / nu, j / nv), lerp((i + 1) / nu, j / nv), lerp((i + 1) / nu, (j + 1) / nv), lerp(i / nu, (j + 1) / nv)], dark ? PANEL_SHADOW : col)
+        }
+    })
     for (const [x, y, h] of setPosts3D(s, p.params, p.geometry)) {
       const b = at([x, y, -0.3])
       const t = h + 0.3
@@ -446,7 +464,7 @@ function setWms(map: MlMap, id: string, tiles: string[] | null, opacity: number,
 }
 
 export default function Map3D(props: Props) {
-  const { vworldKey, baseMap, showCadastral, showZoning, parcel, flyTo, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView, buildable, elec, exaggeration } = props
+  const { vworldKey, baseMap, showCadastral, showZoning, parcel, flyTo, sets, params, geometry, selected, obstacles, shadows, setShade, panelShade, terrainCells, terrainView, buildable, elec, exaggeration } = props
   const el = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
   const panels = useRef(new PanelLayer())
@@ -582,7 +600,7 @@ export default function Map3D(props: Props) {
 
   useEffect(() => {
     whenReady(() => panels.current.update(latest.current))
-  }, [sets, params, geometry, selected, setShade, elec])
+  }, [sets, params, geometry, selected, setShade, panelShade, elec])
 
   useEffect(() => {
     whenReady(() =>
