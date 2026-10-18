@@ -463,6 +463,26 @@ function setWms(map: MlMap, id: string, tiles: string[] | null, opacity: number,
   map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': opacity } }, before)
 }
 
+/**
+ * 지형을 켠 채 처음 가는 곳으로 옮기면 그곳 높이 타일이 아직 없어 높이 0을 기준으로 카메라를 잡는다.
+ * 타일이 들어와 지면이 올라오면 기울어진 카메라가 엉뚱한 곳을 비추게 되므로(첫 검색에서만 위치가 틀리던 원인),
+ * 타일이 다 읽힌 뒤 같은 이동을 한 번 더 한다. 그 사이 사용자가 지도를 움직였거나 새 이동이 시작됐으면 건드리지 않는다.
+ */
+let settleSeq = 0
+function settle(map: MlMap, move: (again: boolean) => void) {
+  const seq = ++settleSeq
+  move(false)
+  let userMoved = false
+  const onStart = (e: { originalEvent?: unknown }) => {
+    if (e.originalEvent) userMoved = true
+  }
+  map.on('movestart', onStart)
+  map.once('idle', () => {
+    map.off('movestart', onStart)
+    if (!userMoved && seq === settleSeq) move(true)
+  })
+}
+
 export default function Map3D(props: Props) {
   const { vworldKey, baseMap, showCadastral, showZoning, parcel, flyTo, sets, params, geometry, selected, obstacles, shadows, setShade, panelShade, terrainCells, terrainView, buildable, elec, exaggeration } = props
   const el = useRef<HTMLDivElement>(null)
@@ -582,12 +602,15 @@ export default function Map3D(props: Props) {
       const pts = parcel.rings.flat()
       const lons = pts.map((c) => c[0])
       const lats = pts.map((c) => c[1])
-      map.fitBounds(
-        [
-          [Math.min(...lons), Math.min(...lats)],
-          [Math.max(...lons), Math.max(...lats)],
-        ],
-        { padding: 80, maxZoom: 19, pitch: map.getPitch() || 60, duration: 600 },
+      const pitch = map.getPitch() || 60
+      settle(map, (again) =>
+        map.fitBounds(
+          [
+            [Math.min(...lons), Math.min(...lats)],
+            [Math.max(...lons), Math.max(...lats)],
+          ],
+          { padding: 80, maxZoom: 19, pitch, duration: again ? 300 : 600 },
+        ),
       )
     })
   }, [parcel])
@@ -595,7 +618,10 @@ export default function Map3D(props: Props) {
   useEffect(() => {
     if (!flyTo || shared.flySeq === flyTo.seq) return
     shared.flySeq = flyTo.seq
-    whenReady(() => mapRef.current!.flyTo({ center: [flyTo.lon, flyTo.lat] as LngLatLike, zoom: (flyTo.zoom ?? 18) - 1, duration: 800 }))
+    whenReady(() => {
+      const map = mapRef.current!
+      settle(map, (again) => map.flyTo({ center: [flyTo.lon, flyTo.lat] as LngLatLike, zoom: (flyTo.zoom ?? 18) - 1, duration: again ? 300 : 800 }))
+    })
   }, [flyTo])
 
   useEffect(() => {
