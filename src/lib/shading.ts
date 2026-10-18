@@ -20,7 +20,7 @@ export function shadowVector(sun: SunPos): Vec | null {
   return [Math.sin(sun.azimuth) * k, Math.cos(sun.azimuth) * k]
 }
 
-const project = ([x, y, z]: Vec3, v: Vec): Vec => [x + v[0] * z, y + v[1] * z]
+export const project = ([x, y, z]: Vec3, v: Vec): Vec => [x + v[0] * z, y + v[1] * z]
 
 function convexHull(points: Vec[]): Vec[] {
   const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
@@ -145,7 +145,7 @@ export function shadowPolygons(casters: Caster[], v: Vec): ShadowPoly[] {
 const cellKey = (i: number, j: number) => (i + 500_000) * 1_000_003 + (j + 500_000)
 
 /** 격자 버킷으로 그림자 다각형을 빠르게 찾는다. */
-class ShadowIndex {
+export class ShadowIndex {
   private cells = new Map<number, ShadowPoly[]>()
   private readonly size: number
   constructor(polys: ShadowPoly[], size = 10) {

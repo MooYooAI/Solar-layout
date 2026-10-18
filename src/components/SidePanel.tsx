@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import PlanEditor from './PlanEditor'
+import Plan3D from './Plan3D'
+import ZoomFrame from './ZoomFrame'
 import DetailDrawings from './DetailDrawings'
 import Timeline from './Timeline'
 import type { TimelineEntry } from '../lib/timeline'
@@ -47,6 +49,7 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 export default function SidePanel(props: Props) {
   const { parcel, stats, tool, onTool, selected } = props
   const [view, setView] = useState<'plan' | 'side' | 'sld' | 'history'>('plan')
+  const [plan3d, setPlan3d] = useState(false)
   const n = selected.size
   const sld = useMemo(
     () =>
@@ -110,7 +113,27 @@ export default function SidePanel(props: Props) {
       {view === 'plan' ? (
         <>
           <div className="drawing">
-            {parcel ? (
+            {parcel && (
+              <div className="seg plan-dim" role="tablist" aria-label="배치도 보기">
+                <button type="button" role="tab" aria-selected={!plan3d} onClick={() => setPlan3d(false)}>
+                  2D
+                </button>
+                <button type="button" role="tab" aria-selected={plan3d} onClick={() => setPlan3d(true)}>
+                  3D
+                </button>
+              </div>
+            )}
+            {parcel && plan3d ? (
+              <Plan3D
+                parcel={parcel}
+                sets={props.sets}
+                params={props.params}
+                geometry={props.geometry}
+                obstacles={props.obstacles}
+                selected={selected}
+                elec={props.elec}
+              />
+            ) : parcel ? (
               <PlanEditor
                 parcel={parcel}
                 sets={props.sets}
@@ -174,7 +197,9 @@ export default function SidePanel(props: Props) {
             </button>
           </div>
           <p className="hint">
-            {tool === 'add'
+            {plan3d
+              ? '3D는 보기 전용입니다. 끌어서 돌리고 휠이나 +/−로 확대합니다. 세트 편집은 2D에서 합니다.'
+              : tool === 'add'
               ? '도면이나 지도를 클릭한 자리에 세트가 놓입니다.'
               : tool === 'select'
                 ? '지도에서도 세트를 끌어 옮길 수 있습니다. Shift+드래그로 영역 선택.'
@@ -200,7 +225,9 @@ export default function SidePanel(props: Props) {
         <div className="drawing sld">
           {props.elec ? (
             // 우리가 만든 SVG 문자열만 넣는다
-            <div className="sld-preview" dangerouslySetInnerHTML={{ __html: sld ?? '' }} />
+            <ZoomFrame title="단선결선도">
+              <div className="sld-preview" dangerouslySetInnerHTML={{ __html: sld ?? '' }} />
+            </ZoomFrame>
           ) : (
             <p className="empty">{props.designBusy ? '전기 설계를 계산하는 중입니다.' : '세트를 배치하면 스트링·인버터 구성으로 단선결선도를 그립니다.'}</p>
           )}

@@ -24,7 +24,7 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { buildScene, dailyShadeLoss, shadeTable, snapshot } from './lib/analysis'
+import { buildScene, dailyShadeLoss, panelShadeCells, shadeTable, snapshot } from './lib/analysis'
 import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
@@ -479,11 +479,14 @@ export default function App() {
   )
   const n = dayOfYear(shadeDate.month, shadeDate.day)
   const decl = declination(n)
+  const show3d = mapMode === '3d' && !TOOLS_2D.has(tool)
   const shadeView = useMemo(() => {
     if (!scene || tab !== 'shade') return null
     const solar = kstToSolar(shadeHour, scene.frame.lon0, n)
-    return snapshot(scene, decl, solar)
-  }, [scene, tab, shadeHour, n, decl])
+    const snap = snapshot(scene, decl, solar)
+    // 3D에서 옆·정면으로 봐도 그늘이 보이게 모듈 표면에 떨어진 그림자도 칸별로 구한다.
+    return { ...snap, panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null }
+  }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry])
   const dailyLoss = useMemo(
     () => (scene && tab === 'shade' && sets.length ? dailyShadeLoss(scene, decl) : null),
     [scene, tab, sets.length, decl],
@@ -881,7 +884,6 @@ export default function App() {
     econ: !!econResult,
   }
 
-  const show3d = mapMode === '3d' && !TOOLS_2D.has(tool)
   const mapTerrainView = tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'
   const mapElec = tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null
 
@@ -1335,6 +1337,7 @@ export default function App() {
               obstacles={obstacles}
               shadows={shadeView?.shadows ?? NO_SHADOWS}
               setShade={shadeView?.perSet ?? null}
+              panelShade={shadeView?.panel ?? null}
               terrainCells={terrain?.cells ?? null}
               terrainView={mapTerrainView}
               buildable={buildable}

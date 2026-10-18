@@ -107,7 +107,7 @@ export default function ShadePanel(props: Props) {
           <p className="hint">배치 탭에서 모듈을 먼저 배치하세요.</p>
         )}
         <p className="hint">
-          그늘진 세트는 빨갛게, 그림자는 어둡게 표시됩니다. 하루 손실과 발전량에는 모듈 열끼리의 그림자, 아래에 그린 장애물,
+          그늘진 세트는 빨갛게, 그림자는 어둡게 표시됩니다. 3D 지도에서는 모듈 판 위에 진 그림자를 검게 칠해 정면·측면에서도 보입니다. 하루 손실과 발전량에는 모듈 열끼리의 그림자, 아래에 그린 장애물,
           {props.horizonOn && props.horizon ? ' 주변 산(지형)' : ''} 그늘이 들어갑니다.
         </p>
       </section>

@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import SideElevation from './SideElevation'
+import ZoomFrame from './ZoomFrame'
 import type { LayoutParams, SetGeometry } from '../lib/layout'
 import type { ElecParams, ElecResult } from '../lib/electrical'
 import { inverterSize, MODULE_THICKNESS, RACKING } from '../lib/catalog'
@@ -389,6 +390,7 @@ function DcWiring({ elec, elecParams: e, params: p }: Props) {
           </select>
         </label>
       )}
+      <ZoomFrame title={`DC 결선도 · INV-${elec.inverters[k].id}`}>
       <svg className="side-elev" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="DC 결선도">
         <text x={16} y={18} className="se-title">
           DC 결선도 · INV-{elec.inverters[k].id}
@@ -465,6 +467,7 @@ function DcWiring({ elec, elecParams: e, params: p }: Props) {
           </text>
         </g>
       </svg>
+      </ZoomFrame>
     </>
   )
 }
@@ -480,12 +483,17 @@ export default function DetailDrawings(props: Props) {
           </button>
         ))}
       </div>
-      {sheet === 'side' && <SideElevation params={props.params} geometry={props.geometry} lat={props.lat} />}
-      {sheet === 'front' && <FrontElevation {...props} />}
-      {sheet === 'section' && <SimpleSection {...props} />}
-      {sheet === 'module' && <ModuleOutline {...props} />}
-      {sheet === 'inverter' && <InverterOutline {...props} />}
-      {sheet === 'dc' && <DcWiring {...props} />}
+      {sheet === 'dc' ? (
+        <DcWiring {...props} />
+      ) : (
+        <ZoomFrame title={SHEETS.find(([k]) => k === sheet)![1]}>
+          {sheet === 'side' && <SideElevation params={props.params} geometry={props.geometry} lat={props.lat} />}
+          {sheet === 'front' && <FrontElevation {...props} />}
+          {sheet === 'section' && <SimpleSection {...props} />}
+          {sheet === 'module' && <ModuleOutline {...props} />}
+          {sheet === 'inverter' && <InverterOutline {...props} />}
+        </ZoomFrame>
+      )}
       <p className="hint">
         {sheet === 'side'
           ? '그림자 여유는 동지 정오에 앞열 상단 그림자가 뒷열 앞단에 닿는지로 봅니다.'
