@@ -18,7 +18,7 @@ import {
   type ModuleSet,
 } from './lib/layout'
 import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
-import { deg2rad, LocalFrame, rotate, type Vec } from './lib/geo'
+import { deg2rad, LocalFrame, pointInRing, rotate, type Vec } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
 import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
@@ -37,6 +37,7 @@ import ReportView from './components/ReportView'
 import ElectricalPanel from './components/ElectricalPanel'
 import SidePanel from './components/SidePanel'
 import Resizer from './components/Resizer'
+import { loadTimeline, MERGE_MS, parcelKey, saveTimeline, TIMELINE_MAX, type TimelineEntry } from './lib/timeline'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
 import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult } from './lib/buildable'
@@ -182,8 +183,20 @@ export default function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [econResult, setEconResult] = useState<EconResult | null>(null)
   const drawing = tool === 'draw'
+
+  // ── 작업 타임라인: 부지·배치·설정이 바뀔 때마다 한 줄씩 남기고, 어느 줄로든 돌아갈 수 있다. ──
+  const [timeline, setTimeline] = useState<TimelineEntry[]>(loadTimeline)
+  const [timelineAt, setTimelineAt] = useState<string | null>(null)
+  // 다음 기록에 붙일 이름. 동작마다 정해 두고, 없으면 무엇이 바뀌었는지로 정한다.
+  const pendingLabel = useRef<string | null>(null)
+  const restoring = useRef(false)
+  const mark = (label: string) => {
+    pendingLabel.current = label
+  }
+
   // 필지가 바뀌면 이전 배치는 의미가 없다.
   const setParcel = (p: Parcel | null) => {
+    if (p) mark(`필지 선택 · ${p.address}`)
     setParcelState(p)
     if (!p) setAddingLot(false)
     setTerrain(null)
@@ -211,6 +224,7 @@ export default function App() {
   const undo = () => {
     const prev = history.past.at(-1)
     if (!prev) return
+    mark('되돌리기')
     setHistory({ past: history.past.slice(0, -1), future: [sets, ...history.future] })
     setSets(prev)
     setSelected(new Set())
@@ -218,6 +232,7 @@ export default function App() {
   const redo = () => {
     const next = history.future[0]
     if (!next) return
+    mark('다시실행')
     setHistory({ past: [...history.past, sets], future: history.future.slice(1) })
     setSets(next)
     setSelected(new Set())
@@ -238,16 +253,26 @@ export default function App() {
         if (!f) setMessage('이 위치에서 필지를 찾지 못했습니다.')
         else if (addingLot && lots) {
           const lot = lotFromFeature(f)
-          const next = lots.some((l) => l.pnu === lot.pnu) ? lots.filter((l) => l.pnu !== lot.pnu) : [...lots, lot]
+          const removing = lots.some((l) => l.pnu === lot.pnu)
+          const next = removing ? lots.filter((l) => l.pnu !== lot.pnu) : [...lots, lot]
           setParcel(parcelFromLots(next))
-        } else setParcel(parcelFromFeature(f))
+          mark(removing ? `지번 빼기 · ${lot.address}` : `지번 추가 · ${lot.address}`)
+        } else {
+          const next = parcelFromFeature(f)
+          // 작업 중인 부지를 다른 필지로 바꾸기 전에 한 번 묻는다(되돌릴 길은 타임라인에 남는다).
+          if (parcel && next.pnu !== parcel.pnu && (sets.length || obstacles.length)) {
+            const ok = window.confirm(`${next.address}(으)로 부지를 바꿀까요?\n지금 배치는 화면에서 사라지지만 오른쪽 타임라인에서 다시 돌아올 수 있습니다.`)
+            if (!ok) return
+          }
+          setParcel(next)
+        }
       } catch (e) {
         setMessage((e as Error).message)
       } finally {
         setBusy(false)
       }
     },
-    [vworldKey, addingLot, lots],
+    [vworldKey, addingLot, lots, parcel, sets.length, obstacles.length],
   )
 
   // 부지가 바뀌면 아직 모르는 지번의 용도지역을 찾아 둔다. 결과가 오기 전(undefined)은 조회 중으로 본다.
@@ -339,8 +364,14 @@ export default function App() {
     setParcel({ address: `사각형 영역 ${rect.width}×${rect.depth} m`, rings: [[...ring, ring[0]]], source: 'manual' })
   }
   const onMapClick = (lon: number, lat: number) => {
-    if (tool === 'rect') placeRect(lon, lat)
-    else void selectParcelAt(lon, lat)
+    if (tool === 'rect') return placeRect(lon, lat)
+    if (addingLot) return void selectParcelAt(lon, lat)
+    // 부지가 정해진 뒤에는 필지 단계에서만 지도 클릭으로 부지를 바꾼다.
+    // 다른 단계에서 지도를 누르다가 작업이 사라지는 일을 막는다.
+    if (parcel && tab !== 'parcel') return
+    // 지금 부지 안을 누르면 아무 일도 하지 않는다.
+    if (parcel && parcel.rings.some((r) => pointInRing([lon, lat], r as Vec[]))) return
+    void selectParcelAt(lon, lat)
   }
 
   const onDrawEnd = (ring: number[][]) => {
@@ -350,6 +381,63 @@ export default function App() {
 
   const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
   const geometry = useMemo(() => setGeometry(params), [params])
+
+  // 연속 편집(입력칸 타이핑, 끌어 옮기기 등)은 한 줄로 합친다.
+  const MERGEABLE = /^(배치 설정 변경|장애물 편집|배치 편집|세트 이동|세트 회전|되돌리기|다시실행)$/
+  const lastSnap = useRef<{ parcel: Parcel | null; sets: ModuleSet[]; params: LayoutParams; obstacles: Obstacle[] } | null>(null)
+  useEffect(() => {
+    const prev = lastSnap.current
+    lastSnap.current = { parcel, sets, params, obstacles }
+    const label = pendingLabel.current
+    pendingLabel.current = null
+    if (restoring.current) {
+      restoring.current = false
+      return
+    }
+    if (!prev || !parcel) return
+    const name =
+      label ??
+      (prev.parcel !== parcel ? `필지 선택 · ${parcel.address}` : prev.sets !== sets ? '배치 편집' : prev.obstacles !== obstacles ? '장애물 편집' : '배치 설정 변경')
+    const entry: TimelineEntry = {
+      id: newSetId(),
+      time: Date.now(),
+      label: name,
+      parcel,
+      params,
+      sets,
+      obstacles,
+      kWp: (sets.length * setGeometry(params).watt) / 1000,
+    }
+    setTimeline((tl) => {
+      const last = tl.at(-1)
+      const merge = last && last.label === name && MERGEABLE.test(name) && entry.time - last.time < MERGE_MS && parcelKey(last.parcel) === parcelKey(parcel)
+      if (merge) entry.id = last.id
+      return [...(merge ? tl.slice(0, -1) : tl), entry].slice(-TIMELINE_MAX)
+    })
+    setTimelineAt(entry.id)
+    // 기록할 대상은 부지·배치·설정·장애물뿐이다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, sets, params, obstacles])
+  useEffect(() => saveTimeline(timeline), [timeline])
+
+  /** 타임라인의 한 시점으로 돌아간다. 기록은 지우지 않고, 돌아간 뒤 편집하면 맨 아래에 새 줄이 붙는다. */
+  const restoreTimeline = (e: TimelineEntry) => {
+    restoring.current = true
+    const same = !!parcel && parcelKey(parcel) === parcelKey(e.parcel)
+    if (same) setHistory((h) => ({ past: [...h.past.slice(-49), sets], future: [] }))
+    else {
+      setParcel(e.parcel)
+      const [lon, lat] = interiorPoint(e.parcel.rings)
+      setFlyTo({ lon, lat, seq: Date.now() })
+    }
+    // 새 배열로 넣어야 상태가 바뀐 것으로 잡힌다(같은 시점을 다시 골라도).
+    setParams({ ...e.params })
+    setSets([...e.sets])
+    setObstacles([...e.obstacles])
+    setSelected(new Set())
+    setTool('none')
+    setTimelineAt(e.id)
+  }
   const stats = layoutStats(sets, geometry, area)
   const suggestedRowSpacing = useMemo(() => {
     if (!parcel) return null
@@ -438,6 +526,7 @@ export default function App() {
 
   const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
+    mark('AI 배치안 적용')
     setParams(nextParams)
     editSets(nextSets)
     setSelected(new Set())
@@ -484,6 +573,7 @@ export default function App() {
   const runAutoLayout = () => {
     if (!parcel) return
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
+    mark('자동 배치')
     editSets(autoLayout(parcel, params, 0, mask))
     setSelected(new Set())
   }
@@ -501,24 +591,30 @@ export default function App() {
 
   const onMoveSets = (moved: Array<{ id: string; lon: number; lat: number }>) => {
     const byId = new Map(moved.map((m) => [m.id, m]))
+    mark(moved.length > 1 ? `세트 ${moved.length}개 이동` : '세트 이동')
     editSets((prev) => prev.map((s) => (byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)))
   }
 
   const onAddSet = (lon: number, lat: number) => {
     const s: ModuleSet = { id: newSetId(), lon, lat, azimuth: params.azimuth }
+    mark('세트 추가')
     editSets((prev) => [...prev, s])
     setSelected(new Set([s.id]))
   }
 
   const deleteSelected = () => {
+    mark(selected.size > 1 ? `세트 ${selected.size}개 삭제` : '세트 삭제')
     editSets((prev) => prev.filter((s) => !selected.has(s.id)))
     setSelected(new Set())
   }
 
-  const rotateSelected = (deg: number) =>
+  const rotateSelected = (deg: number) => {
+    mark('세트 회전')
     editSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: s.azimuth + deg } : s)))
+  }
 
   const clearSets = () => {
+    mark('전체 지우기')
     editSets([])
     setSelected(new Set())
   }
@@ -620,6 +716,7 @@ export default function App() {
   const designBusy = !!designInput && designState?.input !== designInput
 
   const onModule = (m: ModuleSpec) => {
+    mark(`모듈 변경 · ${m.label}`)
     setParams({ ...params, moduleLength: m.length, moduleWidth: m.width, moduleWatt: m.watt })
     setElec({ ...elec, voc: m.voc, vmp: m.vmp, isc: m.isc, imp: m.imp, betaVoc: m.betaVoc, gammaPmax: m.gammaPmax })
   }
@@ -1321,6 +1418,10 @@ export default function App() {
           canRedo={history.future.length > 0}
           onUndo={undo}
           onRedo={redo}
+          timeline={timeline}
+          timelineAt={timelineAt}
+          onRestore={restoreTimeline}
+          onClearTimeline={() => setTimeline([])}
         />
       </aside>
     </div>
