@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView, { type FlyTarget, type MapTool } from './components/MapView'
-import LayoutPanel from './components/LayoutPanel'
+import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 
 // 3D 지도(MapLibre)는 무거워서 처음 3D로 볼 때 따로 읽는다.
 const Map3D = lazy(() => import('./components/Map3D'))
@@ -24,11 +24,12 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { buildScene, dailyShadeLoss, panelShadeCells, shadeTable, snapshot } from './lib/analysis'
-import { KOREA_GHI, simulateEnergy, type EnergyResult } from './lib/energy'
+import { buildScene, dailyShadeLoss, panelShadeCells, snapshot } from './lib/analysis'
+import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
 import OptimizePanel from './components/OptimizePanel'
+import { zonedLayout } from './lib/zones'
 import { STRATEGIES, type Candidate, type OptimizeInput } from './lib/optimize'
 import { runOptimizePool } from './lib/optimizePool'
 import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
@@ -45,7 +46,7 @@ import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type Builda
 import { sampleElevGrid, type ElevGrid } from './lib/elevation'
 import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
 import { DEFAULT_COSTS, type CostParams } from './lib/costs'
-import type { DesignInput, DesignResult } from './lib/design'
+import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
 import { RACKING, type ModuleSpec } from './lib/catalog'
 import {
@@ -142,6 +143,7 @@ export default function App() {
   const [performanceRatio, setPerformanceRatio] = useState(0.86)
   const [tempOn, setTempOn] = useState(true)
   const [tempCoeff, setTempCoeff] = useState(DEFAULT_TEMP_COEFF)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('grid')
   // 'auto'면 필지에서 가장 가까운 권역
   const [stationId, setStationId] = useState('auto')
   const [withShade, setWithShade] = useState(true)
@@ -582,21 +584,20 @@ export default function App() {
   const mask = useMask && buildable ? buildable.mask : null
 
   const runEnergy = () => {
-    if (!scene || !sets.length) return
+    if (!parcel || !sets.length) return
     setEnergyBusy(true)
     // 화면이 "계산 중"을 그릴 틈을 준다.
     setTimeout(() => {
-      const shade = withShade ? shadeTable(scene) : undefined
       setEnergy(
-        simulateEnergy({
-          latDeg: scene.frame.lat0,
-          tilt: params.tilt,
-          azimuth: params.azimuth,
+        layoutEnergy({
+          rings: parcel.rings,
+          sets,
+          obstacles,
+          params,
+          horizon,
+          shade: withShade ? 'full' : false,
           kWp: stats.kWp,
           performanceRatio,
-          albedo: 0.2,
-          ghi: KOREA_GHI,
-          shade,
           temperature,
         }),
       )
@@ -608,7 +609,8 @@ export default function App() {
     if (!parcel) return
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
     mark('자동 배치')
-    editSets(autoLayout(parcel, params, 0, mask))
+    const zoned = layoutMode === 'grid' ? null : zonedLayout(parcel, params, { mode: layoutMode, mask })
+    editSets(zoned ?? autoLayout(parcel, params, 0, mask))
     setSelected(new Set())
   }
 
@@ -975,6 +977,8 @@ export default function App() {
             geometry={geometry}
             onModule={onModule}
             maskActive={!!mask}
+            layoutMode={layoutMode}
+            onLayoutMode={setLayoutMode}
           />
         )}
 

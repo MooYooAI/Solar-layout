@@ -1,5 +1,6 @@
 import type { LayoutParams, SetGeometry } from '../lib/layout'
 import { MODULES, RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
+import type { ZoneMode } from '../lib/zones'
 
 interface Props {
   params: LayoutParams
@@ -11,7 +12,19 @@ interface Props {
   onModule: (m: ModuleSpec) => void
   /** 설계 가능 영역을 자동 배치에 반영 중인지 */
   maskActive: boolean
+  layoutMode: LayoutMode
+  onLayoutMode: (m: LayoutMode) => void
 }
+
+/** 자동 배치 방식: 한 방향 격자, 또는 구역별 방위각(zones.ts) */
+export type LayoutMode = 'grid' | ZoneMode
+
+const LAYOUT_MODES: Array<[LayoutMode, string]> = [
+  ['grid', '한 방향'],
+  ['fill', '한 방향 + 빈자리 채우기'],
+  ['edge', '구역별 방위(경계 방향)'],
+  ['half', '구역별 방위(절충)'],
+]
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 
@@ -144,6 +157,24 @@ export default function LayoutPanel(props: Props) {
           </p>
         )}
         <p className="hint">세트 간격은 같은 열에서 옆 세트와의 거리, 열 이격거리는 앞 세트 뒤끝부터 뒷 세트 앞끝까지입니다.</p>
+        <label className="field">
+          <span>배치 방식</span>
+          <select value={props.layoutMode} onChange={(e) => props.onLayoutMode(e.target.value as LayoutMode)}>
+            {LAYOUT_MODES.map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {props.layoutMode !== 'grid' && (
+          <p className="hint">
+            {props.layoutMode === 'fill'
+              ? '위 방위각으로 채운 뒤, 경계를 따라 남은 자리에 경계 방향으로 돌린 세트를 더 놓습니다.'
+              : '필지 경계 가운데 남쪽을 보는 긴 변마다 구역을 나누고, 구역마다 그 변에 맞춘 방위각(절충은 위 방위각과의 중간)과 그 방향에 맞는 열 이격거리로 채웁니다. 경사각은 모든 구역이 같습니다.'}{' '}
+            비스듬한 경계가 없는 필지는 한 방향 배치와 같습니다.
+          </p>
+        )}
         <button type="button" className="block" disabled={!props.canLayout} onClick={props.onAutoLayout}>
           자동 배치
         </button>

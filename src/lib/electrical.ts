@@ -177,20 +177,21 @@ export function designElectrical(
   if (kWac >= 1000 && e.inverterKW < 100)
     warnings.push('1MW 이상 부지는 대용량 인버터(예: 300kW, 800V)를 쓰면 대수와 AC 케이블이 크게 줄어듭니다.')
 
-  // 세트 방향 좌표계(+x 열 방향, +y 뒤쪽)로 돌려 열을 묶는다.
+  // 세트 방향 좌표계(+x 열 방향, +y 뒤쪽)로 돌려 열을 묶는다. 방위각이 섞인 배치는 방위각마다 따로 묶는다.
   const frame = LocalFrame.around(parcel.rings)
+  // 케이블 경로는 기준 방위각 좌표계에서 꺾는다.
   const r = -deg2rad(p.azimuth)
   const toRow = (v: Vec) => rotate(v, -r)
   const fromRow = (v: Vec) => rotate(v, r)
   const items = sets.map((s) => {
     const local = frame.toLocal([s.lon, s.lat])
-    return { s, local, row: toRow(local) }
+    return { s, local, row: rotate(local, deg2rad(s.azimuth)) }
   })
-  items.sort((a, b) => a.row[1] - b.row[1])
+  items.sort((a, b) => a.s.azimuth - b.s.azimuth || a.row[1] - b.row[1])
   const rows: (typeof items)[] = []
   for (const it of items) {
     const last = rows.at(-1)
-    if (last && Math.abs(it.row[1] - last[0].row[1]) < g.depth / 2) last.push(it)
+    if (last && last[0].s.azimuth === it.s.azimuth && Math.abs(it.row[1] - last[0].row[1]) < g.depth / 2) last.push(it)
     else rows.push([it])
   }
   const ordered = rows.flatMap((row, i) => row.sort((a, b) => (i % 2 ? b.row[0] - a.row[0] : a.row[0] - b.row[0])))
@@ -252,7 +253,7 @@ export function designElectrical(
         best = it
       }
     }
-    const pos = fromRow([best.row[0], best.row[1] + g.depth / 2 + 0.5])
+    const pos = rotate([best.row[0], best.row[1] + g.depth / 2 + 0.5], -deg2rad(best.s.azimuth))
     inverters.push({
       id: i + 1,
       pos,

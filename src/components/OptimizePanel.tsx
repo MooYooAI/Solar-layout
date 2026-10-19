@@ -2,6 +2,7 @@ import { STRATEGIES, type Candidate } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
 import { RACKING } from '../lib/catalog'
+import { azimuthMix, type ZoneMode } from '../lib/zones'
 
 /** 비교 목록에 저장한 배치안 */
 export interface Scenario {
@@ -34,6 +35,11 @@ const fmt = (n: number, d = 0) => n.toLocaleString('ko-KR', { maximumFractionDig
 const eok = (manwon: number) => fmt(manwon / 10000, 2)
 const pct = (v: number | null) => (v === null ? '-' : `${fmt(v * 100, 1)}%`)
 const az = (a: number) => (a === 0 ? '정남' : `${a > 0 ? '서' : '동'} ${Math.abs(a)}°`)
+const ZONE_LABEL: Record<ZoneMode, string> = {
+  edge: '구역별 방위(경계 방향)',
+  half: '구역별 방위(절충)',
+  fill: '한 방향 + 빈자리 채우기',
+}
 
 export default function OptimizePanel(props: Props) {
   const { progress, results } = props
@@ -64,8 +70,9 @@ export default function OptimizePanel(props: Props) {
         <h2>AI 설계</h2>
         <p className="hint" style={{ marginTop: 0 }}>
           모듈 종류·구조물·세트 구성·간격은 배치 탭, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각·피치(열 이격거리)·첫
-          열 위치를 바꿔 수십 가지 배치를 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를
-          계산해 네 가지 기준의 최선안을 고릅니다.
+          열 위치를 바꿔 수십 가지 배치를 만듭니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘 방위각으로 채우거나 남은 자리를 다른
+          방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 네
+          가지 기준의 최선안을 고릅니다. 경사각은 모든 구역이 같습니다.
         </p>
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
@@ -112,8 +119,16 @@ export default function OptimizePanel(props: Props) {
             </dd>
             <dt>경사·방위</dt>
             <dd>
-              {fmt(c.params.tilt, 1)}° · {az(c.params.azimuth)} · {RACKING[c.params.racking].label}
+              {fmt(c.params.tilt, 1)}° · {c.zone ? '아래 구역별' : az(c.params.azimuth)} · {RACKING[c.params.racking].label}
             </dd>
+            {c.zone && (
+              <>
+                <dt>배치 방식</dt>
+                <dd>
+                  {ZONE_LABEL[c.zone]}: {azimuthMix(c.sets).map((m) => `${az(m.azimuth)} ${fmt(m.count)}세트`).join(' · ')}
+                </dd>
+              </>
+            )}
             <dt>열 이격·피치</dt>
             <dd>
               {fmt(c.params.rowSpacing, 1)} m · {fmt(c.params.rowSpacing + setGeometry(c.params).depth, 2)} m
