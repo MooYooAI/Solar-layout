@@ -1,6 +1,6 @@
-// AI 설계를 여러 웹 워커에 나눠 돌린다. 1차 훑기 후보와 2차 정밀 계산 후보를 워커 수만큼 쪼개 동시에 평가한다.
+// AI 설계를 여러 웹 워커에 나눠 돌린다. 1차 훑기, 2차 정밀 계산, 3차 구역별 배치 후보를 워커 수만큼 쪼개 동시에 평가한다.
 
-import { pickCandidates, planCoarse, planRefine, type Candidate, type Evaluated, type OptimizeInput, type Task } from './optimize'
+import { pickCandidates, planCoarse, planRefine, planZoned, type Candidate, type Evaluated, type OptimizeInput, type Task } from './optimize'
 
 export interface OptimizeRun {
   promise: Promise<Candidate[]>
@@ -47,7 +47,9 @@ export function runOptimizePool(
       const coarse = await runPhase(planCoarse(input), true, '후보 훑는 중')
       if (cancelled) return []
       const fine = await runPhase(planRefine(coarse), false, '상위 후보 정밀 계산 중')
-      return pickCandidates(fine)
+      if (cancelled) return []
+      const zoned = await runPhase(planZoned(fine), false, '구역별 배치 계산 중')
+      return pickCandidates([...fine, ...zoned])
     } finally {
       workers.forEach((w) => w.terminate())
     }

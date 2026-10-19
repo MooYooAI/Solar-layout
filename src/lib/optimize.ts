@@ -3,6 +3,7 @@
 // 경사각·방위각·열 이격거리(피치)와 첫 열 시작 위치를 바꿔 가며 설계 가능 영역에 채운다. 후보마다 전기 설계,
 // 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 기준별로 고른다.
 // 1차는 빠른 근사(네 계절, 1시간 간격)로 넓게 훑고, 상위 후보만 정밀 계산으로 다시 평가한다.
+// 3차로 기준별 최선안을 구역별 방위각 배치와 빈자리 채우기(zones.ts)로 바꿔 본 안도 정밀 계산해 함께 견준다.
 
 import { LocalFrame } from './geo'
 import type { TempModel } from './climate'
@@ -17,6 +18,7 @@ import { autoLayout, setGeometry, type LayoutParams, type ModuleSet } from './la
 import type { Parcel } from './parcel'
 import type { Obstacle } from './shading'
 import { rowSpacingForNoShade } from './sun'
+import { zonedLayout, type ZoneMode } from './zones'
 
 export type Strategy = 'energy' | 'lcoe' | 'balanced' | 'yield'
 
@@ -48,6 +50,8 @@ export interface Candidate {
   params: LayoutParams
   sets: ModuleSet[]
   rowOffset: number
+  /** 구역별 배치로 만든 안이면 그 방식 */
+  zone?: ZoneMode
   metrics: DesignMetrics
 }
 
@@ -105,11 +109,14 @@ const FINE_SHADE_SETS = 100
 export interface Task {
   params: LayoutParams
   rowOffset: number
+  zone?: ZoneMode
 }
 
 export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluated | null {
-  const sets = autoLayout(o.parcel, t.params, t.rowOffset, o.mask)
-  if (!sets.length) return null
+  const sets = t.zone
+    ? zonedLayout(o.parcel, t.params, { mode: t.zone, rowOffset: t.rowOffset, mask: o.mask })
+    : autoLayout(o.parcel, t.params, t.rowOffset, o.mask)
+  if (!sets?.length) return null
   const { metrics } = evaluateDesign(
     {
       parcel: o.parcel,
@@ -126,7 +133,7 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
     },
     quick ? { shade: 'quick', maxShadeSets: COARSE_SHADE_SETS } : { shade: 'medium', maxShadeSets: FINE_SHADE_SETS },
   )
-  return { params: t.params, sets, rowOffset: t.rowOffset, metrics }
+  return { params: t.params, sets, rowOffset: t.rowOffset, zone: t.zone, metrics }
 }
 
 /** 1차: 빠른 근사로 넓게 훑을 후보(경사각 × 방위각 × 열 이격거리) */
@@ -174,6 +181,17 @@ export function planRefine(coarse: Evaluated[]): Task[] {
   return refine
 }
 
+/** 3차: 기준별 최선안을 구역별 배치(경계 방향, 절충 방향)와 빈자리 채우기로 바꿔 볼 후보 */
+export function planZoned(fine: Evaluated[]): Task[] {
+  const seeds = new Map<string, Evaluated>()
+  for (const strategy of Object.keys(STRATEGIES) as Strategy[]) {
+    const c = pick(fine, strategy)
+    if (c) seeds.set(`${c.params.tilt}|${c.params.azimuth}|${c.params.rowSpacing}|${c.rowOffset}`, c)
+  }
+  const modes: ZoneMode[] = ['edge', 'half', 'fill']
+  return [...seeds.values()].flatMap((s) => modes.map((zone) => ({ params: s.params, rowOffset: s.rowOffset, zone })))
+}
+
 export function pickCandidates(fine: Evaluated[]): Candidate[] {
   const out: Candidate[] = []
   for (const strategy of Object.keys(STRATEGIES) as Strategy[]) {
@@ -196,6 +214,12 @@ export function optimize(o: OptimizeInput, onProgress?: Progress): Candidate[] {
   const fine: Evaluated[] = []
   refine.forEach((t, i) => {
     onProgress?.(i, refine.length, '상위 후보 정밀 계산 중')
+    const c = evaluateTask(o, t, false)
+    if (c) fine.push(c)
+  })
+  const zoned = planZoned(fine)
+  zoned.forEach((t, i) => {
+    onProgress?.(i, zoned.length, '구역별 배치 계산 중')
     const c = evaluateTask(o, t, false)
     if (c) fine.push(c)
   })

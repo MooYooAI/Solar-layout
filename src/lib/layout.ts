@@ -129,6 +129,20 @@ export const newSetId = () => `s${Date.now().toString(36)}${(idSeq++).toString(3
  * mask(설계 가능 영역)를 주면 경사·배수 제외 구역에 걸치는 자리는 건너뛴다.
  */
 export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?: BuildMask | null): ModuleSet[] {
+  return fillLayout(parcel, p, { rowOffset, mask })
+}
+
+export interface FillOptions {
+  rowOffset?: number
+  mask?: BuildMask | null
+  /** 세트 바닥 네 꼭짓점(필지 중심 기준 로컬 m)이 이 구역에 들어가는 자리만 쓴다. */
+  accept?: (quad: Vec[]) => boolean
+  /** 이미 놓인 세트. 이 세트들과 겹치거나 간격을 침범하는 자리는 건너뛴다. 새로 놓은 세트도 여기에 더한다. */
+  occupied?: Occupancy
+}
+
+/** autoLayout의 일반형. 구역 제한과 이미 놓인 세트를 피해 채운다(구역별 배치·빈자리 채우기). */
+export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {}): ModuleSet[] {
   const g = setGeometry(p)
   if (g.width <= 0 || g.depth <= 0) return []
   const frame = LocalFrame.around(parcel.rings)
@@ -139,7 +153,9 @@ export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?
   const rowPitch = g.depth + p.rowSpacing
   const colPitch = g.width + p.setGap / 1000
   const step = 0.25
-  const blocked = mask ? footprintBlocked(mask, frame, g) : null
+  const blocked = o.mask ? footprintBlocked(o.mask, frame, g) : null
+  const rowOffset = o.rowOffset ?? 0
+  const toFrame = (q: Vec[]) => q.map((v) => rotate(v, r))
 
   for (const ring of rings) {
     const xs = ring.map((v) => v[0])
@@ -150,9 +166,15 @@ export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?
       let cx = minX + p.boundarySetback + g.width / 2
       while (cx + g.width / 2 <= maxX) {
         const quad = setQuadLocal([cx, cy], 0, g)
-        if (quadFitsInRing(quad, ring, p.boundarySetback) && !blocked?.(cx, cy, r)) {
+        const ok =
+          quadFitsInRing(quad, ring, p.boundarySetback) &&
+          !blocked?.(cx, cy, r) &&
+          (!o.accept || o.accept(toFrame(quad))) &&
+          (!o.occupied || o.occupied.free(toFrame(quad), toFrame(clearanceQuad([cx, cy], g, p))))
+        if (ok) {
           const [lon, lat] = frame.toLonLat(rotate([cx, cy], r))
           out.push({ id: newSetId(), lon, lat, azimuth: p.azimuth })
+          o.occupied?.add(toFrame(quad), toFrame(clearanceQuad([cx, cy], g, p)))
           cx += colPitch
         } else {
           cx += step
@@ -161,6 +183,108 @@ export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?
     }
   }
   return out
+}
+
+/** 세트 바닥을 옆으로 세트 간격, 앞뒤로 열 이격거리만큼 넓힌 사각형(세트 좌표계). 다른 세트가 들어오면 안 되는 범위. */
+function clearanceQuad(center: Vec, g: SetGeometry, p: LayoutParams): Vec[] {
+  // 경계에 딱 맞닿는 이웃은 허용하도록 조금 줄인다.
+  const gx = Math.max(0, p.setGap / 1000 - 0.01)
+  const gy = Math.max(0, p.rowSpacing - 0.01)
+  const [cx, cy] = center
+  const hw = g.width / 2 + gx
+  const hd = g.depth / 2 + gy
+  return [
+    [cx - hw, cy - hd],
+    [cx + hw, cy - hd],
+    [cx + hw, cy + hd],
+    [cx - hw, cy + hd],
+  ]
+}
+
+/**
+ * 이미 놓인 세트 바닥과 그 간격 범위(필지 중심 기준 로컬 m). 방향이 다른 세트끼리도 겹침을 판정한다.
+ * 새 세트는 남의 간격 범위를 침범하지 않고, 자기 간격 범위에 남의 바닥이 들어오지 않아야 한다.
+ */
+export class Occupancy {
+  private readonly cells = new Map<string, number[]>()
+  private readonly items: Array<{ quad: Vec[]; clear: Vec[] }> = []
+  private static readonly CELL = 10
+
+  /** 이미 있는 세트로 채운다. */
+  static from(parcel: Parcel, sets: ModuleSet[], p: LayoutParams): Occupancy {
+    const occ = new Occupancy()
+    const g = setGeometry(p)
+    const frame = LocalFrame.around(parcel.rings)
+    for (const s of sets) {
+      const r = mapRotation(s.azimuth)
+      const c = frame.toLocal([s.lon, s.lat])
+      const place = (q: Vec[]) => q.map((v) => {
+        const [x, y] = rotate(v, r)
+        return [x + c[0], y + c[1]] as Vec
+      })
+      occ.add(place(setQuadLocal([0, 0], 0, g)), place(clearanceQuad([0, 0], g, p)))
+    }
+    return occ
+  }
+
+  add(quad: Vec[], clear: Vec[]) {
+    const i = this.items.length
+    this.items.push({ quad, clear })
+    for (const key of this.keys(clear)) {
+      const list = this.cells.get(key)
+      if (list) list.push(i)
+      else this.cells.set(key, [i])
+    }
+  }
+
+  free(quad: Vec[], clear: Vec[]): boolean {
+    const seen = new Set<number>()
+    for (const key of this.keys(clear))
+      for (const i of this.cells.get(key) ?? []) {
+        if (seen.has(i)) continue
+        seen.add(i)
+        const it = this.items[i]
+        if (convexOverlap(clear, it.quad) || convexOverlap(quad, it.clear)) return false
+      }
+    return true
+  }
+
+  private keys(q: Vec[]): string[] {
+    const C = Occupancy.CELL
+    const xs = q.map((v) => v[0])
+    const ys = q.map((v) => v[1])
+    const out: string[] = []
+    for (let i = Math.floor(Math.min(...xs) / C); i <= Math.floor(Math.max(...xs) / C); i++)
+      for (let j = Math.floor(Math.min(...ys) / C); j <= Math.floor(Math.max(...ys) / C); j++) out.push(`${i},${j}`)
+    return out
+  }
+}
+
+/** 볼록 다각형 두 개가 겹치는지(분리축 판정). 변이 맞닿기만 하면 겹치지 않은 것으로 본다. */
+function convexOverlap(a: Vec[], b: Vec[]): boolean {
+  for (const poly of [a, b])
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i]
+      const [x2, y2] = poly[(i + 1) % poly.length]
+      const nx = y1 - y2
+      const ny = x2 - x1
+      let minA = Infinity
+      let maxA = -Infinity
+      for (const [x, y] of a) {
+        const d = x * nx + y * ny
+        minA = Math.min(minA, d)
+        maxA = Math.max(maxA, d)
+      }
+      let minB = Infinity
+      let maxB = -Infinity
+      for (const [x, y] of b) {
+        const d = x * nx + y * ny
+        minB = Math.min(minB, d)
+        maxB = Math.max(maxB, d)
+      }
+      if (maxA <= minB + 1e-9 || maxB <= minA + 1e-9) return false
+    }
+  return true
 }
 
 /**
