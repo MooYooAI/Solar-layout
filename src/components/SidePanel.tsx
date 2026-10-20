@@ -3,6 +3,7 @@ import PlanEditor from './PlanEditor'
 import Plan3D from './Plan3D'
 import ZoomFrame from './ZoomFrame'
 import DetailDrawings from './DetailDrawings'
+import Overview, { type OverviewStep } from './Overview'
 import { LocalFrame } from '../lib/geo'
 import type { MapTool } from './MapView'
 import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
@@ -10,6 +11,8 @@ import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecParams, ElecResult } from '../lib/electrical'
 import { buildSld, sldToSvg } from '../lib/export/sld'
+import type { EnergyResult } from '../lib/energy'
+import type { EconSettings } from './EconomicsPanel'
 
 interface Props {
   parcel: Parcel | null
@@ -37,6 +40,14 @@ interface Props {
   onRedo: () => void
   /** 돌아갈 작업 기록이 있는지(타임라인은 상단 바에 있다) */
   hasTimeline: boolean
+  /** 개요 보기에 쓰는 값 */
+  area: number
+  zoning: string[]
+  energy: EnergyResult | null
+  econ: EconSettings
+  econHours: number
+  steps: OverviewStep[]
+  onGoStep: (key: string) => void
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
@@ -44,7 +55,7 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 /** 오른쪽 작업면: 가배치 도면을 보고 바로 고치는 곳, 전기 설계가 끝나면 단선결선도도 본다. */
 export default function SidePanel(props: Props) {
   const { parcel, stats, tool, onTool, selected } = props
-  const [view, setView] = useState<'plan' | 'side' | 'sld'>('plan')
+  const [view, setView] = useState<'overview' | 'plan' | 'side' | 'sld'>('plan')
   const [plan3d, setPlan3d] = useState(false)
   const n = selected.size
   const sld = useMemo(
@@ -59,6 +70,9 @@ export default function SidePanel(props: Props) {
     <div className="side-inner">
       <div className="side-head">
         <div className="seg" role="tablist" aria-label="오른쪽 보기">
+          <button type="button" role="tab" aria-selected={view === 'overview'} onClick={() => setView('overview')}>
+            개요
+          </button>
           <button type="button" role="tab" aria-selected={view === 'plan'} onClick={() => setView('plan')}>
             배치도
           </button>
@@ -102,7 +116,21 @@ export default function SidePanel(props: Props) {
         </div>
       </dl>
 
-      {view === 'plan' ? (
+      {view === 'overview' ? (
+        <Overview
+          parcel={parcel}
+          area={props.area}
+          zoning={props.zoning}
+          params={props.params}
+          stats={stats}
+          energy={props.energy}
+          elec={props.elec}
+          econ={props.econ}
+          econHours={props.econHours}
+          steps={props.steps}
+          onGo={props.onGoStep}
+        />
+      ) : view === 'plan' ? (
         <>
           <div className="drawing">
             {parcel && (

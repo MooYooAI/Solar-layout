@@ -332,6 +332,22 @@ details.chart summary { cursor: pointer; }
 .toolbar .primary { margin-right: auto; }
 .toolbar-sep { width: 1px; height: 20px; background: var(--line); }
 .side-inner > .hint { margin: 0; font-size: 12px; }
+.overview { display: grid; gap: 10px; }
+.overview-empty { margin: 0; padding: 40px 12px; text-align: center; color: var(--muted); font-size: 13px; border: 1px dashed var(--line); border-radius: var(--r-md); }
+.ov-card { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); animation: app-in 0.35s ease both; }
+.ov-card:nth-child(2) { animation-delay: 0.04s; } .ov-card:nth-child(3) { animation-delay: 0.08s; } .ov-card:nth-child(4) { animation-delay: 0.12s; } .ov-card:nth-child(5) { animation-delay: 0.16s; } .ov-card:nth-child(6) { animation-delay: 0.2s; }
+.ov-card h3 { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 8px; font-size: 13px; font-weight: 650; }
+.ov-card h3 span { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-card .hint { margin: 6px 0 0; font-size: 12px; }
+.ov-card .facts dd small { color: var(--muted); }
+.ov-progress { height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 10px; }
+.ov-progress > div { height: 100%; background: var(--accent-grad); border-radius: inherit; transition: width 0.4s ease; }
+.ov-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.ov-steps button { width: 100%; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; background: none; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--muted); font-size: 12px; font-weight: 500; }
+.ov-steps button:hover:not(:disabled) { background: var(--sunken); filter: none; color: var(--text); }
+.ov-steps i { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--line); font-style: normal; font-size: 10px; }
+.ov-steps .done button { color: var(--text); }
+.ov-steps .done i { background: var(--accent-grad); border-color: transparent; color: white; }
 
 .plan { position: absolute; inset: 0; }
 .plan-svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: default; user-select: none; }
@@ -777,7 +793,7 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 @media (max-width: 1100px) { .brand span { display: none; } .brand { padding: 0; justify-content: center; } }
 @media (max-width: 900px) { .brand { min-width: 56px; border-right: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .app > .panel, .app > .map-wrap, .app > .side, .app > .rail li, .app-loading::before { animation: none !important; }
+  .app > .panel, .app > .map-wrap, .app > .side, .app > .rail li, .app-loading::before, .ov-card { animation: none !important; }
 }
 /* 지도 라이브러리 기본 버튼은 그라데이션을 받지 않는다 */
 .maplibregl-ctrl button, .maplibregl-ctrl button:hover:not(:disabled) { background: var(--surface); filter: none; }
