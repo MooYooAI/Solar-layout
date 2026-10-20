@@ -1735,6 +1735,10 @@ export default function App() {
         energy={energy}
         econ={econ}
         econHours={econHours}
+        terrain={terrain}
+        design={design}
+        designCapex={capexMode === 'design' && design ? design.metrics.capex.total : null}
+        horizon={horizon}
         onClose={() => setShowReport(false)}
       />
     )}
