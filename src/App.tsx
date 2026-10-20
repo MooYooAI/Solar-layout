@@ -83,6 +83,9 @@ const TABS: Array<[Tab, string, string]> = [
   ['export', '내보내기', '도면(DXF)과 표(CSV)를 받습니다.'],
 ]
 
+/** 오른쪽 개요의 진행 상황에 보여 줄 단계 */
+const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
+
 /** 왼쪽 입력 패널·오른쪽 작업면 폭(px). 사용자가 끈 값을 브라우저에 기억한다. */
 const DEFAULT_PANES = { left: 372, right: 400 }
 const PANE_LIMITS = { left: [300, 640], right: [300, 760] } as const
@@ -1707,6 +1710,13 @@ export default function App() {
           onUndo={undo}
           onRedo={redo}
           hasTimeline={timeline.length > 0}
+          area={area}
+          zoning={parcelZoning}
+          energy={energy}
+          econ={econ}
+          econHours={econHours}
+          steps={OVERVIEW_STEPS.map((t) => ({ key: t, label: TABS.find((x) => x[0] === t)![1], done: !!stepDone[t] }))}
+          onGoStep={(k) => switchTab(k as Tab)}
         />
       </aside>
     </div>
