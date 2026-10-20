@@ -718,3 +718,6 @@ kbd { font: 600 10px/1 inherit; padding: 2px 4px; border: 1px solid var(--line-s
 .ai-foot button { height: 28px; font-size: 12px; }
 .progress.indeterminate > div { width: 35% !important; animation: indeterminate 1.4s ease-in-out infinite; }
 @keyframes indeterminate { from { translate: -100% 0; } to { translate: 290% 0; } }
+
+.sun-times { margin-top: 8px; }
+.sun-times small { color: var(--muted); margin-left: 4px; }

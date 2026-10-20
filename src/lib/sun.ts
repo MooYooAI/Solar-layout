@@ -1,8 +1,20 @@
 import { deg2rad } from './geo'
 
-/** 태양 적위(도). n = 1월 1일부터의 날짜 순번(1..365). Cooper 식. */
+/**
+ * 태양 적위(도). n = 1월 1일부터의 날짜 순번(1..365). Spencer 식.
+ * 예전 Cooper 식은 춘분·추분 무렵 1° 가까이 틀려 일출·일몰이 2~3분 어긋났다(Spencer는 0.1° 안쪽).
+ */
 export function declination(n: number): number {
-  return 23.45 * Math.sin(deg2rad((360 * (284 + n)) / 365))
+  const g = (2 * Math.PI * (n - 1)) / 365
+  const rad =
+    0.006918 -
+    0.399912 * Math.cos(g) +
+    0.070257 * Math.sin(g) -
+    0.006758 * Math.cos(2 * g) +
+    0.000907 * Math.sin(2 * g) -
+    0.002697 * Math.cos(3 * g) +
+    0.00148 * Math.sin(3 * g)
+  return (rad * 180) / Math.PI
 }
 
 export const DAY_OF_YEAR = {
@@ -60,9 +72,27 @@ export function equationOfTime(n: number): number {
   return 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b)
 }
 
+/** 일출·일몰 높이각: 대기 굴절(34′)과 해 반지름(16′)만큼 해가 지평선 아래 있을 때 뜨고 진다(천문연 기준과 같다). */
+const RISE_ALT = deg2rad(-0.833)
+
+/** 해가 뜨고 지는 태양시(시). 백야·극야면 null. 계산은 고도 0° 기준을 쓰고, 이 값은 화면 표시용이다. */
+export function sunriseSunsetSolar(latDeg: number, declDeg: number): { rise: number; set: number } | null {
+  const lat = deg2rad(latDeg)
+  const dec = deg2rad(declDeg)
+  const c = (Math.sin(RISE_ALT) - Math.sin(lat) * Math.sin(dec)) / (Math.cos(lat) * Math.cos(dec))
+  if (c <= -1 || c >= 1) return null
+  const ws = (Math.acos(c) * 180) / Math.PI / 15
+  return { rise: 12 - ws, set: 12 + ws }
+}
+
 /** 한국 표준시(KST, 동경 135°) → 태양시(시) */
 export function kstToSolar(kstHour: number, lonDeg: number, n: number): number {
   return kstHour + (4 * (lonDeg - 135) + equationOfTime(n)) / 60
+}
+
+/** 태양시 → 한국 표준시(시) */
+export function solarToKst(solarHour: number, lonDeg: number, n: number): number {
+  return solarHour - (4 * (lonDeg - 135) + equationOfTime(n)) / 60
 }
 
 export function dayOfYear(month: number, day: number): number {
