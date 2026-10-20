@@ -89,7 +89,7 @@ const dims = (p: LayoutParams) => ({
 })
 
 /** 정면도: 남쪽에서 본 세트. 한 세트 전체와 옆 세트 일부, 세트 사이 간격. */
-function FrontElevation({ params: p, geometry: g }: Props) {
+export function FrontElevation({ params: p, geometry: g }: Props) {
   const pad = 46
   const { along, across, gap } = dims(p)
   const setGap = p.setGap / 1000
@@ -152,7 +152,7 @@ function FrontElevation({ params: p, geometry: g }: Props) {
 }
 
 /** 간이 단면도: 세트 하나의 구조 부재. 기초 형식은 구조물 방식을 따른다. */
-function SimpleSection({ params: p, geometry: g }: Props) {
+export function SimpleSection({ params: p, geometry: g }: Props) {
   const pad = 46
   const { across, gap } = dims(p)
   const t = deg2rad(p.tilt)
@@ -229,7 +229,7 @@ function SimpleSection({ params: p, geometry: g }: Props) {
 }
 
 /** 모듈 외형도: 앞면(셀 배열), 옆면(두께), 뒷면(정션박스) */
-function ModuleOutline({ params: p, elecParams: e }: Props) {
+export function ModuleOutline({ params: p, elecParams: e }: Props) {
   const L = p.moduleLength
   const Wd = p.moduleWidth
   const T = MODULE_THICKNESS
@@ -306,7 +306,7 @@ function ModuleOutline({ params: p, elecParams: e }: Props) {
 }
 
 /** 인버터 외형도: 앞면, 옆면(방열핀), 아래면 입출력 */
-function InverterOutline({ elecParams: e, elec }: Props) {
+export function InverterOutline({ elecParams: e, elec }: Props) {
   const sz = inverterSize(e.inverterKW)
   const s = Math.min(170 / sz.w, 150 / sz.h)
   const fw = sz.w * s
@@ -361,21 +361,11 @@ function InverterOutline({ elecParams: e, elec }: Props) {
 }
 
 /** DC 결선도: 인버터 한 대에 물리는 스트링. 모듈 직렬 → +/− 케이블 → MPPT 입력(2스트링씩) → DC 차단 → 인버터 */
-function DcWiring({ elec, elecParams: e, params: p }: Props) {
+function DcWiring(props: Props) {
+  const { elec } = props
   const [inv, setInv] = useState(0)
   if (!elec || !elec.inverters.length) return <p className="empty">세트를 배치하면 스트링 구성으로 DC 결선도를 그립니다.</p>
   const k = Math.min(inv, elec.inverters.length - 1)
-  const strings = elec.strings.filter((s) => s.inverter === k)
-  const shown = strings.slice(0, 16)
-  const rowH = 22
-  const top = 52
-  const H = top + Math.max(shown.length, 2) * rowH + 110
-  const invX = 262
-  const invTop = top - 10
-  const invH = Math.max(shown.length, 2) * rowH + 4
-  const mppt = Math.ceil(strings.length / 2)
-  const modW = 16
-  const pMax = elec.inverters[k].kWdc
   return (
     <>
       {elec.inverters.length > 1 && (
@@ -391,6 +381,26 @@ function DcWiring({ elec, elecParams: e, params: p }: Props) {
         </label>
       )}
       <ZoomFrame title={`DC 결선도 · INV-${elec.inverters[k].id}`}>
+        <DcWiringSheet {...props} elec={elec} inverter={k} />
+      </ZoomFrame>
+    </>
+  )
+}
+
+/** 인버터 한 대의 DC 결선도 */
+export function DcWiringSheet({ elec, elecParams: e, params: p, inverter: k }: Props & { elec: ElecResult; inverter: number }) {
+  const strings = elec.strings.filter((s) => s.inverter === k)
+  const shown = strings.slice(0, 16)
+  const rowH = 22
+  const top = 52
+  const H = top + Math.max(shown.length, 2) * rowH + 110
+  const invX = 262
+  const invTop = top - 10
+  const invH = Math.max(shown.length, 2) * rowH + 4
+  const mppt = Math.ceil(strings.length / 2)
+  const modW = 16
+  const pMax = elec.inverters[k].kWdc
+  return (
       <svg className="side-elev" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="DC 결선도">
         <text x={16} y={18} className="se-title">
           DC 결선도 · INV-{elec.inverters[k].id}
@@ -467,8 +477,6 @@ function DcWiring({ elec, elecParams: e, params: p }: Props) {
           </text>
         </g>
       </svg>
-      </ZoomFrame>
-    </>
   )
 }
 

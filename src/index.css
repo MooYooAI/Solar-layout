@@ -908,3 +908,137 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .panel-head .eyebrow { background-image: linear-gradient(92deg, var(--accent), var(--accent-2)); }
 .panel-head + .card { border-top: 0; }
 .rail button.active { background: oklch(25% 0.035 258); color: oklch(97% 0.005 80); }
+
+/* ── 도면 탭 ── */
+.dw { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--chrome); color: var(--chrome-text); }
+.dw-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid oklch(30% 0.03 258); background: oklch(17% 0.028 258); }
+.dw-list h3 { margin: 0; padding: 12px 14px 8px; font-size: 14px; color: #fff; }
+.dw-list h3 small { font-weight: 500; font-size: 11px; color: var(--chrome-text); margin-left: 4px; }
+.dw-list nav { overflow-y: auto; padding: 0 6px 12px; }
+.dw-list h4 { margin: 10px 8px 4px; font-size: 11px; letter-spacing: 0.04em; color: oklch(75% 0.14 60); }
+.dw-list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-sm); color: var(--chrome-text); font-size: 12.5px; font-weight: 500; text-align: left; }
+.dw-list button:hover:not(:disabled) { background: oklch(26% 0.03 258); color: #fff; filter: none; }
+.dw-list button.on, .dw-list button.on:hover:not(:disabled) { background: oklch(30% 0.05 200 / 0.6); color: #fff; box-shadow: inset 2px 0 0 oklch(75% 0.13 175); }
+.dw-list button span { flex: none; width: 38px; font-variant-numeric: tabular-nums; font-size: 11px; color: oklch(62% 0.02 255); }
+.dw-list button.on span { color: oklch(80% 0.12 175); }
+.dw-list button i { margin-left: auto; font-style: normal; font-size: 8px; color: var(--accent); }
+.dw-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.dw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px; border-bottom: 1px solid oklch(30% 0.03 258); background: oklch(21% 0.03 258); }
+.dw-group { display: flex; align-items: center; gap: 4px; }
+.dw-group + .dw-group { padding-left: 14px; border-left: 1px solid oklch(32% 0.03 258); }
+.dw-bar button { height: 30px; padding: 0 10px; font-size: 12px; background: oklch(26% 0.03 258); color: var(--chrome-text); border: 1px solid oklch(34% 0.03 258); border-radius: var(--r-sm); font-weight: 600; }
+.dw-bar button:hover:not(:disabled) { background: oklch(31% 0.035 258); color: #fff; filter: none; }
+.dw-bar button.on { background: #fff; color: var(--ink); }
+.dw-bar button.danger { color: oklch(75% 0.12 25); }
+.dw-bar button.icon { width: 30px; padding: 0; font-size: 16px; }
+.dw-bar button:disabled { opacity: 0.4; }
+.dw-bar .dw-primary { background: var(--accent-grad); color: #fff; border-color: transparent; }
+.dw-bar .dw-primary:hover:not(:disabled) { background: var(--accent-grad); filter: brightness(1.06); }
+.dw-bar select { height: 30px; background: oklch(26% 0.03 258); color: #fff; border-color: oklch(34% 0.03 258); font-size: 12px; }
+.dw-name { display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 13px; color: #fff; white-space: nowrap; }
+.dw-name span { padding: 1px 6px; border-radius: 4px; background: oklch(45% 0.1 175); font-size: 11px; }
+.dw-zoom { min-width: 44px; text-align: center; font-size: 12px; font-weight: 650; color: oklch(80% 0.12 175); font-variant-numeric: tabular-nums; }
+.dw-label { font-size: 11px; color: oklch(62% 0.02 255); }
+.dw-chip { min-width: 52px; height: 30px; display: inline-grid; place-items: center; padding: 0 8px; border-radius: var(--r-sm); background: oklch(14% 0.02 258); color: #fff; font-size: 12px; font-weight: 650; }
+.dw-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.dw-tools { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 10px 6px; border-right: 1px solid oklch(30% 0.03 258); background: oklch(19% 0.03 258); }
+.dw-tools button { width: 34px; height: 34px; padding: 0; background: none; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--chrome-text); font-size: 16px; }
+.dw-tools button:hover:not(:disabled) { background: oklch(27% 0.03 258); color: #fff; filter: none; }
+.dw-tools button.on, .dw-tools button.on:hover:not(:disabled) { background: var(--accent-grad); color: #fff; }
+.dw-tools button:disabled { opacity: 0.35; }
+.dw-tools-sep { height: 1px; margin: 4px 2px; background: oklch(32% 0.03 258); }
+.dw-canvas { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: oklch(12% 0.015 258); touch-action: none; user-select: none; -webkit-user-select: none; }
+.dw-canvas.tool-pan { cursor: grab; }
+.dw-canvas.tool-line, .dw-canvas.tool-rect, .dw-canvas.tool-circle, .dw-canvas.tool-dim { cursor: crosshair; }
+.dw-canvas.tool-text { cursor: text; }
+.dw-paper { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 10px 40px rgb(0 0 0 / 0.5); }
+.dw-paper .sheet { display: block; }
+.dw-paper.dark .sheet { filter: invert(1) hue-rotate(180deg); }
+.dw-hint { position: absolute; left: 12px; bottom: 8px; right: 12px; margin: 0; font-size: 11px; color: oklch(60% 0.02 255); pointer-events: none; }
+@media (max-width: 900px) {
+  .dw { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .dw-list { max-height: 150px; border-right: 0; border-bottom: 1px solid oklch(30% 0.03 258); }
+  .dw-list nav { display: flex; gap: 8px; overflow-x: auto; }
+  .dw-list section { min-width: 180px; }
+  .dw-hint { display: none; }
+}
+
+/* 도면 한 장(용지 mm 좌표) */
+.sheet { font-family: Pretendard, 'Malgun Gothic', sans-serif; }
+.sheet text { font-size: 2.6px; fill: #1d2330; }
+.sheet svg.side-elev text { font-size: 11px; }
+.sh-paper { fill: #fff; }
+.sh-frame { fill: none; stroke: #1d2330; stroke-width: 0.5; }
+.sh-frame-in { fill: none; stroke: #1d2330; stroke-width: 0.18; }
+.sh-titleblock rect, .sh-titleblock line { fill: none; stroke: #1d2330; stroke-width: 0.25; }
+.sh-titleblock .brand { font-size: 4px; font-weight: 700; fill: #e8590c; }
+.sh-titleblock .small { font-size: 2px; fill: #6b7280; }
+.sh-titleblock .mid { font-size: 2.7px; font-weight: 600; }
+.sh-titleblock .name { font-size: 3.6px; font-weight: 700; fill: #1c408c; }
+.sh-caption circle, .sh-caption line { fill: none; stroke: #1d2330; stroke-width: 0.3; }
+.sh-caption text { font-size: 3.4px; font-weight: 700; }
+.sh-caption .small { font-size: 2px; font-weight: 500; }
+.sh-summary rect { fill: none; stroke: #1d2330; stroke-width: 0.25; }
+.sh-summary .cell { stroke: #ced4da; stroke-width: 0.15; }
+.sh-h { font-size: 2.6px !important; font-weight: 700; fill: #e8590c !important; }
+.sh-k { font-size: 2px !important; fill: #6b7280 !important; }
+.sh-v { font-size: 2.5px !important; font-weight: 600; }
+.sh-legend rect { fill: #fff; stroke: #1d2330; stroke-width: 0.2; }
+.sh-legend text { font-size: 2.2px; }
+.sh-legend .lg-parcel { fill: none; stroke: #e8590c; stroke-width: 0.4; }
+.sh-legend .lg-set { fill: #1c408c; stroke: none; }
+.sh-legend .lg-obstacle { fill: #adb5bd; stroke: #495057; }
+.sh-legend .lg-inv { fill: #fff; stroke: #c2255c; stroke-width: 0.4; }
+.sh-legend .lg-ac { fill: #f08c00; stroke: none; }
+.sh-legend .lg-fill { fill: rgba(28, 64, 140, 0.6); stroke: none; }
+.sh-legend .lg-cut { fill: rgba(201, 42, 42, 0.6); stroke: none; }
+.sh-legend .lg-s0 { fill: #d3f9d8; } .sh-legend .lg-s1 { fill: #8ce99a; } .sh-legend .lg-s2 { fill: #ffe066; } .sh-legend .lg-s3 { fill: #ffa94d; } .sh-legend .lg-s4 { fill: #ff6b6b; }
+.sh-parcel { fill: rgba(232, 89, 12, 0.04); stroke: #e8590c; stroke-width: 0.45; }
+.sh-set { fill: #1c408c; stroke: #a5c8ff; stroke-width: 0.06; }
+.sh-set.ghost { fill: none; stroke: #1d2330; stroke-width: 0.12; }
+.sh-obstacle { fill: #adb5bd; stroke: #495057; stroke-width: 0.2; }
+.sh-inv { fill: #fff; stroke: #c2255c; stroke-width: 0.35; }
+.sh-board { fill: #fff3bf; stroke: #1d2330; stroke-width: 0.35; }
+.sh-ac { fill: none; stroke: #f08c00; stroke-width: 0.35; stroke-dasharray: 1.2 0.6; }
+.sh-label { font-size: 2.2px !important; fill: #343a40 !important; }
+.sh-module { fill: #dbe4ff; stroke: #1c408c; stroke-width: 0.25; }
+.sh-dim line { stroke: #495057; stroke-width: 0.2; }
+.sh-dim text { font-size: 2.4px; text-anchor: middle; fill: #495057; }
+.sh-north circle { fill: none; stroke: #1d2330; stroke-width: 0.25; }
+.sh-north path { fill: #1d2330; }
+.sh-north text { font-size: 2.6px; font-weight: 700; }
+.sh-scalebar rect { fill: #fff; stroke: #1d2330; stroke-width: 0.2; }
+.sh-scalebar .fill { fill: #1d2330; }
+.sh-scalebar text { font-size: 2.2px; }
+.sh-empty { font-size: 4px !important; fill: #868e96 !important; }
+.sh-cover .t1 { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+.sh-cover .t2 { font-size: 5px; font-weight: 600; }
+.sh-cover .t3 { font-size: 3.6px; fill: #495057; }
+.sh-cover line { stroke: #e8590c; stroke-width: 0.6; }
+.sh-table .cell { fill: none; stroke: #adb5bd; stroke-width: 0.15; }
+.sh-table line { stroke: #adb5bd; stroke-width: 0.15; }
+.sh-table .sh-group { fill: #f1f3f5; stroke: #adb5bd; stroke-width: 0.15; }
+.sh-title-big { font-size: 6px !important; font-weight: 800; }
+.sh-sld { color: #1d2330; stroke: currentColor; }
+.sh-sld text { fill: currentColor; }
+.sh-annot { fill: none; stroke: #c2255c; stroke-width: 0.35; cursor: pointer; }
+.sh-annot.txt { fill: #c2255c; stroke: none; font-size: 3.2px; font-weight: 600; }
+.sh-annot.dim line { stroke: #0b7285; }
+.sh-annot.dim circle { fill: #0b7285; stroke: none; }
+.sh-annot.dim text { fill: #0b7285; stroke: none; font-size: 2.6px; font-weight: 700; }
+.sh-annot.on { stroke: #f08c00; stroke-width: 0.6; }
+.sh-annot.txt.on { fill: #f08c00; }
+.dw-print { display: none; }
+@media print {
+  @page dwA3 { size: 420mm 297mm; margin: 0; }
+  @page dwA4 { size: 297mm 210mm; margin: 0; }
+  body:has(.dw-print) #root { display: none !important; }
+  .dw-print { display: block; }
+  .dw-print.paper-A3 .dw-print-page { page: dwA3; }
+  .dw-print.paper-A4 .dw-print-page { page: dwA4; }
+  .dw-print-page { break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .dw-print-page:last-child { break-after: auto; }
+  .dw-print .sheet { display: block; }
+}
+/* AI 설계: AI 추천 / 직접 설정 전환 */
+.panel-head .design-seg { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; }

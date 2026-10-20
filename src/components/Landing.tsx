@@ -7,14 +7,14 @@ interface Props {
 
 const FEATURES: Array<{ icon: string; title: string; body: string }> = [
   { icon: 'search', title: '지번 검색 · 지적도', body: '지번만 넣으면 연속지적도 경계와 지목·면적·용도지역·공시지가를 바로 불러옵니다. 옆 지번을 더해 한 부지로 묶을 수도 있습니다.' },
-  { icon: 'ai', title: 'AI 가배치', body: '경사각·방위각·열 간격을 바꿔 수십 가지 배치를 만들고 발전량·설치비·LCOE로 비교해 최적안을 고릅니다.' },
+  { icon: 'ai', title: 'AI 설계', body: '경사각·방위각·열 간격을 바꿔 수십 가지 배치를 만들고 발전량·설치비·LCOE로 비교해 최적안을 고릅니다.' },
   { icon: 'shade', title: '계절별 음영 분석', body: '한국 위도의 태양 궤적과 주변 산 지평선으로 동지·하지·시간대별 그림자와 하루 음영 손실을 계산합니다.' },
   { icon: 'grid', title: '간격·이격 자유 설정', body: '모듈 패널 간격, 세트 간 간격, 앞뒤 열 이격거리와 경계 이격을 mm·m 단위로 정하고 바로 다시 배치합니다.' },
   { icon: 'edit', title: '수동 편집', body: '배치 편집 화면에서 세트를 끌어 옮기고, 회전·복제·영역 선택·미세 이동으로 현장에 맞게 다듬습니다.' },
   { icon: 'doc', title: '발전량 · 도면 · 보고서', body: '월별 발전량과 회수기간·IRR, 단선결선도와 DXF 배치도, 인쇄용 보고서까지 한 번에 받습니다.' },
 ]
 
-const STEPS = ['지번 검색', '지형 확인', 'AI 가배치', '음영·발전량', '경제성·도면']
+const STEPS = ['지번 검색', '지형 확인', 'AI 설계', '음영·발전량', '경제성·도면']
 
 function Icon({ name }: { name: string }) {
   const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -170,7 +170,7 @@ function HeroArt() {
       </div>
       <div className="lp-chip lp-chip-c">
         <i className="lp-ok" />
-        AI 가배치 완료 · 음영 손실 2.1%
+        AI 설계 완료 · 음영 손실 2.1%
       </div>
     </div>
   )

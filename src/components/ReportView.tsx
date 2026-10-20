@@ -257,7 +257,7 @@ export default function ReportView(props: Props) {
 
   const conclusion = stats.sets
     ? `${parcel.address} ${fmt(props.area)}㎡ 부지에 ${fmt(stats.kWp, 1)} kWp(모듈 ${fmt(stats.modules)}장)를 배치했습니다. 연간 ${fmt(annualKWh / 1000, 1)} MWh를 낼 것으로 보이며${econ ? `, 자기자본 회수기간은 ${econ.payback === null ? '사업 기간 안에 나오지 않습니다' : `약 ${fmt(econ.payback, 1)}년입니다`}` : ''}. ${overall.text}`
-    : `${parcel.address} 부지에 아직 배치가 없습니다. 배치 탭에서 자동 배치를 한 뒤 다시 출력하세요.`
+    : `${parcel.address} 부지에 아직 배치가 없습니다. AI 설계 단계에서 자동 배치를 한 뒤 다시 출력하세요.`
 
   const actions = [
     { what: '조례의 이격거리·개발행위 허가 기준', who: '시·군·구 허가(도시계획) 부서', when: '설계 확정 전' },

@@ -79,12 +79,12 @@ export default function ElectricalPanel(props: Props) {
         </div>
         <p className="hint">
           최저 기온에서 개방전압 {fmt(range.vocCold, 1)} V, 셀 {e.maxCellTemp}°C에서 동작전압 {fmt(range.vmpHot, 1)} V라서 직렬은{' '}
-          {range.minLen}~{range.maxLen}장이 가능합니다. 배치 탭에서 모듈 종류를 고르면 이 값도 바뀝니다.
+          {range.minLen}~{range.maxLen}장이 가능합니다. 직접 설정에서 모듈 종류를 고르면 이 값도 바뀝니다.
         </p>
       </section>
 
       {!props.hasSets ? (
-        <p className="hint">배치 탭에서 모듈을 먼저 배치하세요.</p>
+        <p className="hint">AI 설계 단계에서 모듈을 먼저 배치하세요.</p>
       ) : !r ? (
         <p className="hint">{props.busy ? '계산 중…' : '전기 설계를 할 수 없습니다.'}</p>
       ) : (

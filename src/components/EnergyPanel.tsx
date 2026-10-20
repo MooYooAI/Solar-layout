@@ -83,7 +83,7 @@ export default function EnergyPanel(props: Props) {
         <button type="button" className="block" disabled={!props.canRun || props.busy} onClick={props.onRun}>
           {props.busy ? '계산 중…' : '발전량 계산'}
         </button>
-        {!props.canRun && <p className="hint">배치 탭에서 모듈을 먼저 배치하세요.</p>}
+        {!props.canRun && <p className="hint">AI 설계 단계에서 모듈을 먼저 배치하세요.</p>}
         <p className="hint">
           한국 평균 월별 일사량과 경사각·방위각으로 경사면 일사를 구하고, 온도 손실을 켜면 권역 월평균 기온과 일사로 셀 온도(NOCT 45°C)를
           시간마다 계산해 출력을 보정합니다. 성능계수에는 인버터·배선·오염 등 온도 외 손실을 넣습니다(온도 손실을 끄면 0.8 정도가 적당합니다).

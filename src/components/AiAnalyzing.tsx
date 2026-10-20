@@ -23,7 +23,7 @@ const STAGES = [
 const ROWS = 5
 const COLS = 7
 
-/** AI 가배치가 도는 동안 지도 위에 띄우는 분석 화면 */
+/** AI 설계가 도는 동안 지도 위에 띄우는 분석 화면 */
 export default function AiAnalyzing(props: Props) {
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
