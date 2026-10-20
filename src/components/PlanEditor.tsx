@@ -27,10 +27,11 @@ const MAX_MODULE_LINES = 6000
 type Drag =
   | { kind: 'move'; ids: string[]; start: Vec; d: Vec }
   | { kind: 'pan'; start: Vec; startCenter: Vec; moved: boolean }
+  | { kind: 'box'; start: Vec; end: Vec }
 
 /**
  * 지도 타일 없이 필지·세트를 미터 단위로 그린 편집용 배치도.
- * 세트를 끌어 옮기고, Shift+클릭으로 여러 개 고르고, 화살표 키로 미세 이동한다. 휠로 확대, 빈 곳을 끌면 화면 이동.
+ * 세트를 끌어 옮기고, Shift+클릭·Shift+드래그로 여러 개 고르고, 화살표 키로 미세 이동한다. 휠로 확대, 빈 곳을 끌면 화면 이동.
  */
 export default function PlanEditor(props: Props) {
   const { parcel, sets, geometry, selected } = props
@@ -142,6 +143,9 @@ export default function PlanEditor(props: Props) {
       const ids = selected.has(id) ? [...selected] : [id]
       if (!selected.has(id)) props.onSelect([id], false)
       setDrag({ kind: 'move', ids, start: p, d: [0, 0] })
+    } else if (e.shiftKey) {
+      // Shift+빈 곳 끌기: 영역 안 세트를 선택에 더한다.
+      setDrag({ kind: 'box', start: p, end: p })
     } else {
       setDrag({ kind: 'pan', start: [e.clientX, e.clientY], startCenter: c, moved: false })
     }
@@ -153,6 +157,8 @@ export default function PlanEditor(props: Props) {
     if (drag.kind === 'move') {
       const p = toLocal(e.clientX, e.clientY)
       setDrag({ ...drag, d: [p[0] - drag.start[0], p[1] - drag.start[1]] })
+    } else if (drag.kind === 'box') {
+      setDrag({ ...drag, end: toLocal(e.clientX, e.clientY) })
     } else {
       const dx = (e.clientX - drag.start[0]) / fit
       const dy = (e.clientY - drag.start[1]) / fit
@@ -165,7 +171,12 @@ export default function PlanEditor(props: Props) {
   const onPointerUp = () => {
     if (!drag) return
     if (drag.kind === 'move') commitMove(drag.ids, drag.d)
-    else if (!drag.moved) props.onSelect([], false)
+    else if (drag.kind === 'box') {
+      const [x0, x1] = [Math.min(drag.start[0], drag.end[0]), Math.max(drag.start[0], drag.end[0])]
+      const [y0, y1] = [Math.min(drag.start[1], drag.end[1]), Math.max(drag.start[1], drag.end[1])]
+      const ids = local.quads.filter(({ center: [x, y] }) => x >= x0 && x <= x1 && y >= y0 && y <= y1).map((q) => q.id)
+      if (ids.length) props.onSelect(ids, true)
+    } else if (!drag.moved) props.onSelect([], false)
     setDrag(null)
   }
 
@@ -261,6 +272,15 @@ export default function PlanEditor(props: Props) {
             </g>
           )
         })}
+        {drag?.kind === 'box' && (
+          <rect
+            className="plan-box"
+            x={Math.min(drag.start[0], drag.end[0])}
+            y={-Math.max(drag.start[1], drag.end[1])}
+            width={Math.abs(drag.end[0] - drag.start[0])}
+            height={Math.abs(drag.end[1] - drag.start[1])}
+          />
+        )}
       </svg>
       <div className="plan-overlay scalebar" aria-hidden="true">
         <span style={{ width: bar * fit }} />
