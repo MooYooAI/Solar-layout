@@ -63,13 +63,18 @@ import {
   type CompareRow,
 } from './lib/export/exports'
 import { buildSld, sldToDxf, sldToSvg } from './lib/export/sld'
+import LayoutEditor from './components/LayoutEditor'
+import AiAnalyzing from './components/AiAnalyzing'
+import TimelineMenu from './components/TimelineMenu'
+import ProjectDialog from './components/ProjectDialog'
+import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
 
 type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ' | 'ai' | 'export'
 
 const TABS: Array<[Tab, string, string]> = [
   ['parcel', '필지', '지번을 검색하거나 영역을 그려 부지를 정합니다.'],
   ['terrain', '지형', '경사·절성토를 보고 설계 가능 영역을 정합니다.'],
-  ['ai', 'AI 설계', '여러 배치안을 탐색해 비교하고, 고른 안을 배치에 적용합니다.'],
+  ['ai', 'AI 가배치', '여러 배치안을 탐색해 비교하고, 고른 안을 배치에 적용합니다.'],
   ['layout', '배치', '모듈·세트·간격을 정하고 자동 배치합니다.'],
   ['elec', '전기', '스트링과 인버터를 묶고 케이블을 잡습니다.'],
   ['shade', '음영', '날짜·시각별 그림자와 하루 음영 손실을 봅니다.'],
@@ -91,6 +96,17 @@ function loadPanes() {
   }
   return DEFAULT_PANES
 }
+
+/** 지도 위 작업 화면 */
+type Workspace = 'map' | 'edit' | 'permit'
+const WORKSPACES: Array<[Workspace, string]> = [
+  ['map', '지도'],
+  ['edit', '배치 편집'],
+  ['permit', '인허가'],
+]
+
+/** AI 가배치 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
+const AI_MIN_MS = 10_000
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
 const DESIGN_DEBOUNCE = 400
@@ -150,9 +166,23 @@ export default function App() {
   const [energy, setEnergy] = useState<EnergyResult | null>(null)
   const [energyBusy, setEnergyBusy] = useState(false)
   const [optRun, setOptRun] = useState<{ cancel: () => void } | null>(null)
-  const [optProgress, setOptProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
   const [optError, setOptError] = useState<string | null>(null)
+  // 분석 화면용: 시작 시각과 실제 계산이 끝났는지
+  const [optStartedAt, setOptStartedAt] = useState(0)
+  const [optFinished, setOptFinished] = useState(false)
+  const activeRun = useRef<object | null>(null)
+  const [workspace, setWorkspace] = useState<Workspace>('map')
+  // 지금 열어 둔 저장 프로젝트(저장하면 같은 이름으로 덮어쓴다)
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null)
+  const [showProjects, setShowProjects] = useState(false)
+  const [projectRev, setProjectRev] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), 3000)
+    return () => clearTimeout(id)
+  }, [notice])
   const [econ, setEcon] = useState<EconSettings>(DEFAULT_ECON)
   const [econHours, setEconHours] = useState(3.6)
   const [showReport, setShowReport] = useState(false)
@@ -265,7 +295,7 @@ export default function App() {
           const next = parcelFromFeature(f)
           // 작업 중인 부지를 다른 필지로 바꾸기 전에 한 번 묻는다(되돌릴 길은 타임라인에 남는다).
           if (parcel && next.pnu !== parcel.pnu && (sets.length || obstacles.length)) {
-            const ok = window.confirm(`${next.address}(으)로 부지를 바꿀까요?\n지금 배치는 화면에서 사라지지만 오른쪽 타임라인에서 다시 돌아올 수 있습니다.`)
+            const ok = window.confirm(`${next.address}(으)로 부지를 바꿀까요?\n지금 배치는 화면에서 사라지지만 맨 위 타임라인에서 다시 돌아올 수 있습니다.`)
             if (!ok) return
           }
           setParcel(next)
@@ -525,14 +555,19 @@ export default function App() {
   const runOptimize = async () => {
     if (!parcel) return
     optRun?.cancel()
-    setOptRun({ cancel: () => {} })
+    const pending = { cancel: () => {} }
+    activeRun.current = pending
+    setOptRun(pending)
     setOptResults(null)
     setOptError(null)
+    setOptFinished(false)
+    const started = performance.now()
+    setOptStartedAt(started)
     // 지형을 아직 안 불러왔으면 먼저 불러온다(실패해도 지형 없이 진행).
     let t: { grid: ElevGrid; buildable: BuildableResult } | null = elevGrid && buildable ? { grid: elevGrid, buildable } : null
     if (!t) {
-      setOptProgress({ done: 0, total: 1, phase: '지형 불러오는 중' })
       t = await ensureTerrain().catch(() => null)
+      if (activeRun.current !== pending) return
     }
     const input: OptimizeInput = {
       parcel,
@@ -547,22 +582,36 @@ export default function App() {
       mask: useMask ? (t?.buildable.mask ?? null) : null,
       horizon,
     }
-    const run = runOptimizePool(input, (done, total, phase) => setOptProgress({ done, total, phase }))
+    // 진행 단계는 분석 화면이 시간에 맞춰 보여 준다.
+    const run = runOptimizePool(input, () => {})
+    activeRun.current = run
     setOptRun(run)
+    // 계산이 일찍 끝나도 분석 화면을 AI_MIN_MS 동안 보여 준 뒤에 결과를 낸다. 중간에 중단하면 버린다.
+    const finish = (apply: () => void) => {
+      if (activeRun.current !== run) return
+      setOptFinished(true)
+      setTimeout(() => {
+        if (activeRun.current !== run) return
+        activeRun.current = null
+        apply()
+        setOptRun(null)
+      }, Math.max(0, AI_MIN_MS - (performance.now() - started)))
+    }
     run.promise.then(
-      (results) => setOptResults(results),
-      (e: Error) => setOptError(e.message),
-    ).finally(() => setOptRun((cur) => (cur === run ? null : cur)))
+      (results) => finish(() => setOptResults(results)),
+      (e: Error) => finish(() => setOptError(e.message)),
+    )
   }
 
   const cancelOptimize = () => {
     optRun?.cancel()
+    activeRun.current = null
     setOptRun(null)
   }
 
   const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
-    mark('AI 배치안 적용')
+    mark('AI 가배치 적용')
     setParams(nextParams)
     editSets(nextSets)
     setSelected(new Set())
@@ -655,11 +704,37 @@ export default function App() {
     setSelected(new Set())
   }
 
+  const setAzimuthSelected = (deg: number) => {
+    mark('세트 방위 맞춤')
+    editSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: deg } : s)))
+  }
+
+  /** 선택한 세트를 동(dx)·북(dy)으로 m만큼 떨어뜨려 복제하고, 복제본을 선택한다. */
+  const duplicateSelected = (dx: number, dy: number) => {
+    if (!parcel || !selected.size) return
+    const f = LocalFrame.around(parcel.rings)
+    const copies = sets
+      .filter((s) => selected.has(s.id))
+      .map((s) => {
+        const [x, y] = f.toLocal([s.lon, s.lat])
+        const [lon, lat] = f.toLonLat([x + dx, y + dy])
+        return { ...s, id: newSetId(), lon, lat }
+      })
+    mark(copies.length > 1 ? `세트 ${copies.length}개 복제` : '세트 복제')
+    editSets((prev) => [...prev, ...copies])
+    setSelected(new Set(copies.map((s) => s.id)))
+  }
+
+  const switchWorkspace = (w: Workspace) => {
+    setWorkspace(w)
+    setTool('none')
+  }
+
   // 배치 편집 단축키. 오른쪽 작업면이 늘 보이므로 어느 단계에서든 듣는다.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
-      if (showReport) return
+      if (showReport || showProjects) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
         e.preventDefault()
         deleteSelected()
@@ -674,6 +749,15 @@ export default function App() {
       if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault()
         redo()
+      }
+      // 배치 편집 화면에서만: 전체 선택, 복제
+      if (workspace === 'edit' && mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        setSelected(new Set(sets.map((s) => s.id)))
+      }
+      if (workspace === 'edit' && mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        duplicateSelected(geometry.width + params.setGap / 1000, 0)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -762,6 +846,92 @@ export default function App() {
     const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
     if (name === null) return
     setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics }])
+  }
+
+  // ── 프로젝트 저장·불러오기: 지금은 이 브라우저에, 로그인이 생기면 projectStore만 바꾼다. ──
+  const projectData = (): ProjectData | null =>
+    parcel
+      ? {
+          parcel,
+          params,
+          sets,
+          obstacles,
+          layoutMode,
+          elec,
+          costs,
+          econ,
+          econHours,
+          performanceRatio,
+          tempOn,
+          tempCoeff,
+          stationId,
+          withShade,
+          buildOptions,
+          useMask,
+          gradingMode,
+          maxDesignSlope,
+          scenarios,
+        }
+      : null
+  const saveProject = async (asNew = false) => {
+    const data = projectData()
+    if (!data) return
+    let target = asNew ? null : project
+    if (!target) {
+      const name = window.prompt('프로젝트 이름', project?.name ?? parcel!.address)
+      if (name === null) return
+      target = { id: '', name: name.trim() || parcel!.address }
+    }
+    try {
+      const saved = await projectStore.save({ id: target.id || undefined, name: target.name, data, kWp: stats.kWp })
+      setProject({ id: saved.id, name: saved.name })
+      setProjectRev((n) => n + 1)
+      setNotice(`'${saved.name}' 저장했습니다`)
+    } catch (e) {
+      window.alert((e as Error).message)
+    }
+  }
+  const applyProject = (name: string, d: ProjectData, id: string | null) => {
+    if ((sets.length || obstacles.length) && !window.confirm(`'${name}' 프로젝트를 열까요?\n지금 작업은 맨 위 타임라인에 남아 다시 돌아올 수 있습니다.`)) return
+    setParcel(d.parcel)
+    mark(`프로젝트 열기 · ${name}`)
+    const [lon, lat] = interiorPoint(d.parcel.rings)
+    setFlyTo({ lon, lat, seq: Date.now() })
+    setParams({ ...DEFAULT_PARAMS, ...d.params })
+    setSets([...d.sets])
+    setObstacles([...d.obstacles])
+    if (d.layoutMode) setLayoutMode(d.layoutMode as LayoutMode)
+    if (d.elec) setElec({ ...DEFAULT_ELEC, ...d.elec })
+    if (d.costs) setCosts({ ...DEFAULT_COSTS, ...d.costs })
+    if (d.econ) setEcon({ ...DEFAULT_ECON, ...d.econ })
+    if (d.econHours !== undefined) setEconHours(d.econHours)
+    if (d.performanceRatio !== undefined) setPerformanceRatio(d.performanceRatio)
+    if (d.tempOn !== undefined) setTempOn(d.tempOn)
+    if (d.tempCoeff !== undefined) setTempCoeff(d.tempCoeff)
+    if (d.stationId) setStationId(d.stationId)
+    if (d.withShade !== undefined) setWithShade(d.withShade)
+    if (d.buildOptions) setBuildOptions({ ...DEFAULT_BUILDABLE, ...d.buildOptions })
+    if (d.useMask !== undefined) setUseMask(d.useMask)
+    if (d.gradingMode) setGradingMode(d.gradingMode)
+    if (d.maxDesignSlope !== undefined) setMaxDesignSlope(d.maxDesignSlope)
+    if (d.scenarios) setScenarios(d.scenarios)
+    setProject(id ? { id, name } : null)
+    setShowProjects(false)
+    setNotice(`'${name}' 열었습니다`)
+  }
+  const openProject = async (id: string) => {
+    try {
+      const p = await projectStore.load(id)
+      if (!p) throw new Error('프로젝트를 찾지 못했습니다.')
+      applyProject(p.name, p.data, p.id)
+    } catch (e) {
+      window.alert((e as Error).message)
+    }
+  }
+  const exportProject = () => {
+    const data = projectData()
+    if (!data) return
+    download(`${fileBase()}-project.json`, projectToFile(project?.name ?? parcel!.address, data), 'application/json')
   }
 
   const today = () => new Date().toISOString().slice(0, 10)
@@ -919,6 +1089,7 @@ export default function App() {
         <p className="site" title={parcel?.address}>
           {parcel ? (
             <>
+              {project && <em className="site-project">{project.name}</em>}
               <strong>{parcel.address}</strong>
               <span>
                 {fmt(area)} ㎡{parcel.landCategory ? ` · ${parcel.landCategory}` : ''}
@@ -930,8 +1101,27 @@ export default function App() {
           )}
         </p>
         <div className="topbar-actions">
-          <button type="button" className="ghost" onClick={() => setMapFocus((f) => !f)} aria-pressed={mapFocus}>
+          {notice && (
+            <span className="topbar-notice" role="status">
+              {notice}
+            </span>
+          )}
+          <button type="button" className="ghost wide-only" onClick={() => setMapFocus((f) => !f)} aria-pressed={mapFocus}>
             {mapFocus ? '패널 펼치기' : '지도 크게'}
+          </button>
+          <TimelineMenu entries={timeline} currentId={timelineAt} onRestore={restoreTimeline} onClear={() => setTimeline([])} />
+          <span className="topbar-sep" />
+          <button
+            type="button"
+            className="ghost"
+            disabled={!parcel}
+            onClick={() => void saveProject()}
+            title={project ? `'${project.name}'에 덮어 저장` : '이 브라우저에 프로젝트로 저장'}
+          >
+            저장
+          </button>
+          <button type="button" className="ghost" onClick={() => setShowProjects(true)}>
+            불러오기
           </button>
           <button type="button" className="outline" disabled={!parcel} onClick={() => setShowReport(true)}>
             보고서
@@ -1050,7 +1240,6 @@ export default function App() {
           <OptimizePanel
             canRun={!!parcel}
             running={!!optRun}
-            progress={optProgress}
             results={optResults}
             error={optError}
             onRun={() => void runOptimize()}
@@ -1333,6 +1522,14 @@ export default function App() {
       />
 
       <main className="map-wrap">
+        <div className="work-tabs" role="tablist" aria-label="작업 화면">
+          {WORKSPACES.map(([w, label]) => (
+            <button key={w} type="button" role="tab" aria-selected={workspace === w} onClick={() => switchWorkspace(w)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="map-stage">
         {show3d ? (
           <Suspense fallback={<div className="map map-loading">3D 지도를 불러오는 중…</div>}>
             <Map3D
@@ -1429,6 +1626,40 @@ export default function App() {
           )}
           {mapMode === '3d' && !show3d && <span>그리기 중에는 2D</span>}
         </div>
+        {workspace === 'edit' && (
+          <LayoutEditor
+            parcel={parcel}
+            sets={sets}
+            params={params}
+            geometry={geometry}
+            stats={stats}
+            obstacles={obstacles}
+            selected={selected}
+            tool={tool}
+            onTool={setTool}
+            elec={design?.elec ?? null}
+            onSelect={onSelect}
+            onMoveSets={onMoveSets}
+            onAddSet={onAddSet}
+            onAutoLayout={runAutoLayout}
+            onDeleteSelected={deleteSelected}
+            onRotateSelected={rotateSelected}
+            onSetAzimuth={setAzimuthSelected}
+            onDuplicate={duplicateSelected}
+            onClear={clearSets}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            onUndo={undo}
+            onRedo={redo}
+          />
+        )}
+        {workspace === 'permit' && (
+          <div className="permit" role="tabpanel" aria-label="인허가">
+            <p>인허가 화면은 준비 중입니다.</p>
+          </div>
+        )}
+        {optRun && <AiAnalyzing startedAt={optStartedAt} duration={AI_MIN_MS} finished={optFinished} onCancel={cancelOptimize} />}
+        </div>
       </main>
 
       <Resizer
@@ -1464,10 +1695,7 @@ export default function App() {
           canRedo={history.future.length > 0}
           onUndo={undo}
           onRedo={redo}
-          timeline={timeline}
-          timelineAt={timelineAt}
-          onRestore={restoreTimeline}
-          onClearTimeline={() => setTimeline([])}
+          hasTimeline={timeline.length > 0}
         />
       </aside>
     </div>
@@ -1487,6 +1715,20 @@ export default function App() {
         econ={econ}
         econHours={econHours}
         onClose={() => setShowReport(false)}
+      />
+    )}
+    {showProjects && (
+      <ProjectDialog
+        store={projectStore}
+        revision={projectRev}
+        currentId={project?.id ?? null}
+        canExport={!!parcel}
+        canSave={!!parcel}
+        onSaveAs={() => void saveProject(true)}
+        onOpen={(id) => void openProject(id)}
+        onImport={(name, data) => applyProject(name, data, null)}
+        onExport={exportProject}
+        onClose={() => setShowProjects(false)}
       />
     )}
     </>

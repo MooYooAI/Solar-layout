@@ -16,7 +16,6 @@ export interface Scenario {
 interface Props {
   canRun: boolean
   running: boolean
-  progress: { done: number; total: number; phase: string } | null
   results: Candidate[] | null
   error: string | null
   onRun: () => void
@@ -42,7 +41,7 @@ const ZONE_LABEL: Record<ZoneMode, string> = {
 }
 
 export default function OptimizePanel(props: Props) {
-  const { progress, results } = props
+  const { results } = props
   type Row = { key: string; name: string; m: DesignMetrics; apply?: () => void; remove?: () => void }
   const rows: Row[] = [
     ...(props.current ? [{ key: 'current', name: '현재 배치', m: props.current }] : []),
@@ -67,7 +66,7 @@ export default function OptimizePanel(props: Props) {
   return (
     <>
       <section className="card">
-        <h2>AI 설계</h2>
+        <h2>AI 가배치</h2>
         <p className="hint" style={{ marginTop: 0 }}>
           모듈 종류·구조물·세트 구성·간격은 배치 탭, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각·피치(열 이격거리)·첫
           열 위치를 바꿔 수십 가지 배치를 만듭니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘 방위각으로 채우거나 남은 자리를 다른
@@ -80,12 +79,10 @@ export default function OptimizePanel(props: Props) {
         </ul>
         {props.running ? (
           <>
-            <div className="progress">
-              <div style={{ width: `${progress ? (100 * progress.done) / Math.max(1, progress.total) : 0}%` }} />
+            <div className="progress indeterminate">
+              <div />
             </div>
-            <p className="hint">
-              {progress?.phase ?? '준비 중'} {progress && progress.total > 1 && `(${progress.done}/${progress.total})`}
-            </p>
+            <p className="hint">AI가 최적의 배치를 분석하고 있어요. 지도 쪽 분석 화면에서 단계를 보여 줍니다.</p>
             <button type="button" className="secondary block" onClick={props.onCancel}>
               중단
             </button>

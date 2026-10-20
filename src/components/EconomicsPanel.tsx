@@ -255,7 +255,7 @@ function CapexCard(props: {
           {field('변압기·수전', '만원/kVA', c.transformerPerKVA, set('transformerPerKVA'), 0.5)}
           {field('설계·인허가·감리', '%', c.indirectPct, set('indirectPct'), 0.5)}
         </div>
-        <p className="hint">시장 참고값으로 넣어 둔 단가입니다. 견적을 받으면 바꿔 넣으세요. AI 설계의 LCOE 비교도 이 단가를 씁니다.</p>
+        <p className="hint">시장 참고값으로 넣어 둔 단가입니다. 견적을 받으면 바꿔 넣으세요. AI 가배치의 LCOE 비교도 이 단가를 씁니다.</p>
       </details>
     </>
   )
