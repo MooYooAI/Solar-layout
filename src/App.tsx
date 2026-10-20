@@ -1123,9 +1123,6 @@ export default function App() {
           <button type="button" className="ghost" onClick={() => setShowProjects(true)}>
             불러오기
           </button>
-          <button type="button" className="outline" disabled={!parcel} onClick={() => setShowReport(true)}>
-            보고서
-          </button>
         </div>
       </header>
 
@@ -1528,6 +1525,9 @@ export default function App() {
               {label}
             </button>
           ))}
+          <button type="button" role="tab" aria-selected={false} className="work-tab-report" disabled={!parcel} onClick={() => setShowReport(true)} title={parcel ? '인쇄용 보고서 열기' : '필지를 먼저 고르세요'}>
+            보고서
+          </button>
         </div>
         <div className="map-stage">
         {show3d ? (
