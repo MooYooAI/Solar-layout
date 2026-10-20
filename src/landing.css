@@ -13,7 +13,6 @@
   overflow-x: hidden;
 }
 .lp a { color: inherit; text-decoration: none; }
-.app-loading { display: grid; place-items: center; height: 100vh; color: var(--muted); font-size: 14px; }
 
 .lp-nav {
   position: sticky;

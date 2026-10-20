@@ -1088,14 +1088,14 @@ export default function App() {
       style={{ '--left': `${tab === 'ai' ? Math.max(panes.left, 520) : panes.left}px`, '--right': `${panes.right}px` } as React.CSSProperties}
     >
       <header className="topbar">
-        <div className="brand">
+        <a className="brand" href="#" title="소개 화면으로">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <rect x="3" y="9" width="18" height="11" rx="1.5" transform="skewX(-12) translate(2 0)" />
             <path d="M8 9v11M13 9v11M3.5 14.5h17" />
             <circle cx="18.5" cy="4.5" r="2.2" />
           </svg>
-          <span>태양광 배치 설계</span>
-        </div>
+          <span>솔라 레이아웃</span>
+        </a>
         <p className="site" title={parcel?.address}>
           {parcel ? (
             <>
