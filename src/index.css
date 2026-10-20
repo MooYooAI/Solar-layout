@@ -1,21 +1,23 @@
 /*
- * 디자인 토큰. 설계 도구다운 차분한 종이색 바탕에 태양광 주황 한 가지만 강조색으로 쓴다.
- * 중립색은 모두 따뜻한 쪽으로 살짝 물들였다(순수 회색 없음). 색 공간은 OKLCH.
+ * 디자인 토큰. 랜딩과 같은 남색 크롬에 태양광 주황(→ 호박색 그라데이션) 한 가지만 강조색으로 쓴다.
+ * 작업면은 읽기 좋게 밝게 두고, 중립색은 남색 쪽으로 아주 살짝 물들였다(순수 회색 없음). 색 공간은 OKLCH.
  */
 :root {
-  --paper: oklch(97.4% 0.006 80);
-  --surface: oklch(99.5% 0.003 80);
-  --sunken: oklch(95.4% 0.007 80);
-  --line: oklch(90.5% 0.009 80);
-  --line-strong: oklch(83% 0.012 80);
-  --ink: oklch(24% 0.02 255);
-  --ink-2: oklch(38% 0.02 255);
-  --muted: oklch(53% 0.016 255);
-  --chrome: oklch(23% 0.022 255);
-  --chrome-2: oklch(30% 0.022 255);
-  --chrome-text: oklch(80% 0.012 255);
-  --accent: oklch(63% 0.18 42);
-  --accent-strong: oklch(55% 0.17 40);
+  --paper: oklch(97.6% 0.004 255);
+  --surface: oklch(99.6% 0.002 255);
+  --sunken: oklch(95.6% 0.006 255);
+  --line: oklch(91% 0.008 255);
+  --line-strong: oklch(84% 0.012 255);
+  --ink: oklch(22% 0.025 258);
+  --ink-2: oklch(37% 0.025 258);
+  --muted: oklch(53% 0.018 258);
+  --chrome: oklch(19% 0.03 258);
+  --chrome-2: oklch(26% 0.03 258);
+  --chrome-text: oklch(78% 0.02 255);
+  --accent: oklch(66% 0.18 46);
+  --accent-strong: oklch(58% 0.17 44);
+  --accent-2: oklch(78% 0.15 68);
+  --accent-grad: linear-gradient(92deg, var(--accent), oklch(73% 0.17 60));
   --accent-soft: oklch(95.5% 0.03 55);
   --accent-text: oklch(99% 0.005 60);
   --module: oklch(38% 0.1 262);
@@ -23,8 +25,8 @@
   --error: oklch(52% 0.19 25);
   --focus: 0 0 0 3px oklch(63% 0.18 42 / 0.28);
 
-  --r-sm: 5px;
-  --r-md: 8px;
+  --r-sm: 6px;
+  --r-md: 10px;
   --topbar: 52px;
   --rail: 76px;
 
@@ -77,8 +79,9 @@ a { color: var(--accent-strong); }
   color: var(--chrome-text);
   border-bottom: 1px solid oklch(18% 0.02 255);
 }
-.brand { display: flex; align-items: center; gap: 10px; width: var(--rail); justify-content: center; flex-shrink: 0; }
-.brand span { display: none; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: var(--rail); height: 100%; padding: 0 14px 0 27px; flex-shrink: 0; color: oklch(97% 0.005 80); text-decoration: none; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; border-right: 1px solid oklch(30% 0.03 258); }
+.brand:hover svg { filter: drop-shadow(0 0 6px oklch(70% 0.18 48 / 0.7)); }
+.brand span { white-space: nowrap; }
 .brand svg { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
 .brand svg circle { fill: var(--accent); stroke: none; }
 .site { flex: 1; min-width: 0; margin: 0; display: flex; align-items: baseline; gap: 12px; white-space: nowrap; }
@@ -194,13 +197,14 @@ button {
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
-  background: var(--accent);
+  /* 주 동작 버튼은 랜딩 CTA와 같은 그라데이션 */
+  background: var(--accent-grad);
   color: var(--accent-text);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s ease-out, border-color 0.12s ease-out, color 0.12s ease-out;
 }
-button:hover:not(:disabled) { background: var(--accent-strong); }
+button:where(:hover:not(:disabled)) { background: var(--accent-grad); filter: brightness(1.06); }
 button:active:not(:disabled) { translate: 0 1px; }
 button:disabled { opacity: 0.45; cursor: default; }
 button.secondary, button.outline, button.toggle {
@@ -721,3 +725,73 @@ kbd { font: 600 10px/1 inherit; padding: 2px 4px; border: 1px solid var(--line-s
 
 .sun-times { margin-top: 8px; }
 .sun-times small { color: var(--muted); margin-left: 4px; }
+
+/* ── 랜딩과 이어지는 분위기: 남색 크롬의 은은한 빛, 주황 그라데이션, 들어올 때 떠오르는 패널 ── */
+.topbar {
+  background:
+    radial-gradient(40% 180% at 92% 0%, oklch(45% 0.12 50 / 0.28), transparent 70%),
+    radial-gradient(30% 160% at 10% 100%, oklch(40% 0.1 262 / 0.45), transparent 70%),
+    var(--chrome);
+  border-bottom: 0;
+  position: relative;
+}
+.topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, oklch(70% 0.18 48 / 0.55) 30%, oklch(78% 0.15 68 / 0.4) 70%, transparent); }
+.rail { background: linear-gradient(180deg, var(--chrome), oklch(17% 0.03 258)); }
+.rail button.active { background: var(--paper); }
+.rail button.active b { background: var(--accent-grad); border-color: transparent; box-shadow: 0 4px 14px oklch(70% 0.18 48 / 0.45); }
+.rail button.done b { border-color: oklch(70% 0.14 150 / 0.8); }
+.rail button.active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent-grad); }
+
+button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklch(70% 0.18 48 / 0.22); }
+.topbar .outline { border-radius: 999px; }
+.topbar .ghost { border-radius: 999px; }
+
+.panel-head .eyebrow { background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.panel-head h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
+.work-tabs button[aria-selected='true'], .work-tabs button[aria-selected='true']:hover:not(:disabled) { box-shadow: inset 0 2px 0 var(--accent); }
+.work-tabs button[aria-selected='true']::before { content: ''; position: absolute; left: 8px; right: 8px; top: 0; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent-grad); }
+.work-tabs button { position: relative; }
+.seg button[aria-selected='true'] { box-shadow: 0 1px 3px oklch(20% 0.03 258 / 0.14); }
+.kpis dd { font-weight: 750; }
+
+/* 처음 들어올 때 패널이 차례로 떠오른다 */
+.app > .panel, .app > .map-wrap, .app > .side { animation: app-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.app > .map-wrap { animation-delay: 0.08s; }
+.app > .side { animation-delay: 0.16s; }
+.app > .rail li { animation: app-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.app > .rail li:nth-child(2) { animation-delay: 0.03s; }
+.app > .rail li:nth-child(3) { animation-delay: 0.06s; }
+.app > .rail li:nth-child(4) { animation-delay: 0.09s; }
+.app > .rail li:nth-child(5) { animation-delay: 0.12s; }
+.app > .rail li:nth-child(6) { animation-delay: 0.15s; }
+.app > .rail li:nth-child(7) { animation-delay: 0.18s; }
+.app > .rail li:nth-child(8) { animation-delay: 0.21s; }
+.app > .rail li:nth-child(9) { animation-delay: 0.24s; }
+@keyframes app-in { from { opacity: 0; translate: 0 10px; } }
+
+/* 설계 화면을 불러오는 동안: 랜딩과 같은 배경 */
+.app-loading { display: grid; place-items: center; align-content: center; gap: 14px; height: 100vh; background: oklch(19% 0.03 258); color: oklch(74% 0.02 255); font-size: 14px; }
+.app-loading::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid oklch(32% 0.03 258); border-top-color: var(--accent); animation: app-spin 0.8s linear infinite; }
+@keyframes app-spin { to { rotate: 360deg; } }
+
+@media (max-width: 1100px) { .brand span { display: none; } .brand { padding: 0; justify-content: center; } }
+@media (max-width: 900px) { .brand { min-width: 56px; border-right: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .app > .panel, .app > .map-wrap, .app > .side, .app > .rail li, .app-loading::before { animation: none !important; }
+}
+/* 지도 라이브러리 기본 버튼은 그라데이션을 받지 않는다 */
+.maplibregl-ctrl button, .maplibregl-ctrl button:hover:not(:disabled) { background: var(--surface); filter: none; }
+.maplibregl-ctrl button:hover:not(:disabled) { background: var(--sunken); }
+/* 단계 머리말은 랜딩 히어로처럼 남색 띠 위에 */
+.panel-head {
+  background:
+    radial-gradient(70% 140% at 100% 0%, oklch(45% 0.12 50 / 0.35), transparent 70%),
+    radial-gradient(60% 120% at 0% 100%, oklch(40% 0.1 262 / 0.45), transparent 70%),
+    var(--chrome);
+  color: oklch(96% 0.006 80);
+}
+.panel-head h1 { color: oklch(97% 0.005 80); }
+.panel-head p:last-child { color: oklch(76% 0.02 255); }
+.panel-head .eyebrow { background-image: linear-gradient(92deg, var(--accent), var(--accent-2)); }
+.panel-head + .card { border-top: 0; }
+.rail button.active { background: oklch(25% 0.035 258); color: oklch(97% 0.005 80); }
