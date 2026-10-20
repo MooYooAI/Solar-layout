@@ -37,10 +37,20 @@ interface Props {
   /** 고른 날의 태양 적위(도) */
   decl: number
   lat: number | null
+  /** 고른 날의 일출·일몰(KST)과 주변 산을 넘는 시각. 산 자료가 없으면 terrain은 null. */
+  sunTimes: { rise: number; set: number; terrain: { rise: number; set: number } | null } | null
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)} %`
-const hhmm = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`
+const hhmm = (h: number) => {
+  const m = Math.round(h * 60)
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+/** 시간 길이(시) → "9시간 50분" */
+const hm = (h: number) => {
+  const m = Math.max(0, Math.round(h * 60))
+  return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`
+}
 
 export default function ShadePanel(props: Props) {
   const { month, day, hour, sun, obstacles, onObstacles } = props
@@ -92,6 +102,24 @@ export default function ShadePanel(props: Props) {
             : `태양 고도 ${rad2deg(sun!.altitude).toFixed(1)}°, 방위 ${azLabel(rad2deg(sun!.azimuth))}`}{' '}
           (한국 표준시)
         </p>
+        {props.sunTimes && (
+          <dl className="facts sun-times">
+            <dt>일출·일몰</dt>
+            <dd>
+              {hhmm(props.sunTimes.rise)} ~ {hhmm(props.sunTimes.set)}
+              <small> 낮 {hm(props.sunTimes.set - props.sunTimes.rise)}</small>
+            </dd>
+            {props.horizonOn && props.sunTimes.terrain && (
+              <>
+                <dt>실제 일조</dt>
+                <dd>
+                  {hhmm(props.sunTimes.terrain.rise)} ~ {hhmm(props.sunTimes.terrain.set)}
+                  <small> 주변 산에 가려 {hm(props.sunTimes.terrain.rise - props.sunTimes.rise + props.sunTimes.set - props.sunTimes.terrain.set)} 짧음</small>
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
       </section>
 
       <section className="card">

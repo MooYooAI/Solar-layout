@@ -17,14 +17,14 @@ import {
   type LayoutParams,
   type ModuleSet,
 } from './lib/layout'
-import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade } from './lib/sun'
+import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade, solarToKst, sunriseSunsetSolar } from './lib/sun'
 import { deg2rad, LocalFrame, pointInRing, rotate, type Vec } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
 import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { buildScene, dailyShadeLoss, panelShadeCells, snapshot } from './lib/analysis'
+import { buildScene, dailyShadeLoss, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
@@ -531,6 +531,16 @@ export default function App() {
     // 3D에서 옆·정면으로 봐도 그늘이 보이게 모듈 표면에 떨어진 그림자도 칸별로 구한다.
     return { ...snap, panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null }
   }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry])
+  // 고른 날의 일출·일몰과, 주변 산 때문에 실제로 햇빛이 드는 시간(한국 표준시)
+  const sunTimes = useMemo(() => {
+    if (!parcel || tab !== 'shade') return null
+    const { lat0, lon0 } = LocalFrame.around(parcel.rings)
+    const day = sunriseSunsetSolar(lat0, decl)
+    if (!day) return null
+    const kst = (w: { rise: number; set: number }) => ({ rise: solarToKst(w.rise, lon0, n), set: solarToKst(w.set, lon0, n) })
+    const t = terrainSunWindow(horizon, lat0, decl)
+    return { ...kst(day), terrain: t ? kst(t) : null }
+  }, [parcel, tab, decl, n, horizon])
   const dailyLoss = useMemo(
     () => (scene && tab === 'shade' && sets.length ? dailyShadeLoss(scene, decl) : null),
     [scene, tab, sets.length, decl],
@@ -1229,6 +1239,7 @@ export default function App() {
             onHorizonOn={setHorizonOn}
             terrainBlocked={shadeView?.terrainBlocked ?? false}
             decl={decl}
+            sunTimes={sunTimes}
             lat={scene?.frame.lat0 ?? null}
           />
         )}

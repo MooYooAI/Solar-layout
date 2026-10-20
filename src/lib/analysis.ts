@@ -3,7 +3,7 @@
 import { LocalFrame, type Vec } from './geo'
 import { moduleQuads3D, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
 import { buildCasters, project, sampleAll, shadedFractions, ShadowIndex, shadowPolygons, shadowVector, type Obstacle, type Vec3 } from './shading'
-import { declination, sunPosition, type SunPos } from './sun'
+import { declination, sunPosition, sunriseSunsetSolar, type SunPos } from './sun'
 import { REP_DAY } from './energy'
 import { sunBehindTerrain, type Horizon } from './horizon'
 
@@ -140,11 +140,16 @@ function mean(m: Map<string, number>): number {
   return s / m.size
 }
 
-/** 하루 동안 해의 고도로 가중한 평균 음영 비율 (직달 일사 손실의 근사) */
+/**
+ * 하루 동안 해의 고도로 가중한 평균 음영 비율 (직달 일사 손실의 근사).
+ * 일출부터 일몰까지 10분 간격으로 본다. sin(고도) 가중은 대기 감쇠를 넣은 경사면 직달(DNI·cosθ) 가중과
+ * 1%p 안쪽으로 맞는다(30° 경사·정남 배치로 확인).
+ */
 export function dailyShadeLoss(scene: Scene, declDeg: number): number {
+  const day = sunriseSunsetSolar(scene.frame.lat0, declDeg) ?? { rise: 0, set: 24 }
   let w = 0
   let s = 0
-  for (let t = 5; t <= 19; t += 0.5) {
+  for (let t = day.rise; t <= day.set; t += 1 / 6) {
     const sun = sunPosition(scene.frame.lat0, declDeg, t)
     if (!shadowVector(sun)) continue
     const weight = Math.sin(sun.altitude)
@@ -152,6 +157,26 @@ export function dailyShadeLoss(scene: Scene, declDeg: number): number {
     s += weight * shadeAt(scene, sun)
   }
   return w ? s / w : 0
+}
+
+/**
+ * 주변 산을 넘어 부지에 햇빛이 처음 드는 시각과 산 뒤로 넘어가는 시각(태양시).
+ * 지평선이 없거나 하루 종일 가리면 null.
+ */
+export function terrainSunWindow(horizon: Horizon | null, latDeg: number, declDeg: number): { rise: number; set: number } | null {
+  if (!horizon) return null
+  const day = sunriseSunsetSolar(latDeg, declDeg)
+  if (!day) return null
+  const lit = (t: number) => {
+    const sun = sunPosition(latDeg, declDeg, t)
+    return sun.altitude > 0 && !sunBehindTerrain(horizon, sun)
+  }
+  const STEP = 1 / 60
+  let rise: number | null = null
+  for (let t = day.rise; t <= 12; t += STEP) if (lit(t)) { rise = t; break }
+  let set: number | null = null
+  for (let t = day.set; t >= 12; t -= STEP) if (lit(t)) { set = t; break }
+  return rise === null || set === null ? null : { rise, set }
 }
 
 export type ShadeQuality = 'quick' | 'medium' | 'full'
@@ -177,8 +202,10 @@ export function shadeTable(scene: Scene, quality: ShadeQuality | boolean = 'full
   }
   const source = decs.map((d) => computed.reduce((best, m) => (Math.abs(decs[m] - d) < Math.abs(decs[best] - d) ? m : best)))
   return (month, h) => {
+    // 해 뜰 무렵·질 무렵은 30분 사이에도 그늘이 크게 바뀌어 가까운 칸 값 대신 선형 보간한다.
     const row = rows.get(source[month])!
-    const i = Math.max(0, Math.min(row.length - 1, Math.round(h / step)))
-    return row[i]
+    const f = Math.max(0, Math.min(row.length - 1, h / step))
+    const i = Math.min(row.length - 2, Math.floor(f))
+    return row[i] + (row[i + 1] - row[i]) * (f - i)
   }
 }
