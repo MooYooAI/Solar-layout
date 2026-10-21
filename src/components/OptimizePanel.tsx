@@ -70,8 +70,9 @@ export default function OptimizePanel(props: Props) {
         <p className="hint" style={{ marginTop: 0 }}>
           모듈 종류·구조물·세트 구성·간격은 직접 설정 화면, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각·피치(열 이격거리)·첫
           열 위치를 바꿔 수십 가지 배치를 만듭니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘 방위각으로 채우거나 남은 자리를 다른
-          방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 네
-          가지 기준의 최선안을 고릅니다. 경사각은 모든 구역이 같습니다.
+          방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 다섯
+          가지 기준의 최선안을 고릅니다. 용량 최대 안은 동지 9~15시 무음영 간격을 지키면서 모듈을 가장 많이 놓은 안으로, 다른
+          가배치 도구와 견줄 때 쓰기 좋습니다. 경사각은 모든 구역이 같습니다.
         </p>
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
@@ -103,7 +104,15 @@ export default function OptimizePanel(props: Props) {
             {STRATEGIES[c.strategy].detail}
           </p>
           <div className="hero">
-            <strong>{fmt(c.metrics.annualKWh / 1000, 1)}</strong> MWh/년 · LCOE {fmt(c.metrics.lcoe, 1)}원/kWh
+            {c.strategy === 'capacity' ? (
+              <>
+                <strong>{fmt(c.metrics.kWp, 1)}</strong> kWp · {fmt(c.metrics.annualKWh / 1000, 1)} MWh/년
+              </>
+            ) : (
+              <>
+                <strong>{fmt(c.metrics.annualKWh / 1000, 1)}</strong> MWh/년 · LCOE {fmt(c.metrics.lcoe, 1)}원/kWh
+              </>
+            )}
           </div>
           <dl className="facts wide">
             <dt>설비용량</dt>
@@ -128,7 +137,8 @@ export default function OptimizePanel(props: Props) {
             )}
             <dt>열 이격·피치</dt>
             <dd>
-              {fmt(c.params.rowSpacing, 1)} m · {fmt(c.params.rowSpacing + setGeometry(c.params).depth, 2)} m
+              {fmt(c.params.rowSpacing, 2)} m · {fmt(c.params.rowSpacing + setGeometry(c.params).depth, 2)} m (
+              {c.spacingRatio >= 1 ? '동지 9~15시 무음영' : `무음영 간격의 ${fmt(c.spacingRatio * 100)}%`})
             </dd>
             {c.metrics.cut !== null && (
               <>
