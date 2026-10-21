@@ -160,6 +160,26 @@ export function dailyShadeLoss(scene: Scene, declDeg: number): number {
 }
 
 /**
+ * 세트별로 정한 시간(기본: 동지 무음영 기준인 태양시 9~15시) 동안 그늘진 비율의 평균. 해의 고도로 가중해
+ * 그 시간 직달 일사 손실에 가깝게 본다. 해가 주변 산 뒤에 있는 시각은 모든 세트가 똑같이 그늘이라
+ * 세트를 가려내는 데 쓸모가 없어 뺀다.
+ */
+export function perSetShade(scene: Scene, declDeg: number, from = 9, to = 15): Map<string, number> {
+  const out = new Map<string, number>([...scene.samples.keys()].map((id) => [id, 0]))
+  let w = 0
+  for (let t = from; t <= to + 1e-9; t += 1 / 6) {
+    const sun = sunPosition(scene.frame.lat0, declDeg, t)
+    const v = shadowVector(sun)
+    if (!v || sunBehindTerrain(scene.horizon, sun)) continue
+    const weight = Math.sin(sun.altitude)
+    w += weight
+    for (const [id, f] of shadedFractions(scene.samples, scene.casters, v)) out.set(id, out.get(id)! + weight * f)
+  }
+  if (w) for (const [id, x] of out) out.set(id, x / w)
+  return out
+}
+
+/**
  * 주변 산을 넘어 부지에 햇빛이 처음 드는 시각과 산 뒤로 넘어가는 시각(태양시).
  * 지평선이 없거나 하루 종일 가리면 null.
  */
