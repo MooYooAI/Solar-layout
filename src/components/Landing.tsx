@@ -81,100 +81,143 @@ function useCountUp(target: number, ms: number, delay: number) {
   return v
 }
 
-// 히어로 그림: 비스듬한 필지 안에 모듈 열이 깔린다.
-const ROWS = 6
-const COLS = 9
-const PARCEL = 'M70 92 L452 52 L496 318 L96 352 Z'
+// 히어로 그림: 도면지 위에 필지 평면도를 선으로 그리고, 치수선과 주석을 단다.
+const ROWS = 5
+const COLS = 8
+const PARCEL = 'M64 70 L486 46 L520 330 L88 360 Z'
 
 function HeroArt() {
   const kWp = useCountUp(998.4, 2600, 1500)
   const mwh = useCountUp(1312, 2600, 1700)
   return (
-    <div className="lp-art" aria-hidden="true">
-      <svg viewBox="0 0 560 400">
+    <figure className="lp-art" aria-hidden="true">
+      <span className="lp-reg lp-reg-tl" />
+      <span className="lp-reg lp-reg-tr" />
+      <span className="lp-reg lp-reg-bl" />
+      <span className="lp-reg lp-reg-br" />
+      <div className="lp-art-head">
+        <span>DWG A-101</span>
+        <span>배치 평면도</span>
+        <span>S = 1:600</span>
+      </div>
+      <svg viewBox="0 0 580 420">
         <defs>
+          <pattern id="lp-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <path d="M0 0 V5" className="lp-hatch-line" />
+          </pattern>
           <clipPath id="lp-parcel">
             <path d={PARCEL} />
           </clipPath>
-          <linearGradient id="lp-sweep" x1="0" x2="1">
-            <stop offset="0" stopColor="#ff8a3d" stopOpacity="0" />
-            <stop offset="1" stopColor="#ff8a3d" stopOpacity="0.55" />
-          </linearGradient>
-          <radialGradient id="lp-sunglow">
-            <stop offset="0" stopColor="#ffb15c" stopOpacity="0.9" />
-            <stop offset="1" stopColor="#ffb15c" stopOpacity="0" />
-          </radialGradient>
+          <marker id="lp-tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M2 8 L8 2" className="lp-tick" />
+          </marker>
         </defs>
 
-        {/* 지적 격자 */}
+        {/* 모눈 */}
+        <g className="lp-grid">
+          {Array.from({ length: 12 }, (_, i) => (
+            <path key={`v${i}`} d={`M${i * 50 + 15} 0 V420`} />
+          ))}
+          {Array.from({ length: 9 }, (_, i) => (
+            <path key={`h${i}`} d={`M0 ${i * 50 + 10} H580`} />
+          ))}
+        </g>
+
+        {/* 이웃 필지 경계 */}
         <g className="lp-cadastre">
-          {Array.from({ length: 8 }, (_, i) => (
-            <path key={`v${i}`} d={`M${20 + i * 75} 10 L${50 + i * 75} 395`} style={{ animationDelay: `${i * 0.05}s` }} />
-          ))}
-          {Array.from({ length: 6 }, (_, i) => (
-            <path key={`h${i}`} d={`M0 ${30 + i * 72} L560 ${-10 + i * 72}`} style={{ animationDelay: `${0.2 + i * 0.05}s` }} />
-          ))}
+          <path d="M0 76 L64 70 L40 0" />
+          <path d="M486 46 L580 40" />
+          <path d="M520 330 L580 326" />
+          <path d="M88 360 L70 420" />
+          <path d="M300 345 L306 420" />
         </g>
 
-        {/* 태양 궤적 */}
-        <path className="lp-sunpath" d="M40 120 Q280 -70 520 120" />
-        <g className="lp-sun">
-          <circle r="34" fill="url(#lp-sunglow)" />
-          <circle r="12" className="lp-sun-core" />
-          <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear" path="M40 120 Q280 -70 520 120" />
-        </g>
+        <path className="lp-parcel" d={PARCEL} />
 
-        <path className="lp-parcel-fill" d={PARCEL} />
+        {/* 모듈 열: 외곽선 + 뒤쪽 그림자 해칭 */}
         <g clipPath="url(#lp-parcel)">
           {Array.from({ length: ROWS }, (_, r) => (
             <g key={r}>
               {Array.from({ length: COLS }, (_, c) => {
-                const x = 92 + c * 42 + r * 3
-                const y = 92 + r * 40 - c * 4.2
-                const d = 1.4 + r * 0.22 + c * 0.05
+                const x = 104 + c * 47 + r * 4
+                const y = 92 + r * 50 - c * 2.6
+                const d = 1.2 + r * 0.18 + c * 0.05
                 return (
                   <g key={c} className="lp-set" style={{ animationDelay: `${d}s` }}>
-                    <rect className="lp-shadow" x={x + 4} y={y + 18} width="38" height="8" rx="1" style={{ animationDelay: `${d + 0.3}s` }} />
-                    <rect className="lp-module" x={x} y={y} width="38" height="18" rx="1.5" />
-                    <path className="lp-cells" d={`M${x + 9.5} ${y} v18 M${x + 19} ${y} v18 M${x + 28.5} ${y} v18 M${x} ${y + 9} h38`} />
+                    <rect className="lp-shadow" x={x} y={y + 20} width="42" height="12" />
+                    <rect className="lp-module" x={x} y={y} width="42" height="20" />
+                    <path className="lp-cells" d={`M${x + 10.5} ${y} v20 M${x + 21} ${y} v20 M${x + 31.5} ${y} v20 M${x} ${y + 10} h42`} />
                   </g>
                 )
               })}
             </g>
           ))}
-          <rect className="lp-scan" x="-120" y="0" width="120" height="400" fill="url(#lp-sweep)" />
+          <rect className="lp-scan" x="-4" y="0" width="2" height="420" />
         </g>
-        <path className="lp-parcel" d={PARCEL} />
 
         {/* 치수선 */}
         <g className="lp-dim">
-          <path d="M96 372 L496 338" />
-          <path d="M96 364 v16 M496 330 v16" />
-          <text x="300" y="376">96.4 m</text>
+          <path d="M88 384 L520 354" markerStart="url(#lp-tick)" markerEnd="url(#lp-tick)" />
+          <path d="M88 364 v28 M520 334 v28" className="lp-ext" />
+          <text x="304" y="364">96.4 m</text>
+
+          <path d="M546 92 L546 142" markerStart="url(#lp-tick)" markerEnd="url(#lp-tick)" />
+          <path d="M478 92 H556 M478 142 H556" className="lp-ext" />
+          <text x="560" y="117" transform="rotate(90 560 117)">이격 4.8 m</text>
+        </g>
+
+        {/* 주석 */}
+        <g className="lp-note" style={{ animationDelay: '2.6s' }}>
+          <path d="M210 152 L180 30 H120" />
+          <circle cx="210" cy="152" r="3" />
+        </g>
+        <g className="lp-note" style={{ animationDelay: '2.9s' }}>
+          <path d="M390 238 L430 400 H500" />
+          <circle cx="390" cy="238" r="3" />
+        </g>
+
+        {/* 방위표 */}
+        <g className="lp-north" transform="translate(40 330)">
+          <circle r="16" />
+          <path d="M0 -13 L5 6 L0 2 L-5 6 Z" />
+          <text y="-22">N</text>
         </g>
       </svg>
 
-      <div className="lp-chip lp-chip-a">
-        <span>설비용량</span>
-        <strong>
-          {kWp.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-          <small> kWp</small>
-        </strong>
+      <div className="lp-tag lp-tag-a">
+        <b>A</b> 모듈 세트 2단 × 12장
       </div>
-      <div className="lp-chip lp-chip-b">
-        <span>연간 발전량</span>
-        <strong>
-          {Math.round(mwh).toLocaleString('ko-KR')}
-          <small> MWh</small>
-        </strong>
+      <div className="lp-tag lp-tag-b">
+        <b>B</b> 동지 09–15시 무음영
       </div>
-      <div className="lp-chip lp-chip-c">
-        <i className="lp-ok" />
-        AI 설계 완료 · 음영 손실 2.1%
-      </div>
-    </div>
+
+      <dl className="lp-readout">
+        <div>
+          <dt>설비용량</dt>
+          <dd>
+            {kWp.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+            <small>kWp</small>
+          </dd>
+        </div>
+        <div>
+          <dt>연간 발전량</dt>
+          <dd>
+            {Math.round(mwh).toLocaleString('ko-KR')}
+            <small>MWh</small>
+          </dd>
+        </div>
+        <div>
+          <dt>음영 손실</dt>
+          <dd>
+            2.1<small>%</small>
+          </dd>
+        </div>
+      </dl>
+    </figure>
   )
 }
+
+const TICKER = ['지번 검색', '연속지적도', 'AI 가배치', '계절별 음영', '발전량', 'LCOE · IRR', 'DXF 도면', '보고서']
 
 /** 화면에 들어오면 .in 클래스를 붙여 등장 애니메이션을 시작한다. */
 function useReveal() {
@@ -208,105 +251,137 @@ export default function Landing({ onStart }: Props) {
   const ref = useReveal()
   return (
     <div className="lp" ref={ref}>
-      <header className="lp-nav">
-        <a className="lp-brand" href="#top">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-            <rect x="3" y="9" width="18" height="11" rx="1.5" transform="skewX(-12) translate(2 0)" />
-            <path d="M8 9v11M13 9v11M3.5 14.5h17" />
-            <circle cx="18.5" cy="4.5" r="2.2" />
-          </svg>
-          솔라 레이아웃
-        </a>
-        <nav>
-          <a href="#features">기능</a>
-          <a href="#flow">작업 흐름</a>
-        </nav>
-        <button type="button" onClick={onStart}>
-          설계 시작하기
-        </button>
-      </header>
+      <div className="lp-sheet">
+        <header className="lp-nav">
+          <a className="lp-brand" href="#top">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <rect x="3" y="9" width="18" height="11" transform="skewX(-12) translate(2 0)" />
+              <path d="M8 9v11M13 9v11M3.5 14.5h17" />
+              <circle cx="18.5" cy="4.5" r="2.2" />
+            </svg>
+            솔라 레이아웃
+          </a>
+          <span className="lp-nav-cell lp-hide-sm">PROJECT · 태양광 가배치</span>
+          <nav>
+            <a href="#features">01 기능</a>
+            <a href="#flow">02 작업 흐름</a>
+          </nav>
+          <button type="button" onClick={onStart}>
+            설계 시작하기 →
+          </button>
+        </header>
 
-      <section className="lp-hero" id="top">
-        <div className="lp-hero-copy">
-          <p className="lp-eyebrow lp-in" style={{ animationDelay: '0.1s' }}>
-            태양광 부지 검토 · 가배치 자동화
-          </p>
-          <h1 className="lp-in" style={{ animationDelay: '0.25s' }}>
-            지번만 넣으면
-            <br />
-            <em>AI가 가배치까지</em>
-          </h1>
-          <p className="lp-lead lp-in" style={{ animationDelay: '0.45s' }}>
-            지적도 확인부터 모듈 배치, 계절별 음영, 발전량과 경제성까지. 며칠 걸리던 부지 검토를 몇 분 안에 끝내세요.
-          </p>
-          <div className="lp-cta lp-in" style={{ animationDelay: '0.6s' }}>
-            <button type="button" className="lp-primary" onClick={onStart}>
-              무료로 설계 시작하기
-            </button>
-            <a className="lp-secondary" href="#features">
-              기능 둘러보기
-            </a>
+        <section className="lp-hero" id="top">
+          <div className="lp-hero-copy">
+            <p className="lp-label lp-in" style={{ animationDelay: '0.1s' }}>
+              <i /> 태양광 부지 검토 · 가배치 자동화
+            </p>
+            <h1 className="lp-in" style={{ animationDelay: '0.25s' }}>
+              지번만 넣으면
+              <br />
+              <em>AI가 가배치까지</em>
+            </h1>
+            <p className="lp-lead lp-in" style={{ animationDelay: '0.45s' }}>
+              지적도 확인부터 모듈 배치, 계절별 음영, 발전량과 경제성까지. 며칠 걸리던 부지 검토를 몇 분 안에 끝내세요.
+            </p>
+            <div className="lp-cta lp-in" style={{ animationDelay: '0.6s' }}>
+              <button type="button" className="lp-primary" onClick={onStart}>
+                무료로 설계 시작하기
+              </button>
+              <a className="lp-secondary" href="#features">
+                기능 둘러보기
+              </a>
+            </div>
+            <ul className="lp-points lp-in" style={{ animationDelay: '0.75s' }}>
+              <li>VWorld 연속지적도</li>
+              <li>한국 기상 권역별 일사량</li>
+              <li>DXF · CSV · 보고서</li>
+            </ul>
           </div>
-          <ul className="lp-points lp-in" style={{ animationDelay: '0.75s' }}>
-            <li>VWorld 연속지적도</li>
-            <li>한국 기상 권역별 일사량</li>
-            <li>DXF · CSV · 보고서</li>
-          </ul>
-        </div>
-        <HeroArt />
-      </section>
+          <HeroArt />
+        </section>
 
-      <section className="lp-strip">
-        {[
-          ['5분', '부지 하나 검토 시간'],
-          ['수십 가지', 'AI가 비교하는 배치안'],
-          ['12개월', '계절별 음영 시뮬레이션'],
-          ['1클릭', '도면·보고서 내보내기'],
-        ].map(([n, l], i) => (
-          <div key={l} className="lp-reveal" style={{ transitionDelay: `${i * 0.08}s` }}>
-            <strong>{n}</strong>
-            <span>{l}</span>
+        <div className="lp-ticker" aria-hidden="true">
+          <div>
+            {[...TICKER, ...TICKER].map((t, i) => (
+              <span key={i}>{t}</span>
+            ))}
           </div>
-        ))}
-      </section>
-
-      <section className="lp-section" id="features">
-        <h2 className="lp-reveal">부지 검토에 필요한 것을 한 화면에</h2>
-        <p className="lp-sub lp-reveal">현장 답사 전에 설치 가능 용량과 수익성을 먼저 확인하세요.</p>
-        <div className="lp-features">
-          {FEATURES.map((f, i) => (
-            <article key={f.title} className="lp-card lp-reveal" style={{ transitionDelay: `${(i % 3) * 0.1}s` }}>
-              <span className="lp-icon">
-                <Icon name={f.icon} />
-              </span>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </article>
-          ))}
         </div>
-      </section>
 
-      <section className="lp-section lp-flow" id="flow">
-        <h2 className="lp-reveal">다섯 단계면 끝납니다</h2>
-        <ol className="lp-steps">
-          {STEPS.map((s, i) => (
-            <li key={s} className="lp-reveal" style={{ transitionDelay: `${i * 0.12}s` }}>
-              <b>{i + 1}</b>
-              <span>{s}</span>
-            </li>
+        <section className="lp-strip">
+          {[
+            ['5분', '부지 하나 검토 시간'],
+            ['수십 가지', 'AI가 비교하는 배치안'],
+            ['12개월', '계절별 음영 시뮬레이션'],
+            ['1클릭', '도면·보고서 내보내기'],
+          ].map(([n, l], i) => (
+            <div key={l} className="lp-reveal" style={{ transitionDelay: `${i * 0.08}s` }}>
+              <span className="lp-idx">0{i + 1}</span>
+              <strong>{n}</strong>
+              <span>{l}</span>
+            </div>
           ))}
-        </ol>
-      </section>
+        </section>
 
-      <section className="lp-final lp-reveal">
-        <h2>지금 첫 부지를 올려 보세요</h2>
-        <p>회원가입 없이 바로 쓸 수 있습니다. 작업은 브라우저에 저장됩니다.</p>
-        <button type="button" className="lp-primary" onClick={onStart}>
-          설계 시작하기
-        </button>
-      </section>
+        <section className="lp-section" id="features">
+          <div className="lp-section-head lp-reveal">
+            <span className="lp-label">
+              <i /> 01 — 기능
+            </span>
+            <h2>부지 검토에 필요한 것을 한 화면에</h2>
+            <p className="lp-sub">현장 답사 전에 설치 가능 용량과 수익성을 먼저 확인하세요.</p>
+          </div>
+          <div className="lp-features">
+            {FEATURES.map((f, i) => (
+              <article key={f.title} className="lp-card lp-reveal" style={{ transitionDelay: `${(i % 3) * 0.1}s` }}>
+                <div className="lp-card-top">
+                  <span className="lp-icon">
+                    <Icon name={f.icon} />
+                  </span>
+                  <span className="lp-idx">F-0{i + 1}</span>
+                </div>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
 
-      <footer className="lp-foot">© 솔라 레이아웃 · 태양광 배치 설계 도구 (초안)</footer>
+        <section className="lp-section lp-flow" id="flow">
+          <div className="lp-section-head lp-reveal">
+            <span className="lp-label">
+              <i /> 02 — 작업 흐름
+            </span>
+            <h2>다섯 단계면 끝납니다</h2>
+          </div>
+          <ol className="lp-steps">
+            {STEPS.map((s, i) => (
+              <li key={s} className="lp-reveal" style={{ transitionDelay: `${i * 0.12}s` }}>
+                <b>{String(i + 1).padStart(2, '0')}</b>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="lp-final lp-reveal">
+          <span className="lp-label">
+            <i /> 03 — 시작
+          </span>
+          <h2>지금 첫 부지를 올려 보세요</h2>
+          <p>회원가입 없이 바로 쓸 수 있습니다. 작업은 브라우저에 저장됩니다.</p>
+          <button type="button" className="lp-primary" onClick={onStart}>
+            설계 시작하기
+          </button>
+        </section>
+
+        <footer className="lp-foot">
+          <span>© 솔라 레이아웃</span>
+          <span>태양광 배치 설계 도구</span>
+          <span>REV 0.1 · 초안</span>
+        </footer>
+      </div>
     </div>
   )
 }
