@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Sheet, { type SheetData } from './Sheet'
-import { PAPER, SHEETS, SHEET_GROUPS, type Annot, type AnnotKind, type Paper, type SheetId } from '../lib/sheets'
+import { BUNDLES, PAPER, SHEETS, SHEET_GROUPS, type Annot, type AnnotKind, type Paper, type SheetId } from '../lib/sheets'
 
 interface Props {
   data: SheetData
@@ -62,6 +62,7 @@ export default function DrawingWorkspace(props: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [draft, setDraft] = useState<Annot | null>(null)
   const [printing, setPrinting] = useState<SheetId[] | null>(null)
+  const [bundle, setBundle] = useState(BUNDLES[0].key)
   const canvasRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<{ kind: 'pan' | 'move' | 'draw'; sx: number; sy: number; vx: number; vy: number; start?: [number, number]; orig?: Annot } | null>(null)
@@ -345,8 +346,20 @@ export default function DrawingWorkspace(props: Props) {
             <button type="button" className="ghost" onClick={() => setPrinting([sheetId])}>
               인쇄
             </button>
-            <button type="button" className="dw-primary" onClick={() => setPrinting(SHEETS.map((s) => s.id))} title="모든 도면을 한 번에 인쇄하거나 PDF로 저장">
-              일괄 PDF
+            <select value={bundle} onChange={(e) => setBundle(e.target.value)} aria-label="묶음 인쇄 종류" title={BUNDLES.find((b) => b.key === bundle)!.detail}>
+              {BUNDLES.map((b) => (
+                <option key={b.key} value={b.key}>
+                  {`${b.label} ${b.ids.length}장`}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="dw-primary"
+              onClick={() => setPrinting(BUNDLES.find((b) => b.key === bundle)!.ids)}
+              title={`${BUNDLES.find((b) => b.key === bundle)!.detail}. 한 번에 인쇄하거나 PDF로 저장합니다.`}
+            >
+              묶음 PDF
             </button>
           </div>
         </div>

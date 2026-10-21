@@ -16,6 +16,9 @@ export type SheetId =
   | 'inverter'
   | 'grading'
   | 'slope'
+  | 'calc'
+  | 'bom'
+  | 'quantity'
 
 export interface SheetDef {
   id: SheetId
@@ -24,7 +27,7 @@ export interface SheetDef {
   group: string
 }
 
-export const SHEET_GROUPS = ['목록', '구조물', '전기', '제품', '토목'] as const
+export const SHEET_GROUPS = ['목록', '구조물', '전기', '제품', '토목', '문서'] as const
 
 export const SHEETS: SheetDef[] = [
   { id: 'cover', no: 'E-000', title: '표지', group: '목록' },
@@ -42,6 +45,26 @@ export const SHEETS: SheetDef[] = [
   { id: 'inverter', no: '012', title: '인버터 외형도', group: '제품' },
   { id: 'grading', no: 'C01', title: '절·성토 계획 평면도', group: '토목' },
   { id: 'slope', no: 'C02', title: '경사 분석도', group: '토목' },
+  { id: 'calc', no: 'D01', title: '설계계산서', group: '문서' },
+  { id: 'bom', no: 'D02', title: '자재목록표', group: '문서' },
+  { id: 'quantity', no: 'D03', title: '물량산출서', group: '문서' },
+]
+
+/** 묶음 인쇄: 쓰임새별로 고른 도면 */
+export const BUNDLES: Array<{ key: string; label: string; detail: string; ids: SheetId[] }> = [
+  {
+    key: 'permit',
+    label: '허가용',
+    detail: '개발행위·발전사업 허가 신청에 붙이는 배치·구조·결선 도면',
+    ids: ['cover', 'index', 'site-plan', 'array-plan', 'side', 'front', 'sld', 'module', 'inverter', 'grading', 'slope'],
+  },
+  {
+    key: 'build',
+    label: '시공용',
+    detail: '현장 시공에 쓰는 상세도·결선도와 계산서·자재목록·물량',
+    ids: ['cover', 'index', 'site-plan', 'array-plan', 'set-plan', 'side', 'front', 'section', 'sld', 'dc', 'inverter-plan', 'grading', 'calc', 'bom', 'quantity'],
+  },
+  { key: 'all', label: '전체', detail: '모든 도면과 문서', ids: SHEETS.map((s) => s.id) },
 ]
 
 export type Paper = 'A3' | 'A4'

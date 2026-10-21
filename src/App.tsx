@@ -56,6 +56,7 @@ import {
   compareCsv,
   download,
   invertersCsv,
+  toCsv,
   layoutDxf,
   monthlyCsv,
   parcelZone,
@@ -70,7 +71,7 @@ import DrawingWorkspace from './components/DrawingWorkspace'
 import PermitPanel from './components/PermitPanel'
 import ShadeCleanup from './components/ShadeCleanup'
 import OrderPanel from './components/OrderPanel'
-import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type Stage, type Tab } from './lib/stages'
+import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type PlantInfo, type Stage, type Tab, EMPTY_PLANT } from './lib/stages'
 import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
@@ -236,6 +237,7 @@ export default function App() {
     lockRef.current = confirmedId
   }, [confirmedId])
   const [permits, setPermits] = useState<PermitProgress>({})
+  const [plant, setPlant] = useState<PlantInfo>(EMPTY_PLANT)
   /** 도면 탭에서 그려 넣은 주석(도면별) */
   const [sheetAnnots, setSheetAnnots] = useState<Partial<Record<SheetId, Annot[]>>>({})
   const drawing = tool === 'draw'
@@ -984,6 +986,7 @@ export default function App() {
           versions,
           confirmedId,
           permits,
+          plant,
           tab,
         }
       : null
@@ -1034,6 +1037,7 @@ export default function App() {
     lockRef.current = lock
     setConfirmedId(lock)
     setPermits(d.permits ?? {})
+    setPlant({ ...EMPTY_PLANT, ...d.plant })
     if (d.tab && d.tab in TABS) switchTab(d.tab)
     setProject(id ? { id, name } : null)
     setShowProjects(false)
@@ -1072,7 +1076,7 @@ export default function App() {
     return () => clearTimeout(id)
     // 저장할 값이 바뀔 때만 저장한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, projectId])
+  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, plant, projectId])
 
   // ── 설계 확정 ──
   const confirmDesign = () => {
@@ -1292,6 +1296,22 @@ export default function App() {
     energy: !!energy,
     econ: !!econResult,
   }
+  // 발전소 정보 일람표: 지번별 현장 정보와 설비 요약
+  const plantLots = !parcel
+    ? []
+    : parcel.lots?.length
+      ? parcel.lots.map((l) => ({ address: l.address, land: l.landCategory ?? '-', area: l.area, zoning: vworldKey ? zoningText(l.pnu) : '-' }))
+      : [{ address: parcel.address, land: parcel.landCategory ?? '-', area, zoning: parcelZoning.join(', ') || (vworldKey ? zoningText(parcelZoningKeys[0]) : '-') }]
+  const plantEquipment: Array<[string, string]> = design
+    ? [
+        ['설비용량', `${fmt(design.metrics.kWp, 2)} kWp (AC ${fmt(design.metrics.kWac, 1)} kW)`],
+        ['모듈', `${params.moduleWatt} W × ${fmt(design.metrics.modules)}장`],
+        ['인버터', `${fmt(elec.inverterKW)} kW × ${fmt(design.metrics.inverters)}대`],
+        ['구조물', `${RACKING[params.racking].label}, 경사 ${params.tilt}°`],
+        ['연간 발전량', `${fmt(design.metrics.annualKWh)} kWh`],
+        ['연계', design.elec?.connection === 'MV' ? '특고압(22.9 kV)' : '저압'],
+      ]
+    : [['설비', '배치 전']]
   const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
   const mapTerrainView = tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'
@@ -1469,6 +1489,28 @@ export default function App() {
               zoning={parcelZoning}
               progress={permits}
               onProgress={setPermits}
+              plant={plant}
+              onPlant={setPlant}
+              lots={plantLots}
+              equipment={plantEquipment}
+              onCsv={() =>
+                download(
+                  `${fileBase()}-plant-info.csv`,
+                  toCsv(
+                    ['구분', '항목', '값'],
+                    [
+                      ['발전소', '이름', plant.name],
+                      ['사업자', '구분', plant.ownerType === 'corp' ? '법인' : '개인'],
+                      ['사업자', plant.ownerType === 'corp' ? '법인명·대표자' : '성명', plant.owner],
+                      ['사업자', '사업자번호', plant.bizNo],
+                      ['사업자', '연락처', plant.phone],
+                      ...plantLots.map((l) => ['현장', l.address, `${l.land} · ${fmt(l.area)} ㎡ · ${l.zoning}`]),
+                      ...plantEquipment.map(([k, v]) => ['설비', k, v]),
+                    ],
+                  ),
+                  'text/csv',
+                )
+              }
             />
           ) : (
             <section className="card">
@@ -2094,6 +2136,7 @@ export default function App() {
               terrain,
               area,
               date: today(),
+              metrics: design?.metrics ?? null,
             }}
             annots={sheetAnnots}
             onAnnots={(id, next) => setSheetAnnots((m) => ({ ...m, [id]: next }))}

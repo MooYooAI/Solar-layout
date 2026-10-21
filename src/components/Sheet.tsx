@@ -12,6 +12,8 @@ import type { ElecParams, ElecResult } from '../lib/electrical'
 import type { TerrainResult } from '../lib/terrain'
 import { buildSld } from '../lib/export/sld'
 import { GROUP_COLORS } from '../lib/palette'
+import { calcBlocks, bomBlocks, quantityBlocks, type DocBlock } from '../lib/docs'
+import type { DesignMetrics } from '../lib/design'
 import { FRAME, PAPER, SHEETS, drawArea, fitScale, scaleBar, type Annot, type Paper, type SheetDef } from '../lib/sheets'
 
 export interface SheetData {
@@ -26,6 +28,8 @@ export interface SheetData {
   terrain: TerrainResult | null
   area: number
   date: string
+  /** 설계 지표(설치비·발전량). 계산 전이면 null */
+  metrics: DesignMetrics | null
 }
 
 interface Props {
@@ -175,6 +179,99 @@ function Legend({ x, y, items }: { x: number; y: number; items: Array<[string, s
           </text>
         </g>
       ))}
+    </g>
+  )
+}
+
+/**
+ * 문서 표(설계계산서 등). 표를 위에서부터 쌓고, 칸 아래에 닿으면 오른쪽 단으로 넘긴다.
+ * 오른쪽 단까지 차면 나머지 줄은 줄여 쓰고 그 사실을 적는다.
+ */
+function DocTables({ title, blocks, area, empty }: { title: string; blocks: DocBlock[]; area: { x: number; y: number; w: number; h: number }; empty: string }) {
+  const rowH = 5
+  const top = area.y + 14
+  // 한 단에 다 들어가면 폭을 다 쓰고, 넘칠 때만 두 단으로 나눈다.
+  const total = blocks.reduce((a, b) => a + (b.rows.length + 2) * rowH + 4, 0)
+  const twoCols = area.w > 250 && top + total > area.y + area.h
+  const colW = twoCols ? (area.w - 8) / 2 : area.w
+  const out: React.ReactNode[] = []
+  let col = 0
+  let y = top
+  let cut = 0
+  const maxChars = (w: number) => Math.floor(w / 2.3)
+  const clip = (t: string, w: number) => (t.length > maxChars(w) ? `${t.slice(0, maxChars(w) - 1)}…` : t)
+  blocks.forEach((b, bi) => {
+    const need = (b.rows.length + 2) * rowH + 4
+    if (y + need > area.y + area.h && y > top && twoCols && col === 0) {
+      col = 1
+      y = top
+    }
+    const x0 = area.x + col * (colW + 8)
+    out.push(
+      <text key={`h${bi}`} x={x0} y={y + 3.6} className="sh-h">
+        {b.heading}
+      </text>,
+    )
+    y += rowH
+    let cx = x0
+    const head = b.cols.map(([label, frac], ci) => {
+      const w = colW * frac
+      const node = (
+        <g key={`c${ci}`}>
+          <rect x={cx} y={y} width={w} height={rowH} className="sh-group" />
+          <text x={cx + 1.5} y={y + 3.5} className="sh-k">
+            {label}
+          </text>
+        </g>
+      )
+      cx += w
+      return node
+    })
+    out.push(<g key={`hd${bi}`}>{head}</g>)
+    y += rowH
+    for (const [ri, row] of b.rows.entries()) {
+      if (y + rowH > area.y + area.h) {
+        cut += b.rows.length - ri
+        break
+      }
+      let rx = x0
+      out.push(
+        <g key={`r${bi}-${ri}`}>
+          {row.map((cell, ci) => {
+            const w = colW * b.cols[ci][1]
+            const last = ci === row.length - 1
+            const node = (
+              <g key={ci}>
+                <rect x={rx} y={y} width={w} height={rowH} className="cell" />
+                <text x={last ? rx + w - 1.5 : rx + 1.5} y={y + 3.5} textAnchor={last ? 'end' : 'start'}>
+                  {clip(cell, w)}
+                </text>
+              </g>
+            )
+            rx += w
+            return node
+          })}
+        </g>,
+      )
+      y += rowH
+    }
+    y += 4
+  })
+  return (
+    <g className="sh-table">
+      <text x={area.x + area.w / 2} y={area.y + 8} textAnchor="middle" className="sh-title-big">
+        {title}
+      </text>
+      {blocks.length ? out : (
+        <text x={area.x + area.w / 2} y={area.y + area.h / 2} textAnchor="middle" className="sh-empty">
+          {empty}
+        </text>
+      )}
+      {cut > 0 && (
+        <text x={area.x} y={area.y + area.h + 3} className="sh-label">
+          {`칸이 모자라 ${cut}줄을 줄였습니다. A3 용지로 바꾸면 모두 들어갑니다.`}
+        </text>
+      )}
     </g>
   )
 }
@@ -465,6 +562,15 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
             <North x={area.x + area.w - 8} y={area.y + 9} />
           </g>
         ),
+      }
+    }
+    case 'calc':
+    case 'bom':
+    case 'quantity': {
+      const make = { calc: calcBlocks, bom: bomBlocks, quantity: quantityBlocks }[def.id]
+      return {
+        scale: null,
+        body: <DocTables title={def.title} blocks={data.parcel && data.sets.length ? make(data) : []} area={full} empty="세트를 배치하면 이 문서를 만듭니다." />,
       }
     }
     case 'side':
