@@ -69,6 +69,7 @@ import TimelineMenu from './components/TimelineMenu'
 import DrawingWorkspace from './components/DrawingWorkspace'
 import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
+import { LANDING_JIBUN_KEY } from './lib/landing'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
 
 type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ' | 'ai' | 'export'
@@ -144,7 +145,14 @@ export default function App() {
   const [clearMeasuresSeq, setClearMeasuresSeq] = useState(0)
   // 지번(PNU)별 용도지역. 직접 그린 영역은 'manual:…' 키.
   const [zoning, setZoning] = useState<Record<string, string[] | 'error'>>({})
-  const [query, setQuery] = useState('')
+  // 랜딩에서 넣은 지번이 있으면 검색 칸에 미리 채운다. 화면이 다시 올라와도 남도록 여기서 지우지 않고 검색할 때 지운다.
+  const [query, setQuery] = useState(() => {
+    try {
+      return sessionStorage.getItem(LANDING_JIBUN_KEY) ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [results, setResults] = useState<ParcelSearchItem[]>([])
   const [parcel, setParcelState] = useState<Parcel | null>(null)
   const [flyTo, setFlyTo] = useState<FlyTarget | null>(null)
@@ -379,6 +387,11 @@ export default function App() {
   const onSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!query.trim()) return
+    try {
+      sessionStorage.removeItem(LANDING_JIBUN_KEY)
+    } catch {
+      // 저장소를 못 쓰면 지울 것도 없다
+    }
     setBusy(true)
     setMessage(null)
     try {

@@ -27,3 +27,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# 디자인 스킬 작업 파일
+.taste-skill/
+.impeccable/review/

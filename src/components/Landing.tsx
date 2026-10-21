@@ -1,213 +1,177 @@
 import { useEffect, useRef, useState } from 'react'
+import { LANDING_JIBUN_KEY } from '../lib/landing'
 import '../landing.css'
 
 interface Props {
   onStart: () => void
 }
 
-const FEATURES: Array<{ icon: string; title: string; body: string }> = [
-  { icon: 'search', title: '지번 검색 · 지적도', body: '지번만 넣으면 연속지적도 경계와 지목·면적·용도지역·공시지가를 바로 불러옵니다. 옆 지번을 더해 한 부지로 묶을 수도 있습니다.' },
-  { icon: 'ai', title: 'AI 설계', body: '경사각·방위각·열 간격을 바꿔 수십 가지 배치를 만들고 발전량·설치비·LCOE로 비교해 최적안을 고릅니다.' },
-  { icon: 'shade', title: '계절별 음영 분석', body: '한국 위도의 태양 궤적과 주변 산 지평선으로 동지·하지·시간대별 그림자와 하루 음영 손실을 계산합니다.' },
-  { icon: 'grid', title: '간격·이격 자유 설정', body: '모듈 패널 간격, 세트 간 간격, 앞뒤 열 이격거리와 경계 이격을 mm·m 단위로 정하고 바로 다시 배치합니다.' },
-  { icon: 'edit', title: '수동 편집', body: '배치 편집 화면에서 세트를 끌어 옮기고, 회전·복제·영역 선택·미세 이동으로 현장에 맞게 다듬습니다.' },
-  { icon: 'doc', title: '발전량 · 도면 · 보고서', body: '월별 발전량과 회수기간·IRR, 단선결선도와 DXF 배치도, 인쇄용 보고서까지 한 번에 받습니다.' },
+/** 투어 한 단계: 실제 설계 화면 스크린샷과 그 안에서 볼 곳(% 좌표) */
+interface Step {
+  id: string
+  tab: string
+  title: string
+  body: string
+  img: string
+  alt: string
+  focus: [left: number, top: number, width: number, height: number]
+}
+
+const STEPS: Step[] = [
+  {
+    id: 'parcel',
+    tab: '필지',
+    title: '지번을 넣으면 필지가 잡힙니다',
+    body: 'VWorld 연속지적도로 경계와 지목·면적·용도지역·공시지가를 불러옵니다. 옆 지번을 더해 한 부지로 묶고, 키가 없으면 영역을 직접 그립니다.',
+    img: 'tour-parcel.jpg',
+    alt: '설계 화면 필지 단계. 지번 검색 칸과 지형 위에 그려진 필지',
+    focus: [6, 37.2, 20.8, 10.6],
+  },
+  {
+    id: 'ai',
+    tab: 'AI 설계',
+    title: 'AI가 수십 가지 배치를 돌립니다',
+    body: '경사각·방위각·피치·첫 열 위치를 바꿔 가며 전기 설계, 음영·클리핑·케이블 손실, 토공량, 설치비까지 계산하고 LCOE와 IRR로 비교합니다.',
+    img: 'tour-ai.jpg',
+    alt: 'AI 가배치가 배치안을 분석하는 화면과 배치안 비교표',
+    focus: [6, 56.7, 30, 10],
+  },
+  {
+    id: 'spacing',
+    tab: '간격',
+    title: '간격과 이격은 직접 정합니다',
+    body: '패널 간격과 세트 간격은 mm, 열 이격거리와 경계 이격은 m로 넣으면 바로 다시 배치합니다. 동지 9~15시에 그림자가 닿지 않는 이격도 추천합니다.',
+    img: 'tour-spacing.jpg',
+    alt: '배치 단계의 간격 입력칸. 패널 간격 20 mm, 세트 간격 500 mm, 열 이격거리 4 m',
+    focus: [5.6, 50, 25, 34.6],
+  },
+  {
+    id: 'edit',
+    tab: '수동 편집',
+    title: '마지막은 손으로 다듬습니다',
+    body: '세트를 끌어 옮기고 회전·복제·영역 선택을 하고, 0.1 m 단위로 미세 이동합니다. 되돌리기와 타임라인으로 언제든 이전 안으로 돌아갑니다.',
+    img: 'tour-edit.jpg',
+    alt: '배치 편집 탭에서 세트 10개를 선택하고 미세 이동 버튼이 열린 화면',
+    focus: [61.6, 32.8, 12.5, 19.4],
+  },
+  {
+    id: 'shade',
+    tab: '음영',
+    title: '계절별 그림자와 산 그늘까지',
+    body: '날짜와 시각마다 한국 위도의 태양 위치로 그림자를 그리고, 반경 5 km 지형의 지평선까지 넣어 하루 음영 손실을 발전량에 반영합니다.',
+    img: 'tour-shade.jpg',
+    alt: '음영 단계. 동지 08시 15분, 주변 산 지평선 그래프와 그늘진 세트',
+    focus: [5.3, 10.5, 25.7, 50],
+  },
+  {
+    id: 'drawings',
+    tab: '도면',
+    title: '도면과 보고서까지 한 번에',
+    body: '표지부터 공사계획 평면도, 단선결선도, 절·성토 평면도까지 15종을 묶어 DXF·SVG·PDF로 받고, 입지검토 보고서로 인쇄합니다.',
+    img: 'tour-drawings.jpg',
+    alt: '도면 탭. 도면 목록 15종과 공사계획 평면도, 내보내기 버튼',
+    focus: [22.4, 16, 30.8, 5.2],
+  },
 ]
 
-const STEPS = ['지번 검색', '지형 확인', 'AI 설계', '음영·발전량', '경제성·도면']
+const IMG_BASE = `${import.meta.env.BASE_URL}landing/`
 
-function Icon({ name }: { name: string }) {
-  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+/** 지번 입력 + 시작 버튼. 넣은 지번은 설계 화면 검색 칸에 미리 채워진다. */
+function JibunForm({ onStart, id }: { onStart: () => void; id: string }) {
+  const [jibun, setJibun] = useState('')
   return (
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      {name === 'search' && (
-        <g {...p}>
-          <circle cx="10.5" cy="10.5" r="6" />
-          <path d="M15 15l5 5" />
-        </g>
-      )}
-      {name === 'ai' && (
-        <g {...p}>
-          <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z" />
-          <path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
-        </g>
-      )}
-      {name === 'shade' && (
-        <g {...p}>
-          <circle cx="7" cy="7" r="3" />
-          <path d="M4 20l6-8h8l-6 8z" />
-        </g>
-      )}
-      {name === 'grid' && (
-        <g {...p}>
-          <rect x="3" y="5" width="7" height="5" rx="1" />
-          <rect x="14" y="5" width="7" height="5" rx="1" />
-          <rect x="3" y="14" width="7" height="5" rx="1" />
-          <rect x="14" y="14" width="7" height="5" rx="1" />
-        </g>
-      )}
-      {name === 'edit' && (
-        <g {...p}>
-          <path d="M4 20l4-1 11-11-3-3L5 16z" />
-          <path d="M14 7l3 3" />
-        </g>
-      )}
-      {name === 'doc' && (
-        <g {...p}>
-          <path d="M6 3h8l4 4v14H6z" />
-          <path d="M9 13h6M9 17h6M9 9h3" />
-        </g>
-      )}
-    </svg>
-  )
-}
-
-/** 0에서 목표값까지 세어 올라가는 숫자. 화면에 보이기 시작하면 돈다. */
-function useCountUp(target: number, ms: number, delay: number) {
-  const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  const [v, setV] = useState(still ? target : 0)
-  useEffect(() => {
-    if (still) return
-    let raf = 0
-    const t0 = performance.now() + delay
-    const tick = (t: number) => {
-      const k = Math.min(1, Math.max(0, (t - t0) / ms))
-      setV(target * (1 - (1 - k) ** 3))
-      if (k < 1) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target, ms, delay, still])
-  return v
-}
-
-// 히어로 그림: 비스듬한 필지 안에 모듈 열이 깔린다.
-const ROWS = 6
-const COLS = 9
-const PARCEL = 'M70 92 L452 52 L496 318 L96 352 Z'
-
-function HeroArt() {
-  const kWp = useCountUp(998.4, 2600, 1500)
-  const mwh = useCountUp(1312, 2600, 1700)
-  return (
-    <div className="lp-art" aria-hidden="true">
-      <svg viewBox="0 0 560 400">
-        <defs>
-          <clipPath id="lp-parcel">
-            <path d={PARCEL} />
-          </clipPath>
-          <linearGradient id="lp-sweep" x1="0" x2="1">
-            <stop offset="0" stopColor="#ff8a3d" stopOpacity="0" />
-            <stop offset="1" stopColor="#ff8a3d" stopOpacity="0.55" />
-          </linearGradient>
-          <radialGradient id="lp-sunglow">
-            <stop offset="0" stopColor="#ffb15c" stopOpacity="0.9" />
-            <stop offset="1" stopColor="#ffb15c" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-
-        {/* 지적 격자 */}
-        <g className="lp-cadastre">
-          {Array.from({ length: 8 }, (_, i) => (
-            <path key={`v${i}`} d={`M${20 + i * 75} 10 L${50 + i * 75} 395`} style={{ animationDelay: `${i * 0.05}s` }} />
-          ))}
-          {Array.from({ length: 6 }, (_, i) => (
-            <path key={`h${i}`} d={`M0 ${30 + i * 72} L560 ${-10 + i * 72}`} style={{ animationDelay: `${0.2 + i * 0.05}s` }} />
-          ))}
-        </g>
-
-        {/* 태양 궤적 */}
-        <path className="lp-sunpath" d="M40 120 Q280 -70 520 120" />
-        <g className="lp-sun">
-          <circle r="34" fill="url(#lp-sunglow)" />
-          <circle r="12" className="lp-sun-core" />
-          <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear" path="M40 120 Q280 -70 520 120" />
-        </g>
-
-        <path className="lp-parcel-fill" d={PARCEL} />
-        <g clipPath="url(#lp-parcel)">
-          {Array.from({ length: ROWS }, (_, r) => (
-            <g key={r}>
-              {Array.from({ length: COLS }, (_, c) => {
-                const x = 92 + c * 42 + r * 3
-                const y = 92 + r * 40 - c * 4.2
-                const d = 1.4 + r * 0.22 + c * 0.05
-                return (
-                  <g key={c} className="lp-set" style={{ animationDelay: `${d}s` }}>
-                    <rect className="lp-shadow" x={x + 4} y={y + 18} width="38" height="8" rx="1" style={{ animationDelay: `${d + 0.3}s` }} />
-                    <rect className="lp-module" x={x} y={y} width="38" height="18" rx="1.5" />
-                    <path className="lp-cells" d={`M${x + 9.5} ${y} v18 M${x + 19} ${y} v18 M${x + 28.5} ${y} v18 M${x} ${y + 9} h38`} />
-                  </g>
-                )
-              })}
-            </g>
-          ))}
-          <rect className="lp-scan" x="-120" y="0" width="120" height="400" fill="url(#lp-sweep)" />
-        </g>
-        <path className="lp-parcel" d={PARCEL} />
-
-        {/* 치수선 */}
-        <g className="lp-dim">
-          <path d="M96 372 L496 338" />
-          <path d="M96 364 v16 M496 330 v16" />
-          <text x="300" y="376">96.4 m</text>
-        </g>
+    <form
+      className="lp-jibun"
+      onSubmit={(e) => {
+        e.preventDefault()
+        try {
+          if (jibun.trim()) sessionStorage.setItem(LANDING_JIBUN_KEY, jibun.trim())
+        } catch {
+          // 저장소를 못 쓰면 빈 검색 칸으로 연다
+        }
+        onStart()
+      }}
+    >
+      <label htmlFor={id} className="lp-sr">
+        지번
+      </label>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <circle cx="10.5" cy="10.5" r="6" />
+        <path d="M15 15l5 5" />
       </svg>
-
-      <div className="lp-chip lp-chip-a">
-        <span>설비용량</span>
-        <strong>
-          {kWp.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-          <small> kWp</small>
-        </strong>
-      </div>
-      <div className="lp-chip lp-chip-b">
-        <span>연간 발전량</span>
-        <strong>
-          {Math.round(mwh).toLocaleString('ko-KR')}
-          <small> MWh</small>
-        </strong>
-      </div>
-      <div className="lp-chip lp-chip-c">
-        <i className="lp-ok" />
-        AI 설계 완료 · 음영 손실 2.1%
-      </div>
-    </div>
+      <input id={id} value={jibun} onChange={(e) => setJibun(e.target.value)} placeholder="예: 전라남도 해남군 산이면 구성리 100" autoComplete="off" />
+      <button type="submit">설계 시작</button>
+    </form>
   )
 }
 
-/** 화면에 들어오면 .in 클래스를 붙여 등장 애니메이션을 시작한다. */
-function useReveal() {
-  const ref = useRef<HTMLDivElement>(null)
+/** 스크롤 위치로 지금 읽는 단계를 고른다: 화면 55% 줄을 지난 마지막 단계. */
+function useActiveStep() {
+  const refs = useRef<Array<HTMLElement | null>>([])
+  const [active, setActive] = useState(0)
   useEffect(() => {
-    const root = ref.current
-    if (!root) return
-    const els = root.querySelectorAll('.lp-reveal')
-    if (!('IntersectionObserver' in window)) {
-      els.forEach((e) => e.classList.add('in'))
-      return
+    let raf = 0
+    const pick = () => {
+      raf = 0
+      const mid = window.innerHeight * 0.55
+      let next = 0
+      refs.current.forEach((el, i) => {
+        if (el && el.getBoundingClientRect().top < mid) next = i
+      })
+      setActive(next)
     }
-    const io = new IntersectionObserver(
-      (entries) =>
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            e.target.classList.add('in')
-            io.unobserve(e.target)
-          }
-        }),
-      { threshold: 0.15 },
-    )
-    els.forEach((e) => io.observe(e))
-    return () => io.disconnect()
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(pick)
+    }
+    pick()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      cancelAnimationFrame(raf)
+    }
   }, [])
-  return ref
+  return { refs, active }
+}
+
+/** 고정된 앱 창: 단계마다 스크린샷이 바뀌고 주황 사각형이 볼 곳으로 옮겨 간다. */
+function AppWindow({ active }: { active: number }) {
+  const [l, t, w, h] = STEPS[active].focus
+  return (
+    <figure className="lp-window">
+      <div className="lp-window-bar" aria-hidden="true">
+        <span className="lp-window-dots">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="lp-window-url">mooyooai.github.io/solar-layout</span>
+      </div>
+      <div className="lp-window-screen">
+        {STEPS.map((s, i) => (
+          <img
+            key={s.id}
+            src={IMG_BASE + s.img}
+            width="1440"
+            height="810"
+            alt={i === active ? s.alt : ''}
+            className={i === active ? 'is-on' : ''}
+            loading={i < 2 ? 'eager' : 'lazy'}
+            decoding="async"
+          />
+        ))}
+        <span className="lp-focus" style={{ left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%` }} aria-hidden="true" />
+      </div>
+    </figure>
+  )
 }
 
 /** 처음 들어오면 보이는 소개 화면 */
 export default function Landing({ onStart }: Props) {
-  const ref = useReveal()
+  const { refs, active } = useActiveStep()
   return (
-    <div className="lp" ref={ref}>
+    <div className="lp">
       <header className="lp-nav">
         <a className="lp-brand" href="#top">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -217,96 +181,64 @@ export default function Landing({ onStart }: Props) {
           </svg>
           솔라 레이아웃
         </a>
-        <nav>
-          <a href="#features">기능</a>
-          <a href="#flow">작업 흐름</a>
+        <nav aria-label="페이지">
+          <a href="#tour">둘러보기</a>
+          <a href="#start">시작하기</a>
         </nav>
         <button type="button" onClick={onStart}>
-          설계 시작하기
+          설계 화면 열기
         </button>
       </header>
 
       <section className="lp-hero" id="top">
-        <div className="lp-hero-copy">
-          <p className="lp-eyebrow lp-in" style={{ animationDelay: '0.1s' }}>
-            태양광 부지 검토 · 가배치 자동화
-          </p>
-          <h1 className="lp-in" style={{ animationDelay: '0.25s' }}>
-            지번만 넣으면
-            <br />
-            <em>AI가 가배치까지</em>
-          </h1>
-          <p className="lp-lead lp-in" style={{ animationDelay: '0.45s' }}>
-            지적도 확인부터 모듈 배치, 계절별 음영, 발전량과 경제성까지. 며칠 걸리던 부지 검토를 몇 분 안에 끝내세요.
-          </p>
-          <div className="lp-cta lp-in" style={{ animationDelay: '0.6s' }}>
-            <button type="button" className="lp-primary" onClick={onStart}>
-              무료로 설계 시작하기
-            </button>
-            <a className="lp-secondary" href="#features">
-              기능 둘러보기
-            </a>
-          </div>
-          <ul className="lp-points lp-in" style={{ animationDelay: '0.75s' }}>
-            <li>VWorld 연속지적도</li>
-            <li>한국 기상 권역별 일사량</li>
-            <li>DXF · CSV · 보고서</li>
-          </ul>
+        <h1>
+          지번만 넣으면
+          <br />
+          <span>AI가 가배치까지</span>
+        </h1>
+        <p className="lp-lead">지적도 확인부터 모듈 배치, 계절별 음영, 발전량과 경제성, 도면까지. 며칠 걸리던 부지 검토를 몇 분 안에 끝냅니다.</p>
+        <JibunForm onStart={onStart} id="lp-jibun-top" />
+        <p className="lp-note">회원가입 없이 바로 씁니다. 작업은 브라우저에 저장됩니다.</p>
+      </section>
+
+      <section className="lp-tour" id="tour" aria-label="설계 화면 둘러보기">
+        <div className="lp-stage">
+          <AppWindow active={active} />
+          <ol className="lp-tabs" aria-hidden="true">
+            {STEPS.map((s, i) => (
+              <li key={s.id} className={i === active ? 'is-on' : i < active ? 'is-done' : ''}>
+                {s.tab}
+              </li>
+            ))}
+          </ol>
         </div>
-        <HeroArt />
-      </section>
-
-      <section className="lp-strip">
-        {[
-          ['5분', '부지 하나 검토 시간'],
-          ['수십 가지', 'AI가 비교하는 배치안'],
-          ['12개월', '계절별 음영 시뮬레이션'],
-          ['1클릭', '도면·보고서 내보내기'],
-        ].map(([n, l], i) => (
-          <div key={l} className="lp-reveal" style={{ transitionDelay: `${i * 0.08}s` }}>
-            <strong>{n}</strong>
-            <span>{l}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="lp-section" id="features">
-        <h2 className="lp-reveal">부지 검토에 필요한 것을 한 화면에</h2>
-        <p className="lp-sub lp-reveal">현장 답사 전에 설치 가능 용량과 수익성을 먼저 확인하세요.</p>
-        <div className="lp-features">
-          {FEATURES.map((f, i) => (
-            <article key={f.title} className="lp-card lp-reveal" style={{ transitionDelay: `${(i % 3) * 0.1}s` }}>
-              <span className="lp-icon">
-                <Icon name={f.icon} />
-              </span>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="lp-section lp-flow" id="flow">
-        <h2 className="lp-reveal">다섯 단계면 끝납니다</h2>
         <ol className="lp-steps">
           {STEPS.map((s, i) => (
-            <li key={s} className="lp-reveal" style={{ transitionDelay: `${i * 0.12}s` }}>
-              <b>{i + 1}</b>
-              <span>{s}</span>
+            <li
+              key={s.id}
+              ref={(el) => {
+                refs.current[i] = el
+              }}
+              className={i === active ? 'is-on' : ''}
+            >
+              <h2>{s.title}</h2>
+              <p>{s.body}</p>
+              <img className="lp-step-shot" src={IMG_BASE + s.img} width="1440" height="810" alt={s.alt} loading="lazy" decoding="async" />
             </li>
           ))}
         </ol>
       </section>
 
-      <section className="lp-final lp-reveal">
-        <h2>지금 첫 부지를 올려 보세요</h2>
-        <p>회원가입 없이 바로 쓸 수 있습니다. 작업은 브라우저에 저장됩니다.</p>
-        <button type="button" className="lp-primary" onClick={onStart}>
-          설계 시작하기
-        </button>
+      <section className="lp-close" id="start">
+        <h2>첫 부지를 올려 보세요</h2>
+        <p>지번을 넣으면 설계 화면이 그 지번을 검색 칸에 채운 채 열립니다.</p>
+        <JibunForm onStart={onStart} id="lp-jibun-bottom" />
       </section>
 
-      <footer className="lp-foot">© 솔라 레이아웃 · 태양광 배치 설계 도구 (초안)</footer>
+      <footer className="lp-foot">
+        <span>솔라 레이아웃 · 태양광 배치 설계 도구</span>
+        <span>지도 데이터 VWorld · OpenStreetMap</span>
+      </footer>
     </div>
   )
 }
