@@ -52,3 +52,13 @@ export type PermitStatus = 'todo' | 'doing' | 'filed' | 'done'
 export const PERMIT_STATUS: Record<PermitStatus, string> = { todo: '대기', doing: '준비 중', filed: '접수', done: '완료' }
 /** 인허가 이름별 진행 상황 */
 export type PermitProgress = Record<string, { status: PermitStatus; date?: string }>
+
+/** 발전소 정보 일람표에 사람이 적는 칸. 부지·설비 값은 설계에서 채운다. */
+export interface PlantInfo {
+  name: string
+  ownerType: 'person' | 'corp'
+  owner: string
+  bizNo: string
+  phone: string
+}
+export const EMPTY_PLANT: PlantInfo = { name: '', ownerType: 'person', owner: '', bizNo: '', phone: '' }
