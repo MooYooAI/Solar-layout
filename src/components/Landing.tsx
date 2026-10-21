@@ -1,223 +1,336 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { DAY_OF_YEAR, declination, rowSpacingForNoShade, sunPosition } from '../lib/sun'
 import '../landing.css'
 
 interface Props {
   onStart: () => void
 }
 
-const FEATURES: Array<{ icon: string; title: string; body: string }> = [
-  { icon: 'search', title: '지번 검색 · 지적도', body: '지번만 넣으면 연속지적도 경계와 지목·면적·용도지역·공시지가를 바로 불러옵니다. 옆 지번을 더해 한 부지로 묶을 수도 있습니다.' },
-  { icon: 'ai', title: 'AI 설계', body: '경사각·방위각·열 간격을 바꿔 수십 가지 배치를 만들고 발전량·설치비·LCOE로 비교해 최적안을 고릅니다.' },
-  { icon: 'shade', title: '계절별 음영 분석', body: '한국 위도의 태양 궤적과 주변 산 지평선으로 동지·하지·시간대별 그림자와 하루 음영 손실을 계산합니다.' },
-  { icon: 'grid', title: '간격·이격 자유 설정', body: '모듈 패널 간격, 세트 간 간격, 앞뒤 열 이격거리와 경계 이격을 mm·m 단위로 정하고 바로 다시 배치합니다.' },
-  { icon: 'edit', title: '수동 편집', body: '배치 편집 화면에서 세트를 끌어 옮기고, 회전·복제·영역 선택·미세 이동으로 현장에 맞게 다듬습니다.' },
-  { icon: 'doc', title: '발전량 · 도면 · 보고서', body: '월별 발전량과 회수기간·IRR, 단선결선도와 DXF 배치도, 인쇄용 보고서까지 한 번에 받습니다.' },
-]
+/* ── 히어로: 직접 돌려 보는 음영 단면 ──
+ * 2단 세로 세트(모듈 2.28 m × 2, 경사 30°, 지면 0.5 m) 세 열을 옆에서 본 단면.
+ * 날짜와 시각을 고르면 한국 위도(36°N)의 태양으로 앞 열 그림자가 뒤 열에 닿는지 계산한다. */
+const LAT = 36
+const TILT = 30
+const SLOPE = 2.28 * 2
+const BASE = 0.5
+const TOP = BASE + SLOPE * Math.sin((TILT * Math.PI) / 180)
+const DEPTH = SLOPE * Math.cos((TILT * Math.PI) / 180)
+/** 동지 9~15시 무음영 이격(앞 세트 뒤끝 → 뒷 세트 앞끝) */
+const GAP = rowSpacingForNoShade(LAT, TOP - BASE)
 
-const STEPS = ['지번 검색', '지형 확인', 'AI 설계', '음영·발전량', '경제성·도면']
+const SEASONS = [
+  { key: 'winter', label: '동지', day: DAY_OF_YEAR.winterSolstice },
+  { key: 'spring', label: '춘분', day: DAY_OF_YEAR.springEquinox },
+  { key: 'summer', label: '하지', day: DAY_OF_YEAR.summerSolstice },
+] as const
 
-function Icon({ name }: { name: string }) {
-  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      {name === 'search' && (
-        <g {...p}>
-          <circle cx="10.5" cy="10.5" r="6" />
-          <path d="M15 15l5 5" />
-        </g>
-      )}
-      {name === 'ai' && (
-        <g {...p}>
-          <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z" />
-          <path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
-        </g>
-      )}
-      {name === 'shade' && (
-        <g {...p}>
-          <circle cx="7" cy="7" r="3" />
-          <path d="M4 20l6-8h8l-6 8z" />
-        </g>
-      )}
-      {name === 'grid' && (
-        <g {...p}>
-          <rect x="3" y="5" width="7" height="5" rx="1" />
-          <rect x="14" y="5" width="7" height="5" rx="1" />
-          <rect x="3" y="14" width="7" height="5" rx="1" />
-          <rect x="14" y="14" width="7" height="5" rx="1" />
-        </g>
-      )}
-      {name === 'edit' && (
-        <g {...p}>
-          <path d="M4 20l4-1 11-11-3-3L5 16z" />
-          <path d="M14 7l3 3" />
-        </g>
-      )}
-      {name === 'doc' && (
-        <g {...p}>
-          <path d="M6 3h8l4 4v14H6z" />
-          <path d="M9 13h6M9 17h6M9 9h3" />
-        </g>
-      )}
-    </svg>
-  )
+function fmtHour(h: number) {
+  const m = Math.round(h * 60)
+  // 시계 표기(09:15)라 0을 채운다. taste-skill-ignore
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
-/** 0에서 목표값까지 세어 올라가는 숫자. 화면에 보이기 시작하면 돈다. */
-function useCountUp(target: number, ms: number, delay: number) {
-  const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  const [v, setV] = useState(still ? target : 0)
-  useEffect(() => {
-    if (still) return
-    let raf = 0
-    const t0 = performance.now() + delay
-    const tick = (t: number) => {
-      const k = Math.min(1, Math.max(0, (t - t0) / ms))
-      setV(target * (1 - (1 - k) ** 3))
-      if (k < 1) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target, ms, delay, still])
-  return v
-}
+function ShadeSection() {
+  const [season, setSeason] = useState<(typeof SEASONS)[number]['key']>('winter')
+  const [hour, setHour] = useState(8.5)
+  const day = SEASONS.find((s) => s.key === season)!.day
+  const { altitude, azimuth } = sunPosition(LAT, declination(day), hour)
+  const up = altitude > 0
+  // 남북 단면에 투영한 태양 고도: tan(고도)/cos(방위)
+  const tanEff = up ? Math.tan(altitude) / Math.max(0.05, Math.cos(azimuth)) : 0
+  const reach = up ? (TOP - BASE) / tanEff : Infinity
+  // 뒤 열 모듈면 위에서 그림자가 덮는 길이(m, 경사면 따라)
+  const rise = (TOP - BASE) / DEPTH
+  const covered = up && reach > GAP ? Math.min(SLOPE, ((TOP - BASE - GAP * tanEff) / (tanEff + rise)) * Math.hypot(1, rise)) : 0
+  // 0.5 % 아래는 계산 오차로 보고 음영 없음으로 둔다
+  const pct = covered / SLOPE < 0.005 ? 0 : covered / SLOPE
 
-// 히어로 그림: 도면지 위에 필지 평면도를 선으로 그리고, 치수선과 주석을 단다.
-const ROWS = 5
-const COLS = 8
-const PARCEL = 'M64 70 L486 46 L520 330 L88 360 Z'
+  // 그림 좌표: 1 m = 22 px, 지면 y = 190
+  const S = 22
+  const G = 190
+  const x0 = 30
+  const rows = [0, 1, 2].map((i) => x0 + i * (DEPTH + GAP) * S)
+  const altDeg = (altitude * 180) / Math.PI
+  const azDeg = (azimuth * 180) / Math.PI
+  const azText = Math.abs(azDeg) < 1 ? '정남' : azDeg < 0 ? `남동 ${Math.round(-azDeg)}°` : `남서 ${Math.round(azDeg)}°`
 
-function HeroArt() {
-  const kWp = useCountUp(998.4, 2600, 1500)
-  const mwh = useCountUp(1312, 2600, 1700)
   return (
-    <figure className="lp-art" aria-hidden="true">
-      <span className="lp-reg lp-reg-tl" />
-      <span className="lp-reg lp-reg-tr" />
-      <span className="lp-reg lp-reg-bl" />
-      <span className="lp-reg lp-reg-br" />
-      <div className="lp-art-head">
-        <span>DWG A-101</span>
-        <span>배치 평면도</span>
-        <span>S = 1:600</span>
+    <div className="lp-shade" data-ui>
+      <div className="lp-shade-bar">
+        <div className="lp-seg" role="radiogroup" aria-label="날짜">
+          {SEASONS.map((s) => (
+            <button key={s.key} type="button" role="radio" aria-checked={season === s.key} onClick={() => setSeason(s.key)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <label className="lp-time">
+          <span>{fmtHour(hour)}</span>
+          <input type="range" min={7} max={17} step={0.25} value={hour} onChange={(e) => setHour(Number(e.target.value))} aria-label="시각 (태양시)" />
+        </label>
       </div>
-      <svg viewBox="0 0 580 420">
-        <defs>
-          <pattern id="lp-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <path d="M0 0 V5" className="lp-hatch-line" />
-          </pattern>
-          <clipPath id="lp-parcel">
-            <path d={PARCEL} />
-          </clipPath>
-          <marker id="lp-tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-            <path d="M2 8 L8 2" className="lp-tick" />
-          </marker>
-        </defs>
 
-        {/* 모눈 */}
-        <g className="lp-grid">
-          {Array.from({ length: 12 }, (_, i) => (
-            <path key={`v${i}`} d={`M${i * 50 + 15} 0 V420`} />
-          ))}
-          {Array.from({ length: 9 }, (_, i) => (
-            <path key={`h${i}`} d={`M0 ${i * 50 + 10} H580`} />
-          ))}
-        </g>
-
-        {/* 이웃 필지 경계 */}
-        <g className="lp-cadastre">
-          <path d="M0 76 L64 70 L40 0" />
-          <path d="M486 46 L580 40" />
-          <path d="M520 330 L580 326" />
-          <path d="M88 360 L70 420" />
-          <path d="M300 345 L306 420" />
-        </g>
-
-        <path className="lp-parcel" d={PARCEL} />
-
-        {/* 모듈 열: 외곽선 + 뒤쪽 그림자 해칭 */}
-        <g clipPath="url(#lp-parcel)">
-          {Array.from({ length: ROWS }, (_, r) => (
-            <g key={r}>
-              {Array.from({ length: COLS }, (_, c) => {
-                const x = 104 + c * 47 + r * 4
-                const y = 92 + r * 50 - c * 2.6
-                const d = 1.2 + r * 0.18 + c * 0.05
-                return (
-                  <g key={c} className="lp-set" style={{ animationDelay: `${d}s` }}>
-                    <rect className="lp-shadow" x={x} y={y + 20} width="42" height="12" />
-                    <rect className="lp-module" x={x} y={y} width="42" height="20" />
-                    <path className="lp-cells" d={`M${x + 10.5} ${y} v20 M${x + 21} ${y} v20 M${x + 31.5} ${y} v20 M${x} ${y + 10} h42`} />
-                  </g>
-                )
-              })}
+      <svg viewBox="0 70 560 160" role="img" aria-label={`${fmtHour(hour)} 태양 고도 ${altDeg.toFixed(1)}도, 뒤 열 음영 ${Math.round(pct * 100)}%`}>
+        <rect x="0" y={G} width="560" height="40" className="lp-ground" />
+        {/* 해: 첫 세트 윗변에서 해 쪽으로 */}
+        {up && <circle cx={rows[0] + DEPTH * S - Math.min(70, 60 / tanEff)} cy={G - TOP * S - Math.min(70 * tanEff, 60)} r="9" className="lp-sun" />}
+        {rows.map((x, i) => {
+          const shadeHere = i > 0 && pct > 0
+          const bx = x
+          const by = G - BASE * S
+          const tx = x + DEPTH * S
+          const ty = G - TOP * S
+          return (
+            <g key={i}>
+              <path d={`M${tx} ${ty} L${tx} ${G}`} className="lp-post" />
+              <path d={`M${bx + 6} ${by + 4} L${bx + 6} ${G}`} className="lp-post" />
+              <path d={`M${bx} ${by} L${tx} ${ty}`} className="lp-panel" />
+              {shadeHere && <path d={`M${bx} ${by} L${bx + (tx - bx) * pct} ${by + (ty - by) * pct}`} className="lp-panel-shade" />}
+              {/* 그림자 선: 앞 세트 윗변에서 지면/뒤 세트까지 */}
+              {up && i < 2 && (
+                <path
+                  d={`M${tx} ${ty} L${tx + Math.min(reach, 30) * S} ${ty + Math.min(reach, 30) * S * tanEff}`}
+                  className="lp-ray"
+                />
+              )}
             </g>
-          ))}
-          <rect className="lp-scan" x="-4" y="0" width="2" height="420" />
-        </g>
-
-        {/* 치수선 */}
-        <g className="lp-dim">
-          <path d="M88 384 L520 354" markerStart="url(#lp-tick)" markerEnd="url(#lp-tick)" />
-          <path d="M88 364 v28 M520 334 v28" className="lp-ext" />
-          <text x="304" y="364">96.4 m</text>
-
-          <path d="M546 92 L546 142" markerStart="url(#lp-tick)" markerEnd="url(#lp-tick)" />
-          <path d="M478 92 H556 M478 142 H556" className="lp-ext" />
-          <text x="560" y="117" transform="rotate(90 560 117)">이격 4.8 m</text>
-        </g>
-
-        {/* 주석 */}
-        <g className="lp-note" style={{ animationDelay: '2.6s' }}>
-          <path d="M210 152 L180 30 H120" />
-          <circle cx="210" cy="152" r="3" />
-        </g>
-        <g className="lp-note" style={{ animationDelay: '2.9s' }}>
-          <path d="M390 238 L430 400 H500" />
-          <circle cx="390" cy="238" r="3" />
-        </g>
-
-        {/* 방위표 */}
-        <g className="lp-north" transform="translate(40 330)">
-          <circle r="16" />
-          <path d="M0 -13 L5 6 L0 2 L-5 6 Z" />
-          <text y="-22">N</text>
+          )
+        })}
+        <g className="lp-dim-gap">
+          <path d={`M${rows[0] + DEPTH * S} ${G + 16} H${rows[1]}`} />
+          <text x={(rows[0] + DEPTH * S + rows[1]) / 2} y={G + 28}>
+            이격 {GAP.toFixed(2)} m
+          </text>
         </g>
       </svg>
 
-      <div className="lp-tag lp-tag-a">
-        <b>A</b> 모듈 세트 2단 × 12장
-      </div>
-      <div className="lp-tag lp-tag-b">
-        <b>B</b> 동지 09–15시 무음영
-      </div>
-
       <dl className="lp-readout">
         <div>
-          <dt>설비용량</dt>
-          <dd>
-            {kWp.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-            <small>kWp</small>
-          </dd>
+          <dt>태양 고도</dt>
+          <dd>{up ? `${altDeg.toFixed(1)}°` : '해 없음'}</dd>
         </div>
         <div>
-          <dt>연간 발전량</dt>
-          <dd>
-            {Math.round(mwh).toLocaleString('ko-KR')}
-            <small>MWh</small>
-          </dd>
+          <dt>방위</dt>
+          <dd>{up ? azText : '–'}</dd>
         </div>
         <div>
-          <dt>음영 손실</dt>
-          <dd>
-            2.1<small>%</small>
-          </dd>
+          <dt>뒤 열 음영</dt>
+          <dd className={pct > 0 ? 'is-bad' : 'is-ok'}>{!up ? '–' : pct > 0 ? `패널 ${Math.round(pct * 100)}% 가림` : '없음'}</dd>
         </div>
       </dl>
+    </div>
+  )
+}
+
+/* ── AI가 비교한 배치안 (예시 부지 16,967 ㎡) ── */
+const PLANS = [
+  { name: '경사 15° · 이격 3.4 m', kwp: 1160, mwh: 1392, lcoe: 121, loss: 7.5, tag: '음영 큼' },
+  { name: '경사 20° · 이격 4.2 m', kwp: 1092, mwh: 1371, lcoe: 118, loss: 4.8, tag: '후보' },
+  { name: '경사 25° · 이격 5.0 m', kwp: 1026, mwh: 1339, lcoe: 114, loss: 2.9, tag: '후보' },
+  { name: '경사 30° · 이격 6.0 m', kwp: 941, mwh: 1262, lcoe: 112, loss: 0.9, tag: '최적' },
+  { name: '경사 30° · 이격 5.6 m', kwp: 968, mwh: 1288, lcoe: 113, loss: 1.6, tag: '후보' },
+  { name: '경사 33° · 이격 6.6 m', kwp: 902, mwh: 1212, lcoe: 115, loss: 0.7, tag: '후보' },
+  { name: '경사 35° · 이격 7.1 m', kwp: 870, mwh: 1166, lcoe: 117, loss: 0.6, tag: '후보' },
+  { name: '3단 · 경사 30° · 이격 8.8 m', kwp: 1010, mwh: 1295, lcoe: 116, loss: 1.2, tag: '후보' },
+]
+
+function PlanBoard() {
+  const [open, setOpen] = useState(3)
+  return (
+    <div className="lp-board" data-ui>
+      {PLANS.map((p, i) => (
+        <button
+          key={p.name}
+          type="button"
+          className={`lp-row${open === i ? ' is-open' : ''}`}
+          aria-expanded={open === i}
+          onClick={() => setOpen(i)}
+        >
+          <span className="lp-row-name">{p.name}</span>
+          <span className="lp-row-fact">{p.kwp.toLocaleString('ko-KR')} kWp</span>
+          <span className="lp-row-fact">{p.mwh.toLocaleString('ko-KR')} MWh</span>
+          <span className="lp-row-fact">{p.lcoe} 원/kWh</span>
+          <span className={`lp-row-tag tag-${p.tag === '최적' ? 'best' : p.tag === '음영 큼' ? 'bad' : 'mid'}`}>{p.tag}</span>
+          {open === i && (
+            <span className="lp-row-detail">
+              연간 {p.mwh.toLocaleString('ko-KR')} MWh, kWp당 {Math.round((p.mwh * 1000) / p.kwp).toLocaleString('ko-KR')} kWh. 음영 손실 {p.loss}%.
+              {p.tag === '최적' ? ' 동지 9~15시에 앞 열 그림자가 닿지 않는 최소 이격이라 kWh당 비용이 가장 낮습니다.' : ''}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ── 간격 설정: 고정된 배치도 + 오른쪽 컨트롤 ── */
+const LOT_W = 60
+const LOT_D = 40
+const MOD_W = 1.134
+const MOD_H = 2.278
+
+function LayoutPlan({ panelGap, setGap, rowGap, tiers, removed, onToggle }: {
+  panelGap: number
+  setGap: number
+  rowGap: number
+  tiers: number
+  removed: Set<string>
+  onToggle: (id: string) => void
+}) {
+  const perSet = 10
+  const setW = perSet * MOD_W + (perSet - 1) * (panelGap / 1000)
+  const setD = tiers * MOD_H * Math.cos((TILT * Math.PI) / 180)
+  const margin = 1
+  const cols = Math.max(1, Math.floor((LOT_W - 2 * margin + setGap / 1000) / (setW + setGap / 1000)))
+  const rows = Math.max(1, Math.floor((LOT_D - 2 * margin + rowGap) / (setD + rowGap)))
+  const sets: Array<{ id: string; x: number; y: number }> = []
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) sets.push({ id: `${r}-${c}`, x: margin + c * (setW + setGap / 1000), y: margin + r * (setD + rowGap) })
+  const live = sets.filter((s) => !removed.has(s.id)).length
+  const modules = live * perSet * tiers
+  const k = 8 // 1 m = 8 px
+  return (
+    <figure className="lp-plan" data-ui>
+      <svg viewBox={`-4 -4 ${LOT_W * k + 8} ${LOT_D * k + 8}`} role="img" aria-label={`세트 ${live}개, 모듈 ${modules}장`}>
+        <rect x="0" y="0" width={LOT_W * k} height={LOT_D * k} className="lp-lot" />
+        {sets.map((s) => (
+          <rect
+            key={s.id}
+            x={s.x * k}
+            y={s.y * k}
+            width={setW * k}
+            height={setD * k}
+            className={removed.has(s.id) ? 'lp-set is-off' : 'lp-set'}
+            onClick={() => onToggle(s.id)}
+          />
+        ))}
+      </svg>
+      <figcaption>
+        <span>
+          세트 <b>{live}</b>개
+        </span>
+        <span>
+          모듈 <b>{modules.toLocaleString('ko-KR')}</b>장
+        </span>
+        <span>
+          <b>{((modules * 550) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}</b> kWp
+        </span>
+      </figcaption>
     </figure>
   )
 }
 
-const TICKER = ['지번 검색', '연속지적도', 'AI 가배치', '계절별 음영', '발전량', 'LCOE · IRR', 'DXF 도면', '보고서']
+function SpacingSection() {
+  const [panelGap, setPanelGap] = useState(20)
+  const [setGap, setSetGap] = useState(500)
+  const [rowGap, setRowGap] = useState(6)
+  const [tiers, setTiers] = useState(2)
+  const [removed, setRemoved] = useState<Set<string>>(new Set())
+  const need = useMemo(() => rowSpacingForNoShade(LAT, tiers * MOD_H * Math.sin((TILT * Math.PI) / 180)), [tiers])
+  const toggle = (id: string) =>
+    setRemoved((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  return (
+    <section className="lp-spacing" id="spacing">
+      <div className="lp-spacing-stage">
+        <LayoutPlan panelGap={panelGap} setGap={setGap} rowGap={rowGap} tiers={tiers} removed={removed} onToggle={toggle} />
+      </div>
+      <div className="lp-spacing-copy">
+        <h2 className="lp-reveal">간격은 직접 정합니다</h2>
+
+        <div className="lp-block lp-reveal">
+          <p className="lp-say">패널 사이 틈을 mm 단위로.</p>
+          <p>같은 세트 안의 모듈 간격입니다. 클램프와 시공 여유에 맞춰 넣으면 세트 폭이 바로 바뀝니다.</p>
+          <label className="lp-ctl">
+            <span>패널 간격</span>
+            <input type="range" min={0} max={100} step={5} value={panelGap} onChange={(e) => setPanelGap(Number(e.target.value))} />
+            <output>{panelGap} mm</output>
+          </label>
+        </div>
+
+        <div className="lp-block lp-reveal">
+          <p className="lp-say">세트와 세트 사이도 따로.</p>
+          <p>같은 열에서 옆 세트와 띄우는 거리입니다. 점검 통로가 필요하면 넓히세요.</p>
+          <label className="lp-ctl">
+            <span>세트 간격</span>
+            <input type="range" min={0} max={2000} step={50} value={setGap} onChange={(e) => setSetGap(Number(e.target.value))} />
+            <output>{setGap} mm</output>
+          </label>
+        </div>
+
+        <div className="lp-block lp-reveal">
+          <p className="lp-say">앞뒤 열 이격은 그림자로 판단합니다.</p>
+          <p>
+            {tiers}단 세트라면 동지 9~15시에 앞 열 그림자가 닿지 않으려면 {need.toFixed(2)} m가 필요합니다.{' '}
+            {rowGap + 1e-9 >= need ? '지금 값은 음영이 없습니다.' : '지금 값은 겨울 아침저녁에 뒤 열이 가려집니다.'}
+          </p>
+          <label className="lp-ctl">
+            <span>열 이격거리</span>
+            <input type="range" min={2} max={10} step={0.1} value={rowGap} onChange={(e) => setRowGap(Number(e.target.value))} />
+            <output>{rowGap.toFixed(1)} m</output>
+          </label>
+        </div>
+
+        <div className="lp-block lp-reveal">
+          <p className="lp-say">단 수를 바꾸면 이격도 다시.</p>
+          <p>세트가 높아지면 그림자가 길어집니다. 3단으로 올리면 열은 줄고 세트당 모듈은 늘어납니다.</p>
+          <div className="lp-seg" role="radiogroup" aria-label="단 수">
+            {[1, 2, 3].map((t) => (
+              <button key={t} type="button" role="radio" aria-checked={tiers === t} onClick={() => setTiers(t)}>
+                {t}단
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="lp-block lp-reveal">
+          <p className="lp-say">마지막은 손으로 고칩니다.</p>
+          <p>배치도의 세트를 눌러 빼거나 되살려 보세요. 설계 화면에서는 끌어 옮기고, 회전·복제·미세 이동까지 됩니다.</p>
+          <button type="button" className="lp-ghost" onClick={() => setRemoved(new Set())} disabled={removed.size === 0}>
+            뺀 세트 {removed.size}개 되돌리기
+          </button>
+        </div>
+
+        <figure className="lp-shot lp-reveal">
+          <img src="/landing/layout-edit.jpg" width="742" height="848" alt="설계 화면의 배치 편집 탭. 세트 10개를 선택해 미세 이동하는 모습" loading="lazy" />
+          <figcaption>설계 화면의 배치 편집. 선택한 세트를 0.1 m 단위로 옮깁니다.</figcaption>
+        </figure>
+      </div>
+    </section>
+  )
+}
+
+/* ── FAQ ── */
+const FAQ = [
+  {
+    q: 'VWorld 키가 없어도 쓸 수 있나요?',
+    a: '지번 검색과 연속지적도는 VWorld 오픈API 키가 있어야 불러옵니다. 키가 없으면 지도에 영역을 직접 그리거나 가로·세로 치수를 넣어 같은 설계를 할 수 있습니다.',
+  },
+  {
+    q: '음영은 무엇까지 계산하나요?',
+    a: '부지 위도로 날짜·시각마다 태양 위치를 구해 앞 열 그림자를 보고, 반경 5 km 지형으로 주변 산이 해를 가리는 각도까지 반영합니다. 건물이나 나무는 높이를 넣어 직접 그려 넣습니다.',
+  },
+  {
+    q: '발전량은 어떤 기준인가요?',
+    a: '한국 기상 권역별 월 일사량과 기온으로 월별 발전량을 계산하고, 음영 손실과 온도 손실을 뺍니다. 결과는 월별 표와 연간 합계로 나옵니다.',
+  },
+  {
+    q: '어떤 파일로 받을 수 있나요?',
+    a: '배치도와 결선도 DXF, 도면 SVG, 수치 CSV, 인쇄용 PDF 보고서를 받습니다. 도면은 표지부터 공사계획 평면도, 단선결선도, 절·성토 평면도까지 묶여 나옵니다.',
+  },
+  {
+    q: '작업은 어디에 저장되나요?',
+    a: '브라우저에 저장됩니다. 저장·불러오기로 여러 부지를 오가고, 타임라인에서 이전 상태로 되돌릴 수 있습니다.',
+  },
+  {
+    q: '비용이 드나요?',
+    a: '지금은 회원가입 없이 무료로 씁니다. 지도와 지적도는 VWorld와 OpenStreetMap의 공개 데이터를 씁니다.',
+  },
+]
 
 /** 화면에 들어오면 .in 클래스를 붙여 등장 애니메이션을 시작한다. */
 function useReveal() {
@@ -225,6 +338,7 @@ function useReveal() {
   useEffect(() => {
     const root = ref.current
     if (!root) return
+    root.classList.add('js')
     const els = root.querySelectorAll('.lp-reveal')
     if (!('IntersectionObserver' in window)) {
       els.forEach((e) => e.classList.add('in'))
@@ -238,7 +352,7 @@ function useReveal() {
             io.unobserve(e.target)
           }
         }),
-      { threshold: 0.15 },
+      { threshold: 0.12 },
     )
     els.forEach((e) => io.observe(e))
     return () => io.disconnect()
@@ -246,142 +360,214 @@ function useReveal() {
   return ref
 }
 
+function useKst() {
+  const fmt = () => new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false })
+  const [t, setT] = useState(fmt)
+  useEffect(() => {
+    const id = setInterval(() => setT(fmt()), 20000)
+    return () => clearInterval(id)
+  }, [])
+  return t
+}
+
 /** 처음 들어오면 보이는 소개 화면 */
 export default function Landing({ onStart }: Props) {
   const ref = useReveal()
+  const kst = useKst()
+  const [jibun, setJibun] = useState('전라남도 해남군 산이면 구성리 100')
+  const [mount, setMount] = useState<'ground' | 'roof'>('ground')
   return (
     <div className="lp" ref={ref}>
-      <div className="lp-sheet">
-        <header className="lp-nav">
-          <a className="lp-brand" href="#top">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-              <rect x="3" y="9" width="18" height="11" transform="skewX(-12) translate(2 0)" />
-              <path d="M8 9v11M13 9v11M3.5 14.5h17" />
-              <circle cx="18.5" cy="4.5" r="2.2" />
-            </svg>
+      <section className="lp-hero" id="top">
+        <div className="lp-hero-left">
+          <a className="lp-mark" href="#top" aria-label="솔라 레이아웃 처음으로">
             솔라 레이아웃
           </a>
-          <span className="lp-nav-cell lp-hide-sm">PROJECT · 태양광 가배치</span>
-          <nav>
-            <a href="#features">01 기능</a>
-            <a href="#flow">02 작업 흐름</a>
-          </nav>
-          <button type="button" onClick={onStart}>
-            설계 시작하기 →
-          </button>
-        </header>
-
-        <section className="lp-hero" id="top">
           <div className="lp-hero-copy">
-            <p className="lp-label lp-in" style={{ animationDelay: '0.1s' }}>
-              <i /> 태양광 부지 검토 · 가배치 자동화
-            </p>
-            <h1 className="lp-in" style={{ animationDelay: '0.25s' }}>
-              지번만 넣으면
-              <br />
-              <em>AI가 가배치까지</em>
+            <h1 className="lp-lines">
+              <span className="line">
+                <span data-line style={{ '--i': 0 } as CSSProperties}>
+                  지번만 넣으면
+                </span>
+              </span>
+              <span className="line">
+                <span data-line style={{ '--i': 1 } as CSSProperties}>
+                  태양광 가배치
+                </span>
+              </span>
             </h1>
-            <p className="lp-lead lp-in" style={{ animationDelay: '0.45s' }}>
-              지적도 확인부터 모듈 배치, 계절별 음영, 발전량과 경제성까지. 며칠 걸리던 부지 검토를 몇 분 안에 끝내세요.
+            <p className="lp-lead lp-after">
+              지적도를 불러와 모듈을 앉히고, 한국 위도의 계절별 그림자와 연간 발전량까지 몇 분 안에 계산합니다. 옆의 단면에서 동지 아침 그림자를 직접 움직여 보세요.
             </p>
-            <div className="lp-cta lp-in" style={{ animationDelay: '0.6s' }}>
-              <button type="button" className="lp-primary" onClick={onStart}>
-                무료로 설계 시작하기
-              </button>
-              <a className="lp-secondary" href="#features">
-                기능 둘러보기
-              </a>
-            </div>
-            <ul className="lp-points lp-in" style={{ animationDelay: '0.75s' }}>
-              <li>VWorld 연속지적도</li>
-              <li>한국 기상 권역별 일사량</li>
-              <li>DXF · CSV · 보고서</li>
-            </ul>
-          </div>
-          <HeroArt />
-        </section>
-
-        <div className="lp-ticker" aria-hidden="true">
-          <div>
-            {[...TICKER, ...TICKER].map((t, i) => (
-              <span key={i}>{t}</span>
-            ))}
+            <button type="button" className="lp-btn lp-after" onClick={onStart}>
+              부지 검토 시작
+            </button>
           </div>
         </div>
+        <div className="lp-hero-right">
+          <a className="lp-toplink" href="#faq">
+            자주 묻는 질문
+          </a>
+          <ShadeSection />
+        </div>
+      </section>
 
-        <section className="lp-strip">
-          {[
-            ['5분', '부지 하나 검토 시간'],
-            ['수십 가지', 'AI가 비교하는 배치안'],
-            ['12개월', '계절별 음영 시뮬레이션'],
-            ['1클릭', '도면·보고서 내보내기'],
-          ].map(([n, l], i) => (
-            <div key={l} className="lp-reveal" style={{ transitionDelay: `${i * 0.08}s` }}>
-              <span className="lp-idx">0{i + 1}</span>
-              <strong>{n}</strong>
-              <span>{l}</span>
+      <section className="lp-showcase" id="plans">
+        <div className="lp-head-row lp-reveal">
+          <h2>AI가 비교한 배치안</h2>
+          <p>예시 부지 16,967 ㎡에서 경사각과 이격을 바꿔 만든 안입니다. 줄을 눌러 열어 보세요.</p>
+        </div>
+        <PlanBoard />
+      </section>
+
+      <section className="lp-how" id="how">
+        <h2 className="lp-reveal">이렇게 씁니다</h2>
+        <ol>
+          <li className="lp-reveal">
+            <p className="lp-say">먼저, 지번을 넣습니다.</p>
+            <div className="lp-call" data-ui>
+              <span className="lp-input">전라남도 해남군 산이면 구성리 100</span>
+              <span className="lp-input-btn">검색</span>
             </div>
+            <dl className="lp-resp lp-parcel" data-ui>
+              <div>
+                <dt>지목</dt>
+                <dd>전</dd>
+              </div>
+              <div>
+                <dt>면적</dt>
+                <dd>16,967 ㎡ (5,133 평)</dd>
+              </div>
+              <div>
+                <dt>용도지역</dt>
+                <dd>계획관리지역</dd>
+              </div>
+              <div>
+                <dt>공시지가</dt>
+                <dd>㎡당 21,400원</dd>
+              </div>
+            </dl>
+          </li>
+          <li className="lp-reveal">
+            <p className="lp-say">다음, 모듈과 간격을 고릅니다.</p>
+            <div className="lp-call" data-ui>
+              <span className="lp-chip">550 W</span>
+              <span className="lp-chip">가로 10장</span>
+              <span className="lp-chip">2단</span>
+              <span className="lp-chip">경사 30°</span>
+              <span className="lp-chip">정남</span>
+            </div>
+            <figure className="lp-resp lp-shot">
+              <img src="/landing/site-3d.jpg" width="742" height="848" alt="필지 안에 모듈 3,060장이 자동 배치된 3D 지형 화면" loading="lazy" />
+              <figcaption>지형 위에 자동 배치된 1,683 kWp. 산 모양까지 3D로 봅니다.</figcaption>
+            </figure>
+          </li>
+          <li className="lp-reveal">
+            <p className="lp-say">그러면 도면과 보고서가 나옵니다.</p>
+            <figure className="lp-resp lp-wide lp-shot">
+              <img src="/landing/drawings.jpg" width="1144" height="848" alt="도면 탭. 공사계획 평면도와 15종 도면 목록" loading="lazy" />
+              <figcaption>표지부터 단선결선도, 절·성토 평면도까지 15종. DXF와 PDF로 받습니다.</figcaption>
+            </figure>
+          </li>
+        </ol>
+      </section>
+
+      <SpacingSection />
+
+      <section className="lp-terrain">
+        <figure className="lp-shot lp-reveal">
+          <img src="/landing/shade-terrain.jpg" width="964" height="848" alt="음영 단계 화면. 동지 08시 15분, 주변 산 지평선 그래프와 붉게 표시된 그늘진 세트" loading="lazy" />
+        </figure>
+        <div className="lp-terrain-copy lp-reveal">
+          <h2>산 그림자도 셈에 넣습니다</h2>
+          <p>
+            부지 중심에서 방위마다 5 km까지 가장 높이 솟은 지형의 각도를 구합니다. 해가 그 선보다 낮으면 부지 전체가 그늘로 잡히고, 하루 직달 일사 손실이
+            발전량에 바로 반영됩니다.
+          </p>
+        </div>
+      </section>
+
+      <section className="lp-faq" id="faq">
+        <h2 className="lp-reveal">자주 묻는 질문</h2>
+        <div className="lp-faq-list">
+          {FAQ.map((f, i) => (
+            <details key={f.q} name="lp-faq" className="lp-reveal" open={i === 1}>
+              <summary>
+                {f.q}
+                <i aria-hidden="true" />
+              </summary>
+              <p>{f.a}</p>
+            </details>
           ))}
-        </section>
+        </div>
+      </section>
 
-        <section className="lp-section" id="features">
-          <div className="lp-section-head lp-reveal">
-            <span className="lp-label">
-              <i /> 01 — 기능
-            </span>
-            <h2>부지 검토에 필요한 것을 한 화면에</h2>
-            <p className="lp-sub">현장 답사 전에 설치 가능 용량과 수익성을 먼저 확인하세요.</p>
+      <section className="lp-cta" id="start">
+        <div className="lp-cta-copy lp-reveal">
+          <h2>
+            첫 부지를
+            <br />
+            올려 보세요
+          </h2>
+          <p>설계 화면이 열리면 지번 검색 칸에서 바로 시작합니다. 회원가입은 없습니다.</p>
+        </div>
+        <form
+          className="lp-dialog lp-reveal"
+          data-ui
+          onSubmit={(e) => {
+            e.preventDefault()
+            onStart()
+          }}
+        >
+          <p className="lp-dialog-title">새 부지 검토</p>
+          <label>
+            <span>지번</span>
+            <input value={jibun} onChange={(e) => setJibun(e.target.value)} />
+          </label>
+          <div className="lp-dialog-field">
+            <span>설치 형태</span>
+            <div className="lp-seg" role="radiogroup" aria-label="설치 형태">
+              <button type="button" role="radio" aria-checked={mount === 'ground'} onClick={() => setMount('ground')}>
+                지상
+              </button>
+              <button type="button" role="radio" aria-checked={mount === 'roof'} onClick={() => setMount('roof')}>
+                지붕
+              </button>
+            </div>
           </div>
-          <div className="lp-features">
-            {FEATURES.map((f, i) => (
-              <article key={f.title} className="lp-card lp-reveal" style={{ transitionDelay: `${(i % 3) * 0.1}s` }}>
-                <div className="lp-card-top">
-                  <span className="lp-icon">
-                    <Icon name={f.icon} />
-                  </span>
-                  <span className="lp-idx">F-0{i + 1}</span>
-                </div>
-                <h3>{f.title}</h3>
-                <p>{f.body}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="lp-section lp-flow" id="flow">
-          <div className="lp-section-head lp-reveal">
-            <span className="lp-label">
-              <i /> 02 — 작업 흐름
-            </span>
-            <h2>다섯 단계면 끝납니다</h2>
-          </div>
-          <ol className="lp-steps">
-            {STEPS.map((s, i) => (
-              <li key={s} className="lp-reveal" style={{ transitionDelay: `${i * 0.12}s` }}>
-                <b>{String(i + 1).padStart(2, '0')}</b>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className="lp-final lp-reveal">
-          <span className="lp-label">
-            <i /> 03 — 시작
-          </span>
-          <h2>지금 첫 부지를 올려 보세요</h2>
-          <p>회원가입 없이 바로 쓸 수 있습니다. 작업은 브라우저에 저장됩니다.</p>
-          <button type="button" className="lp-primary" onClick={onStart}>
-            설계 시작하기
+          <button type="submit" className="lp-btn lp-btn-full">
+            설계 화면 열기
           </button>
-        </section>
+        </form>
+      </section>
 
-        <footer className="lp-foot">
-          <span>© 솔라 레이아웃</span>
-          <span>태양광 배치 설계 도구</span>
-          <span>REV 0.1 · 초안</span>
-        </footer>
-      </div>
+      <footer className="lp-foot">
+        <div className="lp-tile lp-t-say">
+          <p>태양광 부지 검토를 몇 분 안에.</p>
+          <small>© 2026 솔라 레이아웃 · 초안</small>
+        </div>
+        <nav className="lp-tile lp-t-nav" aria-label="바닥글">
+          <a href="#plans">배치안 비교</a>
+          <a href="#how">쓰는 법</a>
+          <a href="#spacing">간격 설정</a>
+          <a href="#faq">자주 묻는 질문</a>
+        </nav>
+        <div className="lp-tile lp-t-time">
+          <p>한국 표준시</p>
+          <p className="lp-big">{kst}</p>
+        </div>
+        <div className="lp-tile lp-t-data">
+          <p>지도 데이터</p>
+          <p>VWorld · OpenStreetMap</p>
+        </div>
+        <div className="lp-tile lp-t-word">솔라 레이아웃</div>
+        <button type="button" className="lp-tile lp-t-go" onClick={onStart}>
+          <span>설계 시작하기</span>
+          <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
+            <path d="M8 40 L40 8 M16 8 H40 V32" />
+          </svg>
+        </button>
+      </footer>
     </div>
   )
 }
