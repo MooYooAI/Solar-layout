@@ -9,6 +9,7 @@ import type { EconSettings } from './economics'
 import type { BuildableOptions } from './buildable'
 import type { GradingMode } from './terrain'
 import type { Scenario } from '../components/OptimizePanel'
+import type { DesignVersion, PermitProgress, Tab } from './stages'
 
 /** 다시 열면 그때 화면으로 돌아오는 데 필요한 값. 계산 결과는 넣지 않고 열 때 다시 계산한다. */
 export interface ProjectData {
@@ -31,6 +32,12 @@ export interface ProjectData {
   gradingMode?: GradingMode
   maxDesignSlope?: number
   scenarios?: Scenario[]
+  /** 확정한 설계 이력과 지금 기준인 확정본 */
+  versions?: DesignVersion[]
+  confirmedId?: string | null
+  permits?: PermitProgress
+  /** 마지막으로 보던 화면 */
+  tab?: Tab
 }
 
 /** 목록에 보일 요약 */
