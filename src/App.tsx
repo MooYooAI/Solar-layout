@@ -67,27 +67,14 @@ import LayoutEditor from './components/LayoutEditor'
 import AiAnalyzing from './components/AiAnalyzing'
 import TimelineMenu from './components/TimelineMenu'
 import DrawingWorkspace from './components/DrawingWorkspace'
+import PermitPanel from './components/PermitPanel'
+import OrderPanel from './components/OrderPanel'
+import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type Stage, type Tab } from './lib/stages'
 import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
 
-type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ' | 'ai' | 'export'
-
-const TABS: Array<[Tab, string, string]> = [
-  ['parcel', '필지', '지번을 검색하거나 영역을 그려 부지를 정합니다.'],
-  ['terrain', '지형', '경사·절성토를 보고 설계 가능 영역을 정합니다.'],
-  ['layout', 'AI 설계', 'AI가 여러 배치안을 비교해 추천하거나, 모듈·간격을 직접 정해 자동 배치합니다.'],
-  ['elec', '전기', '스트링과 인버터를 묶고 케이블을 잡습니다.'],
-  ['shade', '음영', '날짜·시각별 그림자와 하루 음영 손실을 봅니다.'],
-  ['energy', '발전량', '음영·온도를 반영해 월별·연간 발전량을 냅니다.'],
-  ['econ', '경제성', '설치비·판매 단가로 회수기간과 IRR을 봅니다.'],
-  ['export', '내보내기', '도면(DXF)과 표(CSV)를 받습니다.'],
-]
-
-/** 'ai'(AI 추천)와 'layout'(직접 설정)은 AI 설계 한 단계의 두 화면이다. */
-const railTab = (t: Tab): Tab => (t === 'ai' ? 'layout' : t)
-
-/** 오른쪽 개요의 진행 상황에 보여 줄 단계 */
+/** 오른쪽 개요의 진행 상황에 보여 줄 화면 */
 const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
 
 /** 왼쪽 입력 패널·오른쪽 작업면 폭(px). 사용자가 끈 값을 브라우저에 기억한다. */
@@ -105,13 +92,22 @@ function loadPanes() {
 }
 
 /** 지도 위 작업 화면 */
-type Workspace = 'map' | 'edit' | 'drawing' | 'permit'
-const WORKSPACES: Array<[Workspace, string]> = [
-  ['map', '지도'],
-  ['edit', '배치 편집'],
-  ['drawing', '도면'],
-  ['permit', '인허가'],
-]
+type Workspace = 'map' | 'edit' | 'drawing'
+/** 단계마다 고를 수 있는 작업 화면 */
+const WORKSPACES: Record<Stage, Array<[Workspace, string]>> = {
+  site: [['map', '지도']],
+  design: [
+    ['map', '지도'],
+    ['edit', '배치 편집'],
+  ],
+  drawing: [['map', '지도']],
+  permit: [['map', '지도']],
+  econ: [['map', '지도']],
+  order: [['map', '지도']],
+}
+
+/** 자동 저장 전에 편집이 멈추길 기다리는 시간(ms) */
+const AUTOSAVE_DEBOUNCE = 1500
 
 /** AI 설계 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
 const AI_MIN_MS = 10_000
@@ -181,6 +177,11 @@ export default function App() {
   const [optFinished, setOptFinished] = useState(false)
   const activeRun = useRef<object | null>(null)
   const [workspace, setWorkspace] = useState<Workspace>('map')
+  const stage = stageOf(tab)
+  // 지금 단계에서 보여 줄 작업 화면. 도면 단계는 도면, 배치 편집은 기본설계에서만 연다.
+  const ws: Workspace = tab === 'sheets' ? 'drawing' : stage === 'design' && workspace === 'edit' ? 'edit' : 'map'
+  // 단계마다 마지막으로 본 화면(단계를 다시 누르면 그 화면으로 연다)
+  const [lastTab, setLastTab] = useState<Partial<Record<Stage, Tab>>>({})
   // 지금 열어 둔 저장 프로젝트(저장하면 같은 이름으로 덮어쓴다)
   const [project, setProject] = useState<{ id: string; name: string } | null>(null)
   const [showProjects, setShowProjects] = useState(false)
@@ -223,8 +224,17 @@ export default function App() {
   const [designState, setDesignState] = useState<{ input: DesignInput; result: DesignResult | null } | null>(null)
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [econResult, setEconResult] = useState<EconResult | null>(null)
-  /** AI 설계 단계에서 마지막으로 본 화면(AI 추천 / 직접 설정) */
-  const [designView, setDesignView] = useState<'ai' | 'layout'>('ai')
+  // ── 설계 확정: 기본설계에서 확정한 설계가 도면·인허가·경제성·발주의 기준이 된다. ──
+  // 확정한 동안에는 배치·설정을 고치기 전에 "설계 변경"을 거친다. 확정본은 이력에 남는다.
+  const [versions, setVersions] = useState<DesignVersion[]>([])
+  const [confirmedId, setConfirmedId] = useState<string | null>(null)
+  const confirmed = versions.find((v) => v.id === confirmedId) ?? null
+  // 한 번의 동작 안에서 여러 번 물어보지 않게 확정 상태를 바로 읽고 바로 푼다.
+  const lockRef = useRef<string | null>(null)
+  useEffect(() => {
+    lockRef.current = confirmedId
+  }, [confirmedId])
+  const [permits, setPermits] = useState<PermitProgress>({})
   /** 도면 탭에서 그려 넣은 주석(도면별) */
   const [sheetAnnots, setSheetAnnots] = useState<Partial<Record<SheetId, Annot[]>>>({})
   const drawing = tool === 'draw'
@@ -239,10 +249,24 @@ export default function App() {
     pendingLabel.current = label
   }
 
+  /** 확정한 설계를 고치려 할 때 묻는다. 풀면 true. */
+  const unlock = () => {
+    if (!lockRef.current) return true
+    if (!window.confirm('확정한 설계입니다. 설계 변경으로 풀고 고칠까요?\n지금 확정본은 확정 이력에 남습니다.')) return false
+    lockRef.current = null
+    setConfirmedId(null)
+    setNotice('설계 변경 중입니다. 다 고치면 다시 확정하세요')
+    return true
+  }
+
   // 필지가 바뀌면 이전 배치는 의미가 없다.
-  const setParcel = (p: Parcel | null) => {
+  const resetParcel = (p: Parcel | null) => {
     if (p) mark(`필지 선택 · ${p.address}`)
     setParcelState(p)
+    setVersions([])
+    lockRef.current = null
+    setConfirmedId(null)
+    setPermits({})
     if (!p) setAddingLot(false)
     setTerrain(null)
     setTerrainError(null)
@@ -256,19 +280,27 @@ export default function App() {
     setHistory({ past: [], future: [] })
     setSelected(new Set())
   }
+  const setParcel = (p: Parcel | null) => {
+    if (unlock()) resetParcel(p)
+  }
+  /** 확정 중이면 먼저 풀고 바꾸는 설정들 */
+  const updateParams = (p: LayoutParams) => unlock() && setParams(p)
+  const updateObstacles = (o: Obstacle[] | ((prev: Obstacle[]) => Obstacle[])) => unlock() && setObstacles(o)
+  const updateElec = (e: ElecParams) => unlock() && setElec(e)
   const setDrawing = (on: boolean | ((d: boolean) => boolean)) => {
     const next = typeof on === 'function' ? on(drawing) : on
     setTool(next ? 'draw' : 'none')
   }
   /** 되돌릴 수 있는 배치 변경 */
   const editSets = (next: ModuleSet[] | ((prev: ModuleSet[]) => ModuleSet[])) => {
+    if (!unlock()) return
     const value = typeof next === 'function' ? next(sets) : next
     setHistory((h) => ({ past: [...h.past.slice(-49), sets], future: [] }))
     setSets(value)
   }
   const undo = () => {
     const prev = history.past.at(-1)
-    if (!prev) return
+    if (!prev || !unlock()) return
     mark('되돌리기')
     setHistory({ past: history.past.slice(0, -1), future: [sets, ...history.future] })
     setSets(prev)
@@ -276,7 +308,7 @@ export default function App() {
   }
   const redo = () => {
     const next = history.future[0]
-    if (!next) return
+    if (!next || !unlock()) return
     mark('다시실행')
     setHistory({ past: [...history.past, sets], future: history.future.slice(1) })
     setSets(next)
@@ -479,11 +511,12 @@ export default function App() {
 
   /** 타임라인의 한 시점으로 돌아간다. 기록은 지우지 않고, 돌아간 뒤 편집하면 맨 아래에 새 줄이 붙는다. */
   const restoreTimeline = (e: TimelineEntry) => {
+    if (!unlock()) return
     restoring.current = true
     const same = !!parcel && parcelKey(parcel) === parcelKey(e.parcel)
     if (same) setHistory((h) => ({ past: [...h.past.slice(-49), sets], future: [] }))
     else {
-      setParcel(e.parcel)
+      resetParcel(e.parcel)
       const [lon, lat] = interiorPoint(e.parcel.rings)
       setFlyTo({ lon, lat, seq: Date.now() })
     }
@@ -506,7 +539,8 @@ export default function App() {
   const panelRef = useRef<HTMLElement>(null)
   const switchTab = (t: Tab) => {
     if (t !== tab) panelRef.current?.scrollTo({ top: 0 })
-    if (t === 'ai' || t === 'layout') setDesignView(t)
+    setLastTab((m) => ({ ...m, [stageOf(t)]: t }))
+    if (stageOf(t) !== stageOf(tab)) setEntry(entryState())
     setTab(t)
     setTool('none')
     setPlaying(false)
@@ -571,7 +605,7 @@ export default function App() {
     const raw = window.prompt(`${name} 높이(m)를 입력하세요`, '10')
     const height = raw === null ? NaN : Number(raw)
     if (!Number.isFinite(height) || height <= 0) return
-    setObstacles((prev) => [...prev, { id: newSetId(), name, ring, height }])
+    updateObstacles((prev) => [...prev, { id: newSetId(), name, ring, height }])
   }
 
   // 탐색은 수십 번의 배치·음영 계산이라 화면이 멈추지 않게 워커에서 돌린다.
@@ -634,6 +668,7 @@ export default function App() {
 
   const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
+    if (!unlock()) return
     mark('AI 설계 적용')
     setParams(nextParams)
     editSets(nextSets)
@@ -759,7 +794,7 @@ export default function App() {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
       if (showReport || showProjects) return
       // 도면 화면은 자체 단축키(주석 지우기 등)를 쓴다.
-      if (workspace === 'drawing') return
+      if (ws === 'drawing') return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
         e.preventDefault()
         deleteSelected()
@@ -776,11 +811,11 @@ export default function App() {
         redo()
       }
       // 배치 편집 화면에서만: 전체 선택, 복제
-      if (workspace === 'edit' && mod && e.key.toLowerCase() === 'a') {
+      if (ws === 'edit' && mod && e.key.toLowerCase() === 'a') {
         e.preventDefault()
         setSelected(new Set(sets.map((s) => s.id)))
       }
-      if (workspace === 'edit' && mod && e.key.toLowerCase() === 'd') {
+      if (ws === 'edit' && mod && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         duplicateSelected(geometry.width + params.setGap / 1000, 0)
       }
@@ -861,6 +896,7 @@ export default function App() {
   const designBusy = !!designInput && designState?.input !== designInput
 
   const onModule = (m: ModuleSpec) => {
+    if (!unlock()) return
     mark(`모듈 변경 · ${m.label}`)
     setParams({ ...params, moduleLength: m.length, moduleWidth: m.width, moduleWatt: m.watt })
     setElec({ ...elec, voc: m.voc, vmp: m.vmp, isc: m.isc, imp: m.imp, betaVoc: m.betaVoc, gammaPmax: m.gammaPmax })
@@ -896,6 +932,10 @@ export default function App() {
           gradingMode,
           maxDesignSlope,
           scenarios,
+          versions,
+          confirmedId,
+          permits,
+          tab,
         }
       : null
   const saveProject = async (asNew = false) => {
@@ -918,7 +958,7 @@ export default function App() {
   }
   const applyProject = (name: string, d: ProjectData, id: string | null) => {
     if ((sets.length || obstacles.length) && !window.confirm(`'${name}' 프로젝트를 열까요?\n지금 작업은 맨 위 타임라인에 남아 다시 돌아올 수 있습니다.`)) return
-    setParcel(d.parcel)
+    resetParcel(d.parcel)
     mark(`프로젝트 열기 · ${name}`)
     const [lon, lat] = interiorPoint(d.parcel.rings)
     setFlyTo({ lon, lat, seq: Date.now() })
@@ -940,6 +980,12 @@ export default function App() {
     if (d.gradingMode) setGradingMode(d.gradingMode)
     if (d.maxDesignSlope !== undefined) setMaxDesignSlope(d.maxDesignSlope)
     if (d.scenarios) setScenarios(d.scenarios)
+    setVersions(d.versions ?? [])
+    const lock = d.confirmedId && d.versions?.some((v) => v.id === d.confirmedId) ? d.confirmedId : null
+    lockRef.current = lock
+    setConfirmedId(lock)
+    setPermits(d.permits ?? {})
+    if (d.tab && d.tab in TABS) switchTab(d.tab)
     setProject(id ? { id, name } : null)
     setShowProjects(false)
     setNotice(`'${name}' 열었습니다`)
@@ -953,6 +999,107 @@ export default function App() {
       window.alert((e as Error).message)
     }
   }
+  // 프로젝트로 저장한 뒤에는 고칠 때마다 저절로 저장한다.
+  const [saveState, setSaveState] = useState<{ status: 'saving' | 'saved' | 'error'; at: number } | null>(null)
+  const projectId = project?.id
+  const savedFor = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!project) return
+    // 프로젝트를 열거나 처음 저장한 직후의 값은 이미 저장돼 있다.
+    if (savedFor.current !== project.id) {
+      savedFor.current = project.id
+      setSaveState({ status: 'saved', at: Date.now() })
+      return
+    }
+    const data = projectData()
+    if (!data) return
+    setSaveState({ status: 'saving', at: Date.now() })
+    const id = setTimeout(() => {
+      projectStore.save({ id: project.id, name: project.name, data, kWp: stats.kWp }).then(
+        () => setSaveState({ status: 'saved', at: Date.now() }),
+        () => setSaveState({ status: 'error', at: Date.now() }),
+      )
+    }, AUTOSAVE_DEBOUNCE)
+    return () => clearTimeout(id)
+    // 저장할 값이 바뀔 때만 저장한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, projectId])
+
+  // ── 설계 확정 ──
+  const confirmDesign = () => {
+    if (!design || designBusy || !sets.length) return
+    const v: DesignVersion = {
+      id: newSetId(),
+      name: `설계 ${versions.length + 1}`,
+      at: Date.now(),
+      params,
+      sets,
+      obstacles,
+      elec,
+      kWp: design.metrics.kWp,
+      annualKWh: design.metrics.annualKWh,
+    }
+    setVersions((vs) => [...vs, v])
+    lockRef.current = v.id
+    setConfirmedId(v.id)
+    setNotice(`${v.name} 확정했습니다`)
+  }
+  /** 이전 확정본으로 돌아가 다시 기준으로 삼는다. */
+  const restoreVersion = (v: DesignVersion) => {
+    if (!window.confirm(`${v.name}(${fmt(v.kWp, 1)} kWp)을 기준 설계로 되돌릴까요?\n지금 배치는 타임라인에 남습니다.`)) return
+    mark(`확정본 불러오기 · ${v.name}`)
+    setParams({ ...v.params })
+    setSets([...v.sets])
+    setObstacles([...v.obstacles])
+    setElec({ ...v.elec })
+    setSelected(new Set())
+    lockRef.current = v.id
+    setConfirmedId(v.id)
+  }
+
+  // ── 단계에 들어올 때의 상태. "들어올 때로"를 누르면 이 값으로 돌아간다. ──
+  type Entry = Pick<ProjectData, 'params' | 'sets' | 'obstacles'> & {
+    parcel: Parcel | null
+    elec: ElecParams
+    costs: CostParams
+    econ: EconSettings
+    versions: DesignVersion[]
+    confirmedId: string | null
+    permits: PermitProgress
+  }
+  const entryState = (): Entry => ({ parcel, params, sets, obstacles, elec, costs, econ, versions, confirmedId, permits })
+  const [entry, setEntry] = useState<Entry>(entryState)
+  const entryChanged = (Object.keys(entry) as Array<keyof Entry>).some((k) => entry[k] !== entryState()[k])
+  const restoreEntry = () => {
+    if (!window.confirm(`${STAGES.find((x) => x.key === stage)!.label} 단계에 들어올 때로 되돌릴까요?\n지금 상태는 타임라인에 남습니다.`)) return
+    const e = entry
+    if (e.parcel !== parcel) {
+      resetParcel(e.parcel)
+      if (e.parcel) {
+        const [lon, lat] = interiorPoint(e.parcel.rings)
+        setFlyTo({ lon, lat, seq: Date.now() })
+      }
+    }
+    mark('들어올 때로')
+    setParams(e.params)
+    setSets(e.sets)
+    setObstacles(e.obstacles)
+    setElec(e.elec)
+    setCosts(e.costs)
+    setEcon(e.econ)
+    setVersions(e.versions)
+    lockRef.current = e.confirmedId
+    setConfirmedId(e.confirmedId)
+    setPermits(e.permits)
+    setSelected(new Set())
+  }
+  const goStage = (k: Stage) => {
+    const st = STAGES.find((x) => x.key === k)!
+    switchTab(lastTab[k] ?? st.tabs[0])
+    setMapFocus(false)
+  }
+  const stageIndex = STAGES.findIndex((x) => x.key === stage)
+
   const exportProject = () => {
     const data = projectData()
     if (!data) return
@@ -1094,6 +1241,7 @@ export default function App() {
     energy: !!energy,
     econ: !!econResult,
   }
+  const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
   const mapTerrainView = tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'
   const mapElec = tab === 'elec' || tab === 'export' ? (design?.elec ?? null) : null
@@ -1101,7 +1249,7 @@ export default function App() {
   return (
     <>
     <div
-      className={mapFocus || workspace === 'drawing' ? 'app map-focus' : 'app'}
+      className={mapFocus || ws === 'drawing' ? 'app map-focus' : 'app'}
       style={{ '--left': `${tab === 'ai' ? Math.max(panes.left, 520) : panes.left}px`, '--right': `${panes.right}px` } as React.CSSProperties}
     >
       <header className="topbar">
@@ -1138,14 +1286,23 @@ export default function App() {
           </button>
           <TimelineMenu entries={timeline} currentId={timelineAt} onRestore={restoreTimeline} onClear={() => setTimeline([])} />
           <span className="topbar-sep" />
+          <span className={`save-state ${saveState?.status ?? 'none'}`} role="status">
+            {!project
+              ? '저장 안 됨'
+              : saveState?.status === 'saving'
+                ? '저장 중…'
+                : saveState?.status === 'error'
+                  ? '저장 실패'
+                  : `저장됨 ${new Date(saveState?.at ?? Date.now()).toTimeString().slice(0, 5)}`}
+          </span>
           <button
             type="button"
             className="ghost"
             disabled={!parcel}
             onClick={() => void saveProject()}
-            title={project ? `'${project.name}'에 덮어 저장` : '이 브라우저에 프로젝트로 저장'}
+            title={project ? `'${project.name}'에 지금 저장(고칠 때마다 저절로 저장됩니다)` : '이 브라우저에 프로젝트로 저장하고, 이후 자동 저장'}
           >
-            저장
+            {project ? '저장' : '프로젝트로 저장'}
           </button>
           <button type="button" className="ghost" onClick={() => setShowProjects(true)}>
             불러오기
@@ -1155,19 +1312,17 @@ export default function App() {
 
       <nav className="rail" aria-label="설계 단계">
         <ol>
-          {TABS.map(([t, label], i) => (
-            <li key={t}>
+          {STAGES.map((st, i) => (
+            <li key={st.key}>
               <button
                 type="button"
-                className={railTab(tab) === t ? 'active' : stepDone[t] ? 'done' : ''}
-                aria-current={railTab(tab) === t ? 'step' : undefined}
-                onClick={() => {
-                  switchTab(t === 'layout' && railTab(tab) !== 'layout' ? designView : t)
-                  setMapFocus(false)
-                }}
+                className={stage === st.key ? 'active' : stageDone[st.key] ? 'done' : ''}
+                aria-current={stage === st.key ? 'step' : undefined}
+                onClick={() => goStage(st.key)}
               >
-                <b>{stepDone[t] && railTab(tab) !== t ? '✓' : i + 1}</b>
-                <span>{label}</span>
+                <b>{stageDone[st.key] && stage !== st.key ? '✓' : i + 1}</b>
+                <span>{st.label}</span>
+                {st.key === 'design' && confirmed && <i className="rail-tag">확정</i>}
               </button>
             </li>
           ))}
@@ -1176,25 +1331,42 @@ export default function App() {
 
       <aside className="panel" aria-labelledby="panel-title" ref={panelRef}>
         <header className="panel-head">
-          <p className="eyebrow">{`${String(TABS.findIndex(([t]) => t === railTab(tab)) + 1).padStart(2, '0')} 단계`}</p>
-          <h1 id="panel-title">{TABS.find(([t]) => t === railTab(tab))![1]}</h1>
-          <p>{TABS.find(([t]) => t === railTab(tab))![2]}</p>
-          {railTab(tab) === 'layout' && (
-            <div className="seg design-seg" role="tablist" aria-label="AI 설계 방식">
-              <button type="button" role="tab" aria-selected={tab === 'ai'} onClick={() => switchTab('ai')}>
-                AI 추천
-              </button>
-              <button type="button" role="tab" aria-selected={tab === 'layout'} onClick={() => switchTab('layout')}>
-                직접 설정
-              </button>
+          <p className="eyebrow">{`${String(stageIndex + 1).padStart(2, '0')} 단계`}</p>
+          <h1 id="panel-title">{STAGES[stageIndex].label}</h1>
+          {STAGES[stageIndex].tabs.length > 1 && (
+            <div className="seg design-seg" role="tablist" aria-label={`${STAGES[stageIndex].label} 화면`}>
+              {STAGES[stageIndex].tabs.map((t) => (
+                <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => switchTab(t)}>
+                  {TABS[t].label}
+                </button>
+              ))}
             </div>
           )}
+          <p>{TABS[tab].desc}</p>
         </header>
+
+        {stageIndex >= 2 && parcel && (
+          confirmed ? (
+            <section className="card basis">
+              <p>
+                기준 설계 <strong>{confirmed.name}</strong> · {fmt(confirmed.kWp, 1)} kWp · {new Date(confirmed.at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })} 확정
+              </p>
+            </section>
+          ) : (
+            <section className="card notice">
+              <h2>설계를 아직 확정하지 않았습니다</h2>
+              <p>지금 배치 값으로 보여 줍니다. 기본설계에서 확정하면 이 단계부터는 확정한 설계가 기준이 됩니다.</p>
+              <button type="button" className="secondary" onClick={() => goStage('design')}>
+                기본설계로
+              </button>
+            </section>
+          )
+        )}
 
         {tab === 'layout' && (
           <LayoutPanel
             params={params}
-            onParams={setParams}
+            onParams={updateParams}
             suggestedRowSpacing={suggestedRowSpacing}
             canLayout={!!parcel}
             onAutoLayout={runAutoLayout}
@@ -1209,7 +1381,7 @@ export default function App() {
         {tab === 'elec' && (
           <ElectricalPanel
             elec={elec}
-            onElec={setElec}
+            onElec={updateElec}
             result={design?.elec ?? null}
             metrics={design?.metrics ?? null}
             busy={designBusy}
@@ -1218,6 +1390,33 @@ export default function App() {
         )}
 
         {tab === 'export' && <ExportPanel groups={exportGroups} busy={designBusy} />}
+
+        {tab === 'permit' &&
+          (parcel ? (
+            <PermitPanel
+              kWp={confirmed?.kWp ?? stats.kWp}
+              address={parcel.address}
+              landCategory={parcel.landCategory}
+              area={area}
+              zoning={parcelZoning}
+              progress={permits}
+              onProgress={setPermits}
+            />
+          ) : (
+            <section className="card">
+              <p className="hint">현장정보에서 부지를 먼저 고르세요.</p>
+            </section>
+          ))}
+
+        {tab === 'order' && (
+          <OrderPanel
+            metrics={design?.metrics ?? null}
+            busy={designBusy}
+            params={params}
+            elec={elec}
+            onCsv={() => exportGroups[1].items.find((i) => i.key === 'capex')!.run()}
+          />
+        )}
 
         {tab === 'terrain' && (
           <TerrainPanel
@@ -1256,7 +1455,7 @@ export default function App() {
             dailyLoss={dailyLoss}
             hasSets={sets.length > 0}
             obstacles={obstacles}
-            onObstacles={setObstacles}
+            onObstacles={updateObstacles}
             tool={tool}
             onTool={setTool}
             horizon={horizonFresh?.horizon ?? null}
@@ -1492,8 +1691,8 @@ export default function App() {
               </>
             )}
             <div className="row" style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => switchTab('layout')}>
-                {lots && lots.length > 1 ? '이 부지에 배치하기' : '이 필지에 배치하기'}
+              <button type="button" onClick={() => switchTab('ai')}>
+                {lots && lots.length > 1 ? '이 부지로 가설계' : '이 필지로 가설계'}
               </button>
               <button type="button" className="secondary" onClick={() => setParcel(null)}>
                 선택 해제
@@ -1546,6 +1745,84 @@ export default function App() {
 
         </>
         )}
+
+        {stage === 'design' && (
+          <section className="card confirm">
+            <h2>설계 확정</h2>
+            {confirmed ? (
+              <>
+                <p>
+                  <strong>{confirmed.name}</strong>을 확정했습니다. 도면·인허가·경제성·발주는 이 설계를 기준으로 합니다. 고치려면 설계 변경을 누르세요.
+                </p>
+                <button type="button" className="secondary block" onClick={() => unlock()}>
+                  설계 변경
+                </button>
+              </>
+            ) : (
+              <>
+                {design && sets.length > 0 ? (
+                  <dl className="facts wide">
+                    <dt>설비용량</dt>
+                    <dd>
+                      {fmt(design.metrics.kWp, 1)} kWp · 모듈 {fmt(design.metrics.modules)}장
+                    </dd>
+                    <dt>인버터</dt>
+                    <dd>
+                      {fmt(design.metrics.inverters)}대 · {fmt(design.metrics.kWac, 1)} kW
+                    </dd>
+                    <dt>연간 발전량</dt>
+                    <dd>{fmt(design.metrics.annualKWh / 1000, 1)} MWh</dd>
+                  </dl>
+                ) : (
+                  <p className="hint">{!sets.length ? '배치를 먼저 하세요.' : '설계를 계산하는 중입니다.'}</p>
+                )}
+                <button type="button" className="block" disabled={!design || designBusy || !sets.length} onClick={confirmDesign}>
+                  이 설계로 확정
+                </button>
+                <p className="hint">확정하면 그 시점의 배치·전기 설계가 저장되고, 뒤 단계의 기준이 됩니다.</p>
+              </>
+            )}
+            {versions.length > 0 && (
+              <details style={{ marginTop: 10 }}>
+                <summary>확정 이력 ({versions.length})</summary>
+                <ul className="versions">
+                  {[...versions].reverse().map((v) => (
+                    <li key={v.id}>
+                      <span>
+                        {v.name} {v.id === confirmedId && <span className="rv-badge ok">기준</span>}
+                        <small>
+                          {new Date(v.at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })} · {fmt(v.kWp, 1)} kWp
+                          {v.annualKWh !== null && ` · ${fmt(v.annualKWh / 1000, 1)} MWh`}
+                        </small>
+                      </span>
+                      {v.id !== confirmedId && (
+                        <button type="button" className="secondary" onClick={() => restoreVersion(v)}>
+                          되돌리기
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
+
+        <footer className="stage-foot">
+          <button type="button" className="ghost" disabled={stageIndex === 0} onClick={() => goStage(STAGES[stageIndex - 1].key)}>
+            ← {stageIndex > 0 ? STAGES[stageIndex - 1].label : '이전'}
+          </button>
+          <button type="button" className="ghost" disabled={!entryChanged} onClick={restoreEntry} title="이 단계에 들어올 때의 상태로 되돌립니다">
+            들어올 때로
+          </button>
+          <button
+            type="button"
+            disabled={stageIndex === STAGES.length - 1}
+            onClick={() => goStage(STAGES[stageIndex + 1].key)}
+          >
+            {stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1].label : '다음'} →
+          </button>
+        </footer>
       </aside>
 
       <Resizer
@@ -1558,11 +1835,17 @@ export default function App() {
 
       <main className="map-wrap">
         <div className="work-tabs" role="tablist" aria-label="작업 화면">
-          {WORKSPACES.map(([w, label]) => (
-            <button key={w} type="button" role="tab" aria-selected={workspace === w} onClick={() => switchWorkspace(w)}>
-              {label}
-            </button>
-          ))}
+          {stage === 'drawing'
+            ? STAGES[stageIndex].tabs.map((t) => (
+                <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => switchTab(t)}>
+                  {TABS[t].label}
+                </button>
+              ))
+            : WORKSPACES[stage].map(([w, label]) => (
+                <button key={w} type="button" role="tab" aria-selected={ws === w} onClick={() => switchWorkspace(w)}>
+                  {label}
+                </button>
+              ))}
           <button type="button" role="tab" aria-selected={false} className="work-tab-report" disabled={!parcel} onClick={() => setShowReport(true)} title={parcel ? '인쇄용 보고서 열기' : '필지를 먼저 고르세요'}>
             보고서
           </button>
@@ -1664,7 +1947,7 @@ export default function App() {
           )}
           {mapMode === '3d' && !show3d && <span>그리기 중에는 2D</span>}
         </div>
-        {workspace === 'edit' && (
+        {ws === 'edit' && (
           <LayoutEditor
             parcel={parcel}
             sets={sets}
@@ -1691,7 +1974,7 @@ export default function App() {
             onRedo={redo}
           />
         )}
-        {workspace === 'drawing' && (
+        {ws === 'drawing' && (
           <DrawingWorkspace
             data={{
               parcel,
@@ -1713,11 +1996,6 @@ export default function App() {
             onSldDxf={() => dxfItem('sld-dxf').run()}
             fileBase={fileBase()}
           />
-        )}
-        {workspace === 'permit' && (
-          <div className="permit" role="tabpanel" aria-label="인허가">
-            <p>인허가 화면은 준비 중입니다.</p>
-          </div>
         )}
         {optRun && <AiAnalyzing startedAt={optStartedAt} duration={AI_MIN_MS} finished={optFinished} onCancel={cancelOptimize} />}
         </div>
@@ -1762,7 +2040,7 @@ export default function App() {
           energy={energy}
           econ={econ}
           econHours={econHours}
-          steps={OVERVIEW_STEPS.map((t) => ({ key: t, label: TABS.find((x) => x[0] === t)![1], done: !!stepDone[t] }))}
+          steps={OVERVIEW_STEPS.map((t) => ({ key: t, label: TABS[t].label, done: !!stepDone[t] }))}
           onGoStep={(k) => switchTab(k as Tab)}
         />
       </aside>
