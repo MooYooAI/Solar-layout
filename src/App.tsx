@@ -24,7 +24,7 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { buildScene, dailyShadeLoss, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
+import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
@@ -48,7 +48,7 @@ import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
 import { DEFAULT_COSTS, type CostParams } from './lib/costs'
 import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
-import { RACKING, type ModuleSpec } from './lib/catalog'
+import { INVERTERS, RACKING, type ModuleSpec } from './lib/catalog'
 import {
   arraysCsv,
   capexCsv,
@@ -68,6 +68,7 @@ import AiAnalyzing from './components/AiAnalyzing'
 import TimelineMenu from './components/TimelineMenu'
 import DrawingWorkspace from './components/DrawingWorkspace'
 import PermitPanel from './components/PermitPanel'
+import ShadeCleanup from './components/ShadeCleanup'
 import OrderPanel from './components/OrderPanel'
 import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type Stage, type Tab } from './lib/stages'
 import type { Annot, SheetId } from './lib/sheets'
@@ -267,6 +268,7 @@ export default function App() {
     lockRef.current = null
     setConfirmedId(null)
     setPermits({})
+    setLayoutBasis(null)
     if (!p) setAddingLot(false)
     setTerrain(null)
     setTerrainError(null)
@@ -522,6 +524,7 @@ export default function App() {
     }
     // 새 배열로 넣어야 상태가 바뀐 것으로 잡힌다(같은 시점을 다시 골라도).
     setParams({ ...e.params })
+    setLayoutBasis(null)
     setSets([...e.sets])
     setObstacles([...e.obstacles])
     setSelected(new Set())
@@ -671,6 +674,7 @@ export default function App() {
     if (!unlock()) return
     mark('AI 설계 적용')
     setParams(nextParams)
+    setLayoutBasis(nextParams)
     editSets(nextSets)
     setSelected(new Set())
     setEnergy(null)
@@ -712,12 +716,57 @@ export default function App() {
     }, 30)
   }
 
-  const runAutoLayout = () => {
-    if (!parcel) return
-    if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return
-    mark('자동 배치')
+  // 마지막 자동 배치(또는 AI 안 적용)에 쓴 설정. 그 뒤 설정이 바뀌면 다시 배치하라고 알린다.
+  const [layoutBasis, setLayoutBasis] = useState<LayoutParams | null>(null)
+  const layoutOutdated = sets.length > 0 && layoutBasis !== null && layoutBasis !== params
+
+  /** 자동 배치. 확정 상태를 풀고 새 배치를 넣으면 그 배치를 돌려준다(취소하면 null). */
+  const placeSets = (label: string): ModuleSet[] | null => {
+    if (!parcel) return null
+    if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return null
+    if (!unlock()) return null
+    mark(label)
     const zoned = layoutMode === 'grid' ? null : zonedLayout(parcel, params, { mode: layoutMode, mask })
-    editSets(zoned ?? autoLayout(parcel, params, 0, mask))
+    const next = zoned ?? autoLayout(parcel, params, 0, mask)
+    editSets(next)
+    setLayoutBasis(params)
+    setSelected(new Set())
+    return next
+  }
+  const runAutoLayout = () => void placeSets('자동 배치')
+
+  /**
+   * 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
+   * 목표 AC 용량(DC ÷ DC/AC 비율)을 두 대 이상으로 나눌 수 있는 가장 큰 인버터를 고르고, 작은 부지는 가장 작은 것을 쓴다.
+   */
+  const runAutoDesign = () => {
+    const next = placeSets('자동 설계')
+    if (!next) return
+    const kWp = (next.length * geometry.watt) / 1000
+    const targetAc = kWp / elec.dcAcRatio
+    const inv = [...INVERTERS].reverse().find((i) => i.kw * 2 <= targetAc) ?? INVERTERS[0]
+    setElec({ ...elec, inverterId: inv.id, inverterKW: inv.kw, maxDcV: inv.maxDcV, mpptMinV: inv.mpptMinV, mpptMaxV: inv.mpptMaxV, acV: inv.acV })
+    setNotice(`자동 설계: ${fmt(kWp, 1)} kWp, ${inv.kw}kW 인버터 약 ${Math.max(1, Math.round(targetAc / inv.kw))}대`)
+  }
+
+  // 세트별 동지 그늘. 잰 뒤 배치·장애물이 바뀌면 다시 재야 한다.
+  const [setShadeState, setSetShadeState] = useState<{ sets: ModuleSet[]; obstacles: Obstacle[]; map: Map<string, number> } | null>(null)
+  const [setShadeBusy, setSetShadeBusy] = useState(false)
+  const setShadeMap = setShadeState?.sets === sets && setShadeState.obstacles === obstacles ? setShadeState.map : null
+  const measureSetShade = () => {
+    if (!scene) return
+    setSetShadeBusy(true)
+    // 화면이 "재는 중"을 그릴 틈을 준다.
+    setTimeout(() => {
+      setSetShadeState({ sets, obstacles, map: perSetShade(scene, declination(dayOfYear(12, 22))) })
+      setSetShadeBusy(false)
+    }, 30)
+  }
+  const deleteSets = (ids: string[]) => {
+    const drop = new Set(ids)
+    if (!window.confirm(`그림자 지는 세트 ${ids.length}개를 지울까요?`)) return
+    mark(`그늘 세트 ${ids.length}개 삭제`)
+    editSets((prev) => prev.filter((s) => !drop.has(s.id)))
     setSelected(new Set())
   }
 
@@ -1049,6 +1098,7 @@ export default function App() {
     if (!window.confirm(`${v.name}(${fmt(v.kWp, 1)} kWp)을 기준 설계로 되돌릴까요?\n지금 배치는 타임라인에 남습니다.`)) return
     mark(`확정본 불러오기 · ${v.name}`)
     setParams({ ...v.params })
+    setLayoutBasis(null)
     setSets([...v.sets])
     setObstacles([...v.obstacles])
     setElec({ ...v.elec })
@@ -1082,6 +1132,7 @@ export default function App() {
     }
     mark('들어올 때로')
     setParams(e.params)
+    setLayoutBasis(null)
     setSets(e.sets)
     setObstacles(e.obstacles)
     setElec(e.elec)
@@ -1364,6 +1415,23 @@ export default function App() {
         )}
 
         {tab === 'layout' && (
+          <section className="card auto-design">
+            <h2>자동 설계</h2>
+            <p>지금 설정으로 배치하고, 용량에 맞는 인버터를 골라 스트링 결선과 케이블까지 한 번에 잡습니다. 결과는 아래에서 고치거나 배치 편집에서 손볼 수 있습니다.</p>
+            <button type="button" className="block" disabled={!parcel} onClick={runAutoDesign}>
+              배치 → 인버터 → 결선 자동 설계
+            </button>
+            {layoutOutdated && (
+              <p className="warn-line">
+                배치한 뒤에 설정이 바뀌었습니다. 지금 배치는 이전 설정 그대로입니다.{' '}
+                <button type="button" className="link" onClick={runAutoLayout}>
+                  다시 배치
+                </button>
+              </p>
+            )}
+          </section>
+        )}
+        {tab === 'layout' && (
           <LayoutPanel
             params={params}
             onParams={updateParams}
@@ -1467,6 +1535,16 @@ export default function App() {
             decl={decl}
             sunTimes={sunTimes}
             lat={scene?.frame.lat0 ?? null}
+          />
+        )}
+        {tab === 'shade' && (
+          <ShadeCleanup
+            shade={setShadeMap}
+            busy={setShadeBusy}
+            hasSets={sets.length > 0}
+            onMeasure={measureSetShade}
+            onSelect={(ids) => setSelected(new Set(ids))}
+            onDelete={deleteSets}
           />
         )}
 
@@ -1771,7 +1849,35 @@ export default function App() {
                       {fmt(design.metrics.inverters)}대 · {fmt(design.metrics.kWac, 1)} kW
                     </dd>
                     <dt>연간 발전량</dt>
-                    <dd>{fmt(design.metrics.annualKWh / 1000, 1)} MWh</dd>
+                    <dd>
+                      {fmt(design.metrics.annualKWh / 1000, 1)} MWh · 하루 {fmt(design.metrics.specificYield / 365, 2)}시간
+                    </dd>
+                    <dt>손실</dt>
+                    <dd>
+                      음영 {fmt(design.metrics.shadeLoss * 100, 1)}% · 클리핑 {fmt(design.metrics.clipLoss * 100, 1)}% · 케이블{' '}
+                      {fmt(design.metrics.cableLoss * 100, 1)}%
+                    </dd>
+                    {suggestedRowSpacing !== null && (
+                      <>
+                        <dt>열 이격</dt>
+                        <dd>
+                          {fmt(params.rowSpacing, 2)} m{' '}
+                          {params.rowSpacing + 0.005 >= suggestedRowSpacing ? (
+                            <span className="rv-badge ok">동지 무음영</span>
+                          ) : (
+                            <span className="rv-badge warn">{`동지 기준 ${fmt(suggestedRowSpacing, 2)} m보다 좁음`}</span>
+                          )}
+                        </dd>
+                      </>
+                    )}
+                    {design.metrics.unusedModules > 0 && (
+                      <>
+                        <dt>결선</dt>
+                        <dd>
+                          <span className="rv-badge warn">{`스트링에 못 묶인 모듈 ${fmt(design.metrics.unusedModules)}장`}</span>
+                        </dd>
+                      </>
+                    )}
                   </dl>
                 ) : (
                   <p className="hint">{!sets.length ? '배치를 먼저 하세요.' : '설계를 계산하는 중입니다.'}</p>
