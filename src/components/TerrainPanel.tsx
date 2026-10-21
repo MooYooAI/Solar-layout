@@ -95,7 +95,7 @@ export default function TerrainPanel(props: Props) {
               <p className="hint">
                 세트 자리마다 지반에 평면을 맞추고, 구조물이 따라갈 수 있는 경사(남북 {RACKING[props.racking].nsSlopePct}%, 동서{' '}
                 {RACKING[props.racking].ewSlopePct}%)를 넘는 기울기와 기초로 흡수하는 요철 ±{RACKING[props.racking].reveal} m를 넘는 만큼만
-                깎거나 쌓는다고 계산했습니다. 구조물 방식은 배치 탭에서 바꿉니다.
+                깎거나 쌓는다고 계산했습니다. 구조물 방식은 AI 설계의 직접 설정에서 바꿉니다.
               </p>
             </>
           ) : (
@@ -241,7 +241,7 @@ function BuildableCard(props: Props) {
             <dd>{fmt(b.drainArea)} ㎡</dd>
           </dl>
           <label className="row" style={{ marginTop: 10 }}>
-            <input type="checkbox" checked={props.useMask} onChange={(e) => props.onUseMask(e.target.checked)} /> 자동 배치와 AI 가배치에
+            <input type="checkbox" checked={props.useMask} onChange={(e) => props.onUseMask(e.target.checked)} /> 자동 배치와 AI 설계에
             반영
           </label>
           <ul className="legend compact">

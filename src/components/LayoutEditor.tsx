@@ -104,7 +104,7 @@ export default function LayoutEditor(props: Props) {
           <button type="button" className="ghost" disabled={!n} onClick={() => props.onRotateSelected(5)} title="시계 5°">
             ⟳5°
           </button>
-          <button type="button" className="ghost" disabled={!n} onClick={() => props.onSetAzimuth(params.azimuth)} title={`배치 탭 방위각(${az(params.azimuth)})으로 맞춥니다`}>
+          <button type="button" className="ghost" disabled={!n} onClick={() => props.onSetAzimuth(params.azimuth)} title={`직접 설정 방위각(${az(params.azimuth)})으로 맞춥니다`}>
             방위 맞춤
           </button>
         </div>

@@ -66,6 +66,8 @@ import { buildSld, sldToDxf, sldToSvg } from './lib/export/sld'
 import LayoutEditor from './components/LayoutEditor'
 import AiAnalyzing from './components/AiAnalyzing'
 import TimelineMenu from './components/TimelineMenu'
+import DrawingWorkspace from './components/DrawingWorkspace'
+import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
 
@@ -74,14 +76,16 @@ type Tab = 'parcel' | 'terrain' | 'layout' | 'elec' | 'shade' | 'energy' | 'econ
 const TABS: Array<[Tab, string, string]> = [
   ['parcel', '필지', '지번을 검색하거나 영역을 그려 부지를 정합니다.'],
   ['terrain', '지형', '경사·절성토를 보고 설계 가능 영역을 정합니다.'],
-  ['ai', 'AI 가배치', '여러 배치안을 탐색해 비교하고, 고른 안을 배치에 적용합니다.'],
-  ['layout', '배치', '모듈·세트·간격을 정하고 자동 배치합니다.'],
+  ['layout', 'AI 설계', 'AI가 여러 배치안을 비교해 추천하거나, 모듈·간격을 직접 정해 자동 배치합니다.'],
   ['elec', '전기', '스트링과 인버터를 묶고 케이블을 잡습니다.'],
   ['shade', '음영', '날짜·시각별 그림자와 하루 음영 손실을 봅니다.'],
   ['energy', '발전량', '음영·온도를 반영해 월별·연간 발전량을 냅니다.'],
   ['econ', '경제성', '설치비·판매 단가로 회수기간과 IRR을 봅니다.'],
   ['export', '내보내기', '도면(DXF)과 표(CSV)를 받습니다.'],
 ]
+
+/** 'ai'(AI 추천)와 'layout'(직접 설정)은 AI 설계 한 단계의 두 화면이다. */
+const railTab = (t: Tab): Tab => (t === 'ai' ? 'layout' : t)
 
 /** 오른쪽 개요의 진행 상황에 보여 줄 단계 */
 const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
@@ -101,14 +105,15 @@ function loadPanes() {
 }
 
 /** 지도 위 작업 화면 */
-type Workspace = 'map' | 'edit' | 'permit'
+type Workspace = 'map' | 'edit' | 'drawing' | 'permit'
 const WORKSPACES: Array<[Workspace, string]> = [
   ['map', '지도'],
   ['edit', '배치 편집'],
+  ['drawing', '도면'],
   ['permit', '인허가'],
 ]
 
-/** AI 가배치 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
+/** AI 설계 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
 const AI_MIN_MS = 10_000
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
@@ -218,6 +223,10 @@ export default function App() {
   const [designState, setDesignState] = useState<{ input: DesignInput; result: DesignResult | null } | null>(null)
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [econResult, setEconResult] = useState<EconResult | null>(null)
+  /** AI 설계 단계에서 마지막으로 본 화면(AI 추천 / 직접 설정) */
+  const [designView, setDesignView] = useState<'ai' | 'layout'>('ai')
+  /** 도면 탭에서 그려 넣은 주석(도면별) */
+  const [sheetAnnots, setSheetAnnots] = useState<Partial<Record<SheetId, Annot[]>>>({})
   const drawing = tool === 'draw'
 
   // ── 작업 타임라인: 부지·배치·설정이 바뀔 때마다 한 줄씩 남기고, 어느 줄로든 돌아갈 수 있다. ──
@@ -497,6 +506,7 @@ export default function App() {
   const panelRef = useRef<HTMLElement>(null)
   const switchTab = (t: Tab) => {
     if (t !== tab) panelRef.current?.scrollTo({ top: 0 })
+    if (t === 'ai' || t === 'layout') setDesignView(t)
     setTab(t)
     setTool('none')
     setPlaying(false)
@@ -624,7 +634,7 @@ export default function App() {
 
   const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
-    mark('AI 가배치 적용')
+    mark('AI 설계 적용')
     setParams(nextParams)
     editSets(nextSets)
     setSelected(new Set())
@@ -748,6 +758,8 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
       if (showReport || showProjects) return
+      // 도면 화면은 자체 단축키(주석 지우기 등)를 쓴다.
+      if (workspace === 'drawing') return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
         e.preventDefault()
         deleteSelected()
@@ -1072,6 +1084,8 @@ export default function App() {
     },
   ]
 
+  const dxfItem = (key: string) => exportGroups[0].items.find((i) => i.key === key)!
+
   const stepDone: Partial<Record<Tab, boolean>> = {
     parcel: !!parcel,
     terrain: !!terrain,
@@ -1087,7 +1101,7 @@ export default function App() {
   return (
     <>
     <div
-      className={mapFocus ? 'app map-focus' : 'app'}
+      className={mapFocus || workspace === 'drawing' ? 'app map-focus' : 'app'}
       style={{ '--left': `${tab === 'ai' ? Math.max(panes.left, 520) : panes.left}px`, '--right': `${panes.right}px` } as React.CSSProperties}
     >
       <header className="topbar">
@@ -1145,14 +1159,14 @@ export default function App() {
             <li key={t}>
               <button
                 type="button"
-                className={tab === t ? 'active' : stepDone[t] ? 'done' : ''}
-                aria-current={tab === t ? 'step' : undefined}
+                className={railTab(tab) === t ? 'active' : stepDone[t] ? 'done' : ''}
+                aria-current={railTab(tab) === t ? 'step' : undefined}
                 onClick={() => {
-                  switchTab(t)
+                  switchTab(t === 'layout' && railTab(tab) !== 'layout' ? designView : t)
                   setMapFocus(false)
                 }}
               >
-                <b>{stepDone[t] && tab !== t ? '✓' : i + 1}</b>
+                <b>{stepDone[t] && railTab(tab) !== t ? '✓' : i + 1}</b>
                 <span>{label}</span>
               </button>
             </li>
@@ -1162,9 +1176,19 @@ export default function App() {
 
       <aside className="panel" aria-labelledby="panel-title" ref={panelRef}>
         <header className="panel-head">
-          <p className="eyebrow">{`${String(TABS.findIndex(([t]) => t === tab) + 1).padStart(2, '0')} 단계`}</p>
-          <h1 id="panel-title">{TABS.find(([t]) => t === tab)![1]}</h1>
-          <p>{TABS.find(([t]) => t === tab)![2]}</p>
+          <p className="eyebrow">{`${String(TABS.findIndex(([t]) => t === railTab(tab)) + 1).padStart(2, '0')} 단계`}</p>
+          <h1 id="panel-title">{TABS.find(([t]) => t === railTab(tab))![1]}</h1>
+          <p>{TABS.find(([t]) => t === railTab(tab))![2]}</p>
+          {railTab(tab) === 'layout' && (
+            <div className="seg design-seg" role="tablist" aria-label="AI 설계 방식">
+              <button type="button" role="tab" aria-selected={tab === 'ai'} onClick={() => switchTab('ai')}>
+                AI 추천
+              </button>
+              <button type="button" role="tab" aria-selected={tab === 'layout'} onClick={() => switchTab('layout')}>
+                직접 설정
+              </button>
+            </div>
+          )}
         </header>
 
         {tab === 'layout' && (
@@ -1667,6 +1691,29 @@ export default function App() {
             onRedo={redo}
           />
         )}
+        {workspace === 'drawing' && (
+          <DrawingWorkspace
+            data={{
+              parcel,
+              sets,
+              params,
+              geometry,
+              stats,
+              obstacles,
+              elec: design?.elec ?? null,
+              elecParams: elec,
+              terrain,
+              area,
+              date: today(),
+            }}
+            annots={sheetAnnots}
+            onAnnots={(id, next) => setSheetAnnots((m) => ({ ...m, [id]: next }))}
+            dxf={{ layout: dxfItem('layout-dxf').disabled ?? null, sld: dxfItem('sld-dxf').disabled ?? null }}
+            onLayoutDxf={() => dxfItem('layout-dxf').run()}
+            onSldDxf={() => dxfItem('sld-dxf').run()}
+            fileBase={fileBase()}
+          />
+        )}
         {workspace === 'permit' && (
           <div className="permit" role="tabpanel" aria-label="인허가">
             <p>인허가 화면은 준비 중입니다.</p>
@@ -1735,6 +1782,10 @@ export default function App() {
         energy={energy}
         econ={econ}
         econHours={econHours}
+        terrain={terrain}
+        design={design}
+        designCapex={capexMode === 'design' && design ? design.metrics.capex.total : null}
+        horizon={horizon}
         onClose={() => setShowReport(false)}
       />
     )}
