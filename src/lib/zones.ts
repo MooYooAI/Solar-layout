@@ -81,6 +81,7 @@ export interface ZonedOptions {
   mode: ZoneMode
   rowOffset?: number
   mask?: BuildMask | null
+  keepOut?: number[][][]
 }
 
 /**
@@ -98,7 +99,7 @@ export function zonedLayout(parcel: Parcel, base: LayoutParams, o: ZonedOptions)
   const place = (azimuth: number, accept?: (q: Vec[]) => boolean, rowOffset = 0) => {
     // 열 이격거리는 기준과 같게 둔다. 돌린 구역에 생기는 아침·저녁 그늘은 발전량 계산이 잰다.
     const params = { ...base, azimuth }
-    sets.push(...fillLayout(parcel, params, { rowOffset, mask: o.mask, accept, occupied }))
+    sets.push(...fillLayout(parcel, params, { rowOffset, mask: o.mask, accept, occupied, keepOut: o.keepOut }))
   }
   const centre = (q: Vec[]): Vec => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2]
 

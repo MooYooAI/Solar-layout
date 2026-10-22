@@ -1,6 +1,6 @@
 // 발주목록: 확정한 설계의 자재·공사를 발주 묶음(업체 단위)으로 나누고 수량과 예상 금액을 붙인다.
 // 예상 금액은 설치비 산출과 같은 단가를 쓴다. 금액 단위는 만원.
-import { INVERTERS, RACKING } from './catalog'
+import { INVERTERS, RACKING, findModule, moduleName } from './catalog'
 import type { CostParams } from './costs'
 import type { DesignMetrics } from './design'
 import type { ElecParams, ElecResult } from './electrical'
@@ -37,7 +37,14 @@ export interface OrderInput {
 export function orderLines({ params: p, elecParams: e, elec, metrics: m, costs: c }: OrderInput): OrderLine[] {
   const capex = (key: string) => m.capex.items.find((i) => i.key === key)?.amount ?? null
   const lines: OrderLine[] = [
-    { pkg: 'module', item: '태양광 모듈', spec: `${p.moduleWatt} W, ${p.moduleLength}×${p.moduleWidth} mm`, unit: '장', qty: m.modules, amount: capex('module') },
+    {
+      pkg: 'module',
+      item: '태양광 모듈',
+      spec: [moduleName(findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)), `${p.moduleWatt} W, ${p.moduleLength}×${p.moduleWidth} mm`].filter(Boolean).join(', '),
+      unit: '장',
+      qty: m.modules,
+      amount: capex('module'),
+    },
     {
       pkg: 'inverter',
       item: '인버터',

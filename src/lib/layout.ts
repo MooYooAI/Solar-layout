@@ -1,4 +1,4 @@
-import { deg2rad, LocalFrame, quadFitsInRing, rotate, type Vec } from './geo'
+import { convexHull, deg2rad, LocalFrame, quadFitsInRing, rotate, type Vec } from './geo'
 import type { Parcel } from './parcel'
 import { blockedAt, type BuildMask } from './buildable'
 import type { RackingType } from './catalog'
@@ -119,6 +119,16 @@ export function setQuadLonLat(s: ModuleSet, g: SetGeometry): Vec[] {
   return [...q, q[0]]
 }
 
+/**
+ * 연속 배열: 세트를 기둥 한 칸(세로 배치 2열, 가로 배치 1열) 단위로 줄이고 모듈 간격으로 이어 붙인다.
+ * 줄이 고정 길이 세트로 끊기지 않아 비스듬한 경계 끝까지 모듈이 들어간다. 전기 스트링은 세트를 넘어 묶이므로 그대로 쓴다.
+ */
+export function continuousParams(p: LayoutParams): LayoutParams {
+  return { ...p, setCols: p.portrait ? 2 : 1, setGap: p.moduleGap }
+}
+/** 연속 배열 설정인지(세트 사이가 모듈 간격만큼만 떨어져 있다) */
+export const isContinuous = (p: LayoutParams) => p.setGap <= p.moduleGap
+
 let idSeq = 0
 export const newSetId = () => `s${Date.now().toString(36)}${(idSeq++).toString(36)}`
 
@@ -128,8 +138,8 @@ export const newSetId = () => `s${Date.now().toString(36)}${(idSeq++).toString(3
  * rowOffset(m)만큼 첫 열을 북쪽으로 밀어 시작할 수 있다. 같은 간격이라도 시작 위치에 따라 들어가는 세트 수가 달라진다.
  * mask(설계 가능 영역)를 주면 경사·배수 제외 구역에 걸치는 자리는 건너뛴다.
  */
-export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?: BuildMask | null): ModuleSet[] {
-  return fillLayout(parcel, p, { rowOffset, mask })
+export function autoLayout(parcel: Parcel, p: LayoutParams, rowOffset = 0, mask?: BuildMask | null, keepOut?: number[][][]): ModuleSet[] {
+  return fillLayout(parcel, p, { rowOffset, mask, keepOut })
 }
 
 export interface FillOptions {
@@ -139,6 +149,8 @@ export interface FillOptions {
   accept?: (quad: Vec[]) => boolean
   /** 이미 놓인 세트. 이 세트들과 겹치거나 간격을 침범하는 자리는 건너뛴다. 새로 놓은 세트도 여기에 더한다. */
   occupied?: Occupancy
+  /** 모듈을 놓지 않을 자리(경위도 링): 전기실, 장애물 바닥. 볼록 껍질로 판정한다. */
+  keepOut?: number[][][]
 }
 
 /** autoLayout의 일반형. 구역 제한과 이미 놓인 세트를 피해 채운다(구역별 배치·빈자리 채우기). */
@@ -156,6 +168,7 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
   const blocked = o.mask ? footprintBlocked(o.mask, frame, g) : null
   const rowOffset = o.rowOffset ?? 0
   const toFrame = (q: Vec[]) => q.map((v) => rotate(v, r))
+  const keep = (o.keepOut ?? []).filter((k) => k.length >= 3).map((k) => convexHull(k.map((c) => frame.toLocal(c))))
 
   for (const ring of rings) {
     const xs = ring.map((v) => v[0])
@@ -170,6 +183,7 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
           quadFitsInRing(quad, ring, p.boundarySetback) &&
           !blocked?.(cx, cy, r) &&
           (!o.accept || o.accept(toFrame(quad))) &&
+          (!keep.length || !keep.some((k) => convexOverlap(toFrame(quad), k))) &&
           (!o.occupied || o.occupied.free(toFrame(quad), toFrame(clearanceQuad([cx, cy], g, p))))
         if (ok) {
           const [lon, lat] = frame.toLonLat(rotate([cx, cy], r))

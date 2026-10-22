@@ -1,6 +1,6 @@
 import { STRATEGIES, type Candidate } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
-import { setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
+import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
 import { RACKING } from '../lib/catalog'
 import { azimuthMix, type ZoneMode } from '../lib/zones'
 
@@ -68,9 +68,10 @@ export default function OptimizePanel(props: Props) {
       <section className="card">
         <h2>AI 추천 배치</h2>
         <p className="hint" style={{ marginTop: 0 }}>
-          모듈 종류·구조물·세트 구성·간격은 직접 설정 화면, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각·피치(열 이격거리)·첫
-          열 위치를 바꿔 수십 가지 배치를 만듭니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘 방위각으로 채우거나 남은 자리를 다른
-          방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 다섯
+          모듈 종류·구조물·단수는 직접 설정 화면, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각(정남과 필지 주축 쪽)·피치(열
+          이격거리)·첫 열 위치를 바꿔 수백 가지 배치를 만듭니다. 세트는 직접 정한 고정 길이 세트와, 줄을 경계 끝까지 잇는 연속 배열을 함께
+          견줍니다. 전기실 자리를 비워 두었으면 그 자리를 피하고 수배전반을 그곳에 둡니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘
+          방위각으로 채우거나 남은 자리를 다른 방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 다섯
           가지 기준의 최선안을 고릅니다. 용량 최대 안은 동지 9~15시 무음영 간격을 지키면서 모듈을 가장 많이 놓은 안으로, 다른
           가배치 도구와 견줄 때 쓰기 좋습니다. 경사각은 모든 구역이 같습니다.
         </p>
@@ -117,7 +118,13 @@ export default function OptimizePanel(props: Props) {
           <dl className="facts wide">
             <dt>설비용량</dt>
             <dd>
-              DC {fmt(c.metrics.kWp, 1)} kWp · AC {fmt(c.metrics.kWac)} kW ({fmt(c.sets.length)}세트)
+              DC {fmt(c.metrics.kWp, 1)} kWp · AC {fmt(c.metrics.kWac)} kW ({fmt(c.metrics.modules)}장)
+            </dd>
+            <dt>세트 구성</dt>
+            <dd>
+              {isContinuous(c.params)
+                ? `연속 배열: 줄을 경계 끝까지 잇기 (기둥 한 칸 ${c.params.setCols}열 × ${c.params.setRows}단 단위)`
+                : `${c.params.setCols}열 × ${c.params.setRows}단 세트 ${fmt(c.sets.length)}개`}
             </dd>
             <dt>효율</dt>
             <dd>
