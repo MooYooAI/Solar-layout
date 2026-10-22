@@ -1076,3 +1076,30 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .card.auto-design { background: var(--accent-soft); border-top-color: oklch(85% 0.07 55); }
 .card h3.sub { margin: 16px 0 0; font-size: 12px; font-weight: 650; color: var(--ink-2); }
 .cell-sub { display: block; color: var(--muted); font-size: 11px; }
+
+/* ── 경제성 비교표, 발주목록, 견적 요청서 ── */
+.order-table.compare td:not(:first-child), .order-table.compare th:not(:first-child) { text-align: right; white-space: nowrap; }
+.order-table.compare th.current { color: var(--ink); }
+.order-table tr.group td { font-weight: 650; color: var(--ink-2); background: var(--sunken); padding-top: 8px; }
+.check-list { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.field textarea { width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; resize: vertical; }
+.quote-print { display: none; }
+@media print {
+  @page quoteA4 { size: 210mm 297mm; margin: 18mm 16mm; }
+  body:has(.quote-print) #root { display: none !important; }
+  .quote-print { display: block; page: quoteA4; color: #000; }
+}
+.quote-doc { font-size: 10.5pt; line-height: 1.5; }
+.quote-doc h1 { text-align: center; font-size: 20pt; letter-spacing: 0.2em; margin: 0 0 8mm; }
+.quote-doc h2 { font-size: 11pt; margin: 6mm 0 2mm; }
+.quote-doc table { width: 100%; border-collapse: collapse; margin: 3mm 0; }
+.quote-doc th, .quote-doc td { border: 0.3mm solid #444; padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+.quote-head th { width: 18%; background: #f1f3f5; font-weight: 600; }
+.quote-items th { background: #f1f3f5; font-weight: 600; text-align: center; white-space: nowrap; }
+.quote-items tr { break-inside: avoid; }
+.quote-items td:nth-child(1), .quote-items td:nth-child(4) { text-align: center; }
+.quote-items td.num { text-align: right; }
+.quote-items td:nth-child(6), .quote-items td:nth-child(7) { min-width: 22mm; }
+.quote-items tr.sum td { font-weight: 650; text-align: right; }
+.quote-note { white-space: pre-wrap; border: 0.3mm solid #444; padding: 2mm 3mm; margin: 0; }
+.order-list td:nth-child(2) { white-space: nowrap; }

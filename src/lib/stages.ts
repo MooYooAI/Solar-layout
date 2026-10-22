@@ -20,8 +20,8 @@ export const TABS: Record<Tab, { label: string; desc: string }> = {
   sheets: { label: '도면', desc: '확정한 설계로 만든 도면을 보고, 고치고, 인쇄합니다.' },
   export: { label: '내보내기', desc: '도면(DXF)과 표(CSV)를 받습니다.' },
   permit: { label: '인허가', desc: '용량·지목·용도지역으로 필요한 인허가를 고르고 진행 상황을 적습니다.' },
-  econ: { label: '경제성', desc: '설치비·판매 단가로 회수기간과 IRR을 봅니다.' },
-  order: { label: '발주', desc: '확정한 설계의 자재 물량과 설치비 내역입니다.' },
+  econ: { label: '경제성', desc: '회수기간·IRR·DSCR을 보고, 판매 방식을 비교하고, 목표 수익률에서 설치비 한계를 거꾸로 구합니다.' },
+  order: { label: '발주', desc: '확정한 설계로 업체별 발주목록과 견적 요청서를 만듭니다.' },
 }
 
 export const STAGES: Array<{ key: Stage; label: string; tabs: Tab[] }> = [

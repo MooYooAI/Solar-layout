@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { evaluate, suggestRecWeight, type EconResult, type EconSettings } from '../lib/economics'
+import { compareSales, evaluate, solveTargets, suggestRecWeight, type EconInput, type EconResult, type EconSettings } from '../lib/economics'
 import type { Capex, CostParams } from '../lib/costs'
 import { RACKING, type RackingType } from '../lib/catalog'
 
@@ -55,10 +55,8 @@ export default function EconomicsPanel(props: Props) {
   const annualKWh = (design ? props.designKWh : null) ?? props.energyKWh ?? props.kWp * props.hours * 365
   const kwhSource = design && props.designKWh !== null ? '전기 설계 반영값' : props.energyKWh !== null ? '발전량 탭 계산값' : '하루 발전시간으로 추정'
   const capex = design ? props.designCapex!.total : undefined
-  const result = useMemo(
-    () => (props.kWp > 0 ? evaluate({ ...s, kWp: props.kWp, annualKWh, capex }) : null),
-    [s, props.kWp, annualKWh, capex],
-  )
+  const input: EconInput | null = useMemo(() => (props.kWp > 0 ? { ...s, kWp: props.kWp, annualKWh, capex } : null), [s, props.kWp, annualKWh, capex])
+  const result = useMemo(() => (input ? evaluate(input) : null), [input])
   const suggested = suggestRecWeight(props.kWp, props.landCategory)
 
   return (
@@ -184,7 +182,15 @@ export default function EconomicsPanel(props: Props) {
         <p className="hint">운영비는 설치비 대비 비율로, 유지보수·보험·안전관리 대행비를 합친 값입니다.</p>
       </section>
 
-      {result ? <Results result={result} /> : <p className="hint">AI 설계 단계에서 모듈을 먼저 배치하세요.</p>}
+      {result && input ? (
+        <>
+          <Results result={result} minDscr={s.minDscr} />
+          <SaleCompareCard input={input} current={s.saleMode} minDscr={s.minDscr} />
+          <TargetCard input={input} result={result} settings={s} onSettings={onSettings} />
+        </>
+      ) : (
+        <p className="hint">기본설계에서 모듈을 먼저 배치하세요.</p>
+      )}
       <ResultSync result={result} onResult={props.onResult} />
     </>
   )
@@ -261,7 +267,9 @@ function CapexCard(props: {
   )
 }
 
-function Results({ result: r }: { result: EconResult }) {
+const ratio = (v: number | null) => (v === null ? '-' : fmt(v, 2))
+
+function Results({ result: r, minDscr }: { result: EconResult; minDscr: number }) {
   const first = r.flows[0]
   return (
     <section className="card">
@@ -291,11 +299,21 @@ function Results({ result: r }: { result: EconResult }) {
         <dd>{won(r.npv)}</dd>
         <dt>LCOE</dt>
         <dd>{fmt(r.lcoe, 1)} 원/kWh</dd>
+        {r.dscrMin !== null && (
+          <>
+            <dt>DSCR</dt>
+            <dd>
+              최소 {ratio(r.dscrMin)} · 평균 {ratio(r.dscrAvg)}{' '}
+              {r.dscrMin < minDscr ? <span className="rv-badge warn">기준 {minDscr} 미달</span> : <span className="rv-badge ok">기준 {minDscr} 이상</span>}
+            </dd>
+          </>
+        )}
         <dt>누적 수익</dt>
         <dd>{won(r.flows.at(-1)?.cumulative ?? 0)} ({r.flows.length}년)</dd>
       </dl>
       <CashChart result={r} />
       {r.loanSchedule.length > 0 && <LoanTable result={r} />}
+      {r.dscrMin !== null && <p className="hint">DSCR은 해마다 (매출 − 운영비) ÷ 원리금입니다. 대출기관은 보통 1.2~1.3 이상을 요구합니다.</p>}
       <p className="hint">
         입력한 단가와 가정으로 낸 추정치이며 세금과 물가상승, 인버터 교체비는 넣지 않았습니다. 실제 사업 판단에는 계약 조건과 견적을
         따로 확인하세요.
@@ -366,6 +384,7 @@ function LoanTable({ result }: { result: EconResult }) {
             <th>기초 잔액</th>
             <th>이자</th>
             <th>원금</th>
+            <th>DSCR</th>
           </tr>
         </thead>
         <tbody>
@@ -375,11 +394,128 @@ function LoanTable({ result }: { result: EconResult }) {
               <td>{fmt(l.balance)}</td>
               <td>{fmt(l.interest)}</td>
               <td>{fmt(l.principal)}</td>
+              <td>{ratio(result.flows[l.year - 1]?.dscr ?? null)}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className="hint">단위: 만원</p>
     </details>
+  )
+}
+
+function SaleCompareCard({ input, current, minDscr }: { input: EconInput; current: EconSettings['saleMode']; minDscr: number }) {
+  const rows = useMemo(() => compareSales(input), [input])
+  const best = rows.reduce((a, c) => ((c.result.npv > a.result.npv ? c : a)), rows[0])
+  const line = (label: string, f: (r: EconResult) => string) => (
+    <tr>
+      <td>{label}</td>
+      {rows.map((c) => (
+        <td key={c.mode}>{f(c.result)}</td>
+      ))}
+    </tr>
+  )
+  return (
+    <section className="card">
+      <h2>판매 방식 비교</h2>
+      <p>같은 설치비·융자 조건에서 판매 방식만 바꿨을 때입니다. 단가는 위 판매 방식 카드의 값을 씁니다.</p>
+      <table className="order-table compare">
+        <thead>
+          <tr>
+            <th />
+            {rows.map((c) => (
+              <th key={c.mode} className={c.mode === current ? 'current' : undefined}>
+                {c.label}
+                {c.mode === current && <small className="cell-sub">지금 선택</small>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {line('판매 단가', (r) => `${fmt(r.unitPrice, 1)} 원/kWh`)}
+          {line('1년차 매출', (r) => won(r.flows[0]?.revenue ?? 0))}
+          {line('자기자본 IRR', (r) => pct(r.equityIrr))}
+          {line('사업 IRR', (r) => pct(r.projectIrr))}
+          {line('회수기간', (r) => (r.payback === null ? '기간 내 불가' : `${fmt(r.payback, 1)} 년`))}
+          {line('NPV', (r) => won(r.npv))}
+          {line('최소 DSCR', (r) => (r.dscrMin === null ? '-' : `${ratio(r.dscrMin)}${r.dscrMin < minDscr ? ' (미달)' : ''}`))}
+        </tbody>
+      </table>
+      <p className="hint">
+        NPV 기준으로는 <strong>{best.label}</strong>이 유리합니다. 현물은 SMP·REC 가격이 해마다 바뀌므로 지금 단가가 그대로 간다고 본 값입니다.
+      </p>
+    </section>
+  )
+}
+
+function TargetCard(props: { input: EconInput; result: EconResult; settings: EconSettings; onSettings: (s: EconSettings) => void }) {
+  const { settings: s, input, result: r } = props
+  const set = <K extends keyof EconSettings>(k: K, v: EconSettings[K]) => props.onSettings({ ...s, [k]: v })
+  const t = useMemo(() => solveTargets(input), [input])
+  const now = s.targetBasis === 'equity' && r.equity > 0 ? r.equityIrr : r.projectIrr
+  const meets = now !== null && now >= s.targetIrr / 100
+  return (
+    <section className="card">
+      <h2>목표 수익률 역산</h2>
+      <p>목표 IRR과 대출기관의 DSCR 기준을 넣으면, 맞출 수 있는 설치비·판매 단가·융자 비율의 한계를 거꾸로 구합니다.</p>
+      <div className="grid2" style={{ marginTop: 10 }}>
+        <label className="field">
+          <span>목표 IRR</span>
+          <input type="number" min={0} step={0.5} value={s.targetIrr} onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set('targetIrr', e.target.valueAsNumber)} />
+          <em>%</em>
+        </label>
+        <label className="field">
+          <span>기준</span>
+          <select value={s.targetBasis} onChange={(e) => set('targetBasis', e.target.value as EconSettings['targetBasis'])}>
+            <option value="equity">자기자본 IRR</option>
+            <option value="project">사업 IRR</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>최소 DSCR</span>
+          <input type="number" min={1} step={0.05} value={s.minDscr} onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set('minDscr', e.target.valueAsNumber)} />
+        </label>
+      </div>
+      <p className="hint">
+        지금 {s.targetBasis === 'equity' ? '자기자본' : '사업'} IRR {pct(now)}:{' '}
+        {meets ? <span className="rv-badge ok">목표 달성</span> : <span className="rv-badge warn">목표 미달</span>}
+      </p>
+      <table className="order-table compare">
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>지금</th>
+            <th>한계</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>총 설치비</td>
+            <td>
+              {won(r.capex)}
+              <small className="cell-sub">{fmt(r.capex / input.kWp, 1)} 만원/kW</small>
+            </td>
+            <td>
+              {t.maxCapex === null ? '계산 불가' : `최대 ${won(t.maxCapex)}`}
+              {t.maxCapex !== null && <small className="cell-sub">{fmt(t.maxCapex / input.kWp, 1)} 만원/kW</small>}
+            </td>
+          </tr>
+          <tr>
+            <td>판매 단가</td>
+            <td>{fmt(r.unitPrice, 1)} 원/kWh</td>
+            <td>{t.minPrice === null ? '계산 불가' : `최저 ${fmt(t.minPrice, 1)} 원/kWh`}</td>
+          </tr>
+          <tr>
+            <td>융자 비율</td>
+            <td>{fmt(s.loanRatio)} %</td>
+            <td>{t.maxLoanRatio === null ? '계산 불가' : `최대 ${fmt(t.maxLoanRatio)} %`}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="hint">
+        설치비 한계는 견적 협상의 상한으로, 판매 단가 한계는 고정가격 입찰가의 하한으로 쓰세요. 융자 비율 한계는 해마다 DSCR이 기준 이상인 최대
+        비율입니다.
+      </p>
+    </section>
   )
 }
