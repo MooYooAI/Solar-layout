@@ -1,4 +1,4 @@
-import { STRATEGIES, type Candidate } from '../lib/optimize'
+import { STRATEGIES, type Candidate, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
 import { RACKING } from '../lib/catalog'
@@ -34,6 +34,8 @@ const fmt = (n: number, d = 0) => n.toLocaleString('ko-KR', { maximumFractionDig
 const eok = (manwon: number) => fmt(manwon / 10000, 2)
 const pct = (v: number | null) => (v === null ? '-' : `${fmt(v * 100, 1)}%`)
 const az = (a: number) => (a === 0 ? '정남' : `${a > 0 ? '서' : '동'} ${Math.abs(a)}°`)
+/** 추천 배치안: 효율을 지키면서 발전량이 가장 많은 균형 안 */
+const RECOMMENDED: Strategy = 'balanced'
 const ZONE_LABEL: Record<ZoneMode, string> = {
   edge: '구역별 방위(경계 방향)',
   half: '구역별 방위(절충)',
@@ -42,6 +44,8 @@ const ZONE_LABEL: Record<ZoneMode, string> = {
 
 export default function OptimizePanel(props: Props) {
   const { results } = props
+  // 추천 안을 맨 위에, 나머지는 기준 순서대로
+  const ordered = results ? [...results].sort((a, b) => Number(b.strategy === RECOMMENDED) - Number(a.strategy === RECOMMENDED)) : null
   type Row = { key: string; name: string; m: DesignMetrics; apply?: () => void; remove?: () => void }
   const rows: Row[] = [
     ...(props.current ? [{ key: 'current', name: '현재 배치', m: props.current }] : []),
@@ -67,14 +71,15 @@ export default function OptimizePanel(props: Props) {
     <>
       <section className="card">
         <h2>AI 추천 배치</h2>
-        <p className="hint" style={{ marginTop: 0 }}>
+        <details className="hint opt-about">
+          <summary>AI가 하는 일</summary>
           모듈 종류·구조물·단수는 직접 설정 화면, 인버터와 DC/AC 비율은 전기 탭 설정을 그대로 두고, 경사각·방위각(정남과 필지 주축 쪽)·피치(열
           이격거리)·첫 열 위치를 바꿔 수백 가지 배치를 만듭니다. 세트는 직접 정한 고정 길이 세트와, 줄을 경계 끝까지 잇는 연속 배열을 함께
           견줍니다. 전기실 자리를 비워 두었으면 그 자리를 피하고 수배전반을 그곳에 둡니다. 비스듬한 경계가 있는 필지는 구역마다 경계에 맞춘
           방위각으로 채우거나 남은 자리를 다른 방향 세트로 채운 안도 만듭니다. 배치마다 전기 설계, 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 다섯
           가지 기준의 최선안을 고릅니다. 용량 최대 안은 동지 9~15시 무음영 간격을 지키면서 모듈을 가장 많이 놓은 안으로, 다른
           가배치 도구와 견줄 때 쓰기 좋습니다. 경사각은 모든 구역이 같습니다.
-        </p>
+        </details>
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
           <li>{props.hasGrid ? '배치마다 세트 자리 토공량을 계산합니다.' : '지형을 불러오지 않아 토공량은 빠집니다.'}</li>
@@ -98,9 +103,12 @@ export default function OptimizePanel(props: Props) {
         {props.error && <p className="error">{props.error}</p>}
       </section>
 
-      {results?.map((c) => (
-        <section className="card option" key={c.strategy}>
-          <h2>{STRATEGIES[c.strategy].label}</h2>
+      {ordered?.map((c) => (
+        <section className={c.strategy === RECOMMENDED ? 'card option recommended' : 'card option'} key={c.strategy}>
+          <h2>
+            {STRATEGIES[c.strategy].label}
+            {c.strategy === RECOMMENDED && <span className="rv-badge ok">추천</span>}
+          </h2>
           <p className="hint" style={{ marginTop: 0 }}>
             {STRATEGIES[c.strategy].detail}
           </p>

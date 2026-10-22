@@ -277,6 +277,10 @@ details.chart summary { cursor: pointer; }
 .progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
 .progress > div { height: 100%; background: var(--accent); transition: width 0.2s ease-out; }
 .card.option .hero { margin-top: 4px; }
+.card.option h2 .rv-badge { margin-left: 6px; vertical-align: 2px; }
+.card.option.recommended { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.opt-about { margin: 0 0 8px; }
+.opt-about summary { cursor: pointer; color: var(--ink-2); font-weight: 600; margin-bottom: 4px; }
 .lots { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; font-size: 12px; }
 .lots li { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 6px; }
 .lots small { display: block; color: var(--muted); }
