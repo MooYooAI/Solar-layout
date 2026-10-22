@@ -85,6 +85,8 @@ interface Props {
   onSelect: (ids: string[], additive: boolean) => void
   onMoveSets: (moved: Array<{ id: string; lon: number; lat: number }>) => void
   onAddSet: (lon: number, lat: number) => void
+  /** 전기실을 끌어 놓은 자리(함체 가운데) */
+  onPadMove?: (lon: number, lat: number) => void
 }
 
 const SEOUL = fromLonLat([126.978, 37.5665])
@@ -228,6 +230,7 @@ export default function MapView(props: Props) {
   latest.current = props
 
   useEffect(() => {
+    const markLayer = new VectorLayer({ source: markSource.current, style: markStyle, zIndex: 14 })
     const setLayer = new VectorLayer({
       source: setSource.current,
       zIndex: 11,
@@ -276,7 +279,7 @@ export default function MapView(props: Props) {
         setLayer,
         new VectorLayer({ source: obstacleSource.current, style: obstacleStyle, zIndex: 12 }),
         new VectorLayer({ source: measureSource.current, style: measureStyle, zIndex: 13 }),
-        new VectorLayer({ source: markSource.current, style: markStyle, zIndex: 14 }),
+        markLayer,
       ],
       view: new View({
         center: shared.view ? fromLonLat([shared.view.lon, shared.view.lat]) : SEOUL,
@@ -284,6 +287,24 @@ export default function MapView(props: Props) {
         maxZoom: 22,
       }),
       controls: defaultControls().extend([new ScaleLine()]),
+    })
+    // 전기실은 그리기 도구가 없을 때 끌어서 옮긴다.
+    const padDrag = new Translate({
+      layers: [markLayer],
+      filter: (f) => f.get('kind') === 'pad' && !!latest.current.onPadMove && (latest.current.tool === 'none' || latest.current.tool === 'select'),
+    })
+    padDrag.on('translateend', (e) => {
+      const f = e.features.item(0)
+      if (!f) return
+      const [lon, lat] = toLonLat(getCenter(f.getGeometry()!.getExtent()))
+      latest.current.onPadMove?.(lon, lat)
+    })
+    map.addInteraction(padDrag)
+    map.on('pointermove', (e) => {
+      if (e.dragging) return
+      const p = latest.current
+      const onPad = !!p.onPadMove && (p.tool === 'none' || p.tool === 'select') && map.hasFeatureAtPixel(e.pixel, { layerFilter: (l) => l === markLayer })
+      map.getTargetElement()?.classList.toggle('pad-hover', onPad)
     })
     map.on('singleclick', (e) => {
       const p = latest.current

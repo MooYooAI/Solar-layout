@@ -24,7 +24,8 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { padKindFor, placeEquipPad } from './lib/equipment'
+import { padCandidates, padKindFor, padNear, placeEquipPad, type EquipPad } from './lib/equipment'
+import { runPadSearch, type PadScore, type PadSearchInput } from './lib/padSearch'
 import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
@@ -44,7 +45,7 @@ import { loadHorizon, type Horizon } from './lib/horizon'
 import { loadTimeline, MERGE_MS, parcelKey, saveTimeline, TIMELINE_MAX, type TimelineEntry } from './lib/timeline'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
-import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult } from './lib/buildable'
+import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult, type BuildMask } from './lib/buildable'
 import { sampleElevGrid, type ElevGrid } from './lib/elevation'
 import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
 import { DEFAULT_COSTS, type CostParams } from './lib/costs'
@@ -637,9 +638,17 @@ export default function App() {
         .map((b) => ({ id: b.id, name: `${b.name} (${b.floors}층)`, ring: b.rings[0], height: b.height })),
     ])
   const gridPole = siteCheck.grid.pole
+  // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
+  const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' } | null>(null)
+  const padMove = padAt && padAt.parcel === parcel ? padAt : null
   const equipPad = useMemo(
-    () => (parcel && reservePad ? placeEquipPad(parcel, padKindFor(area), gridPole ?? null) : null),
-    [parcel, reservePad, area, gridPole],
+    () =>
+      parcel && reservePad
+        ? padMove
+          ? padNear(parcel, padKindFor(area), padMove.at)
+          : placeEquipPad(parcel, padKindFor(area), gridPole ?? null)
+        : null,
+    [parcel, reservePad, area, gridPole, padMove],
   )
   /** 사용자가 그린 장애물에 전기실 함체를 더한 것(그림자·3D·도면용) */
   const siteObstacles = useMemo<Obstacle[]>(
@@ -649,6 +658,64 @@ export default function App() {
   /** 모듈을 놓지 않을 자리: 장애물 바닥과 전기실(점검 공간 포함) */
   const keepOut = useMemo(() => [...obstacles.map((o) => o.ring), ...(equipPad ? [equipPad.keepOut] : [])], [obstacles, equipPad])
   const switchboardAt = equipPad?.center ?? null
+  /** 전기실을 둔 장애물·비울 자리·수배전반 위치 */
+  const padSite = (pad: EquipPad | null) => ({
+    obstacles: pad ? [...obstacles, { id: 'equip-pad', name: pad.label, ring: pad.ring, height: pad.height }] : obstacles,
+    keepOut: [...obstacles.map((o) => o.ring), ...(pad ? [pad.keepOut] : [])],
+    switchboard: pad?.center ?? null,
+  })
+  // 전기실을 옮기면 배치가 있을 때 새 자리를 비워 다시 배치한다.
+  const relayoutForPad = useRef(false)
+  const movePad = (at: Vec, how: 'manual' | 'optimal') => {
+    if (!parcel) return
+    relayoutForPad.current = sets.length > 0
+    if (how === 'manual') setPadSearch(null)
+    setPadAt({ parcel, at, how })
+  }
+  const resetPad = () => {
+    relayoutForPad.current = sets.length > 0
+    setPadAt(null)
+    setPadSearch(null)
+  }
+  const [padSearch, setPadSearch] = useState<
+    { busy: true; done: number; total: number } | { busy: false; best: PadScore; current: PadScore | null; count: number } | { busy: false; error: string } | null
+  >(null)
+  const padSearchInput = (p: LayoutParams, m: BuildMask | null): PadSearchInput | null =>
+    parcel ? { parcel, params: p, obstacles, keepOut: obstacles.map((o) => o.ring), layoutMode, mask: m, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon } : null
+  /** 경계 둘레 후보와 지금 자리를 견줘 NPV가 가장 큰 자리를 고른다. */
+  const searchPad = async (p: LayoutParams, m: BuildMask | null, onProgress?: (done: number, total: number) => void) => {
+    const input = padSearchInput(p, m)
+    if (!input || !parcel) return null
+    const kind = padKindFor(area)
+    const current = equipPad
+    const pads = [...(current ? [current] : []), ...padCandidates(parcel, kind, 16)]
+    if (!pads.length) return null
+    const scores = await runPadSearch(input, pads, onProgress)
+    const same = (a: EquipPad, b: EquipPad | null) => !!b && a.center[0] === b.center[0] && a.center[1] === b.center[1]
+    return { best: scores[0], current: scores.find((r) => same(r.pad, current)) ?? null, count: pads.length }
+  }
+  const padStatus = (() => {
+    if (!padSearch) return null
+    if (padSearch.busy) return `후보 자리 ${padSearch.total}곳 계산 중 (${padSearch.done}/${padSearch.total})`
+    if ('error' in padSearch) return padSearch.error
+    const { best, current, count } = padSearch
+    const base = `후보 ${count}곳 중 가장 좋은 자리: 모듈 ${fmt(best.modules)}장, 연 ${fmt(best.annualKWh / 1000, 1)} MWh, 케이블 손실 ${fmt(best.cableLossPct, 1)}%`
+    if (!current || current.pad === best.pad) return `${base}. 지금 자리가 가장 좋습니다.`
+    const dn = best.modules - current.modules
+    const dv = (best.npv - current.npv) / 10000
+    return `${base}. 이전 자리보다 모듈 ${dn >= 0 ? '+' : ''}${fmt(dn)}장, 사업 NPV ${dv >= 0 ? '+' : ''}${fmt(dv, 2)}억원.`
+  })()
+  const findBestPad = async () => {
+    setPadSearch({ busy: true, done: 0, total: 1 })
+    try {
+      const r = await searchPad(params, mask, (done, total) => setPadSearch({ busy: true, done, total }))
+      if (!r) return setPadSearch({ busy: false, error: '전기실이 들어갈 자리를 찾지 못했습니다.' })
+      setPadSearch({ busy: false, ...r })
+      movePad(r.best.pad.center, 'optimal')
+    } catch (e) {
+      setPadSearch({ busy: false, error: (e as Error).message })
+    }
+  }
   const geometry = useMemo(() => setGeometry(params), [params])
 
   // 연속 편집(입력칸 타이핑, 끌어 옮기기 등)은 한 줄로 합친다.
@@ -829,12 +896,21 @@ export default function App() {
       t = await ensureTerrain().catch(() => null)
       if (activeRun.current !== pending) return
     }
+    // 전기실을 손으로 옮기지 않았으면 먼저 지금 설정에서 가장 좋은 전기실 자리를 고른다.
+    let site = { obstacles: siteObstacles, keepOut, switchboard: switchboardAt }
+    if (reservePad && padMove?.how !== 'manual') {
+      const r = await searchPad(params, useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
+      if (activeRun.current !== pending) return
+      if (r) {
+        site = padSite(r.best.pad)
+        setPadSearch({ busy: false, ...r })
+        setPadAt({ parcel, at: r.best.pad.center, how: 'optimal' })
+      }
+    }
     const input: OptimizeInput = {
       parcel,
       base: params,
-      obstacles: siteObstacles,
-      keepOut,
-      switchboard: switchboardAt,
+      ...site,
       performanceRatio,
       temperature,
       elec,
@@ -938,6 +1014,15 @@ export default function App() {
     return next
   }
   const runAutoLayout = () => void placeSets('자동 배치')
+  useEffect(() => {
+    if (!relayoutForPad.current) return
+    relayoutForPad.current = false
+    if (!unlock()) return
+    mark('전기실 자리 옮김 · 다시 배치')
+    editSets(layoutWith(params))
+    setLayoutBasis(params)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [equipPad])
 
   // 표준·권장 설계용량: 동지 9~15시 무음영 이격(표준)과 10~14시 무음영 이격(권장, 용량 우선)으로 각각 배치해 본다.
   const [capCompare, setCapCompare] = useState<{ key: unknown[]; rows: CapacityOption[] } | null>(null)
@@ -1766,7 +1851,18 @@ export default function App() {
             maskActive={!!mask}
             layoutMode={layoutMode}
             onLayoutMode={setLayoutMode}
-            pad={{ on: reservePad, label: equipPad ? `${equipPad.label} 자리를 ${gridPole ? '전주에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에 비워 둡니다.` : null, onToggle: setReservePad }}
+            pad={{
+              on: reservePad,
+              label: equipPad
+                ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
+                : null,
+              onToggle: setReservePad,
+              busy: !!padSearch?.busy,
+              status: padStatus,
+              moved: !!padMove,
+              onFind: () => void findBestPad(),
+              onReset: resetPad,
+            }}
           />
         )}
 
@@ -2512,6 +2608,7 @@ export default function App() {
             buildable={buildable}
             elec={mapElec}
             marks={mapMarks}
+            onPadMove={equipPad ? (lon, lat) => movePad([lon, lat], 'manual') : undefined}
           />
         )}
         <div className="map-mode" role="group" aria-label="지도 보기">
