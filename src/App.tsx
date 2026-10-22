@@ -28,6 +28,7 @@ import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, ter
 import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
 
+import SiteAnalysis3D from './components/SiteAnalysis3D'
 import OptimizePanel from './components/OptimizePanel'
 import { zonedLayout } from './lib/zones'
 import { STRATEGIES, type Candidate, type OptimizeInput } from './lib/optimize'
@@ -73,7 +74,7 @@ import SiteReviewPanel from './components/SiteReviewPanel'
 import DesignBar from './components/DesignBar'
 import SideElevation from './components/SideElevation'
 import CapacityCompare, { type CapacityOption } from './components/CapacityCompare'
-import { forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
+import { SITE_KIND, forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
 import { isForest, pctToDeg } from './lib/siteReview'
 import type { MapMark } from './components/MapView'
 import ShadeCleanup from './components/ShadeCleanup'
@@ -123,7 +124,8 @@ const WORKSPACES: Record<Stage, Array<[Workspace, string]>> = {
 const AUTOSAVE_DEBOUNCE = 1500
 
 /** AI 설계 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
-const AI_MIN_MS = 10_000
+/** AI 분석 화면을 보여 주는 최소 시간(ms). 실행마다 3~5초 사이에서 정한다. */
+const aiMinMs = () => 3000 + Math.round(Math.random() * 2000)
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
 const DESIGN_DEBOUNCE = 400
@@ -189,6 +191,8 @@ export default function App() {
   const [optError, setOptError] = useState<string | null>(null)
   // 분석 화면용: 시작 시각과 실제 계산이 끝났는지
   const [optStartedAt, setOptStartedAt] = useState(0)
+  const [optMinMs, setOptMinMs] = useState(4000)
+  const [showSite3d, setShowSite3d] = useState(false)
   const [optFinished, setOptFinished] = useState(false)
   const activeRun = useRef<object | null>(null)
   const [workspace, setWorkspace] = useState<Workspace>('map')
@@ -705,6 +709,8 @@ export default function App() {
     setOptFinished(false)
     const started = performance.now()
     setOptStartedAt(started)
+    const minMs = aiMinMs()
+    setOptMinMs(minMs)
     // 지형을 아직 안 불러왔으면 먼저 불러온다(실패해도 지형 없이 진행).
     let t: { grid: ElevGrid; buildable: BuildableResult } | null = elevGrid && buildable ? { grid: elevGrid, buildable } : null
     if (!t) {
@@ -728,7 +734,7 @@ export default function App() {
     const run = runOptimizePool(input, () => {})
     activeRun.current = run
     setOptRun(run)
-    // 계산이 일찍 끝나도 분석 화면을 AI_MIN_MS 동안 보여 준 뒤에 결과를 낸다. 중간에 중단하면 버린다.
+    // 계산이 일찍 끝나도 분석 화면을 minMs 동안 보여 준 뒤에 결과를 낸다. 중간에 중단하면 버린다.
     const finish = (apply: () => void) => {
       if (activeRun.current !== run) return
       setOptFinished(true)
@@ -737,7 +743,7 @@ export default function App() {
         activeRun.current = null
         apply()
         setOptRun(null)
-      }, Math.max(0, AI_MIN_MS - (performance.now() - started)))
+      }, Math.max(0, minMs - (performance.now() - started)))
     }
     run.promise.then(
       (results) => finish(() => setOptResults(results)),
@@ -945,7 +951,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
-      if (showReport || showProjects) return
+      if (showReport || showProjects || showSite3d) return
       // 도면 화면은 자체 단축키(주석 지우기 등)를 쓴다.
       if (ws === 'drawing') return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
@@ -1805,6 +1811,16 @@ export default function App() {
           />
         )}
 
+        {tab === 'ai' && parcel && (
+          <section className="card s3d-entry">
+            <h2>3D 입지 분석</h2>
+            <p>가설계한 배치를 위성 지형 위에 3D로 띄워 시공 치수와 계절·시각별 그림자를 봅니다.</p>
+            <button type="button" className="block" onClick={() => setShowSite3d(true)}>
+              3D 입지 분석 열기
+            </button>
+            {!sets.length && <p className="hint">아직 배치가 없어 부지만 보입니다. AI 추천 배치를 적용하면 모듈까지 보입니다.</p>}
+          </section>
+        )}
         {tab === 'ai' && (
           <OptimizePanel
             canRun={!!parcel}
@@ -2222,6 +2238,9 @@ export default function App() {
           <button type="button" role="tab" aria-selected={false} className="work-tab-report" disabled={!parcel} onClick={() => setShowReport(true)} title={parcel ? '인쇄용 보고서 열기' : '필지를 먼저 고르세요'}>
             보고서
           </button>
+          <button type="button" role="tab" aria-selected={false} className="work-tab-report" disabled={!parcel} onClick={() => setShowSite3d(true)} title={parcel ? '3D 입지 분석 열기' : '필지를 먼저 고르세요'}>
+            3D 입지분석
+          </button>
         </div>
         <div className="map-stage">
         {tab === 'layout' && parcel && (
@@ -2375,7 +2394,25 @@ export default function App() {
             fileBase={fileBase()}
           />
         )}
-        {optRun && <AiAnalyzing startedAt={optStartedAt} duration={AI_MIN_MS} finished={optFinished} onCancel={cancelOptimize} />}
+        {showSite3d && parcel && (
+          <SiteAnalysis3D
+            title={parcel.address}
+            subtitle={[plant.name || parcel.address, sets.length ? `${fmt(stats.kWp, 1)} kWp` : '배치 전', SITE_KIND[siteCheck.kind].label].join(' · ')}
+            vworldKey={vworldKey}
+            parcel={parcel}
+            sets={sets}
+            params={params}
+            geometry={geometry}
+            obstacles={obstacles}
+            scene={scene}
+            elec={design?.elec ?? null}
+            terrain={terrain}
+            area={area}
+            kWp={stats.kWp}
+            onClose={() => setShowSite3d(false)}
+          />
+        )}
+        {optRun && <AiAnalyzing startedAt={optStartedAt} duration={optMinMs} finished={optFinished} onCancel={cancelOptimize} />}
         </div>
       </main>
 

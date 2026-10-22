@@ -1163,3 +1163,58 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
     color: rgba(30, 40, 60, 0.07); transform: rotate(-24deg);
   }
 }
+
+/* ── 3D 입지 분석: 가설계 결과를 전체 화면 3D로 ── */
+.s3d { position: fixed; inset: 0; z-index: 900; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--paper); }
+.s3d-head { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--chrome); color: var(--chrome-text); }
+.s3d-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
+.s3d-title strong { color: var(--accent-text); font-size: 16px; white-space: nowrap; }
+.s3d-title span { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s3d-modes { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--chrome-2); }
+.s3d-modes button { background: transparent; border: 0; color: var(--chrome-text); padding: 6px 12px; font-size: 13px; }
+.s3d-modes button.on { background: var(--surface); color: var(--ink); }
+.s3d-close { background: transparent; border: 1px solid oklch(100% 0 0 / 0.2); color: var(--accent-text); padding: 6px 12px; }
+.s3d-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
+.s3d-map { position: relative; min-height: 0; }
+.s3d-map .map { position: absolute; inset: 0; }
+.s3d-sun-badge { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; border-radius: 99px; background: oklch(19% 0.03 258 / 0.82); color: var(--accent-text); font-size: 12.5px; white-space: nowrap; pointer-events: none; }
+.s3d-side { overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); }
+.s3d-side section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.s3d-side h3 { margin: 0 0 10px; font-size: 13.5px; font-weight: 650; }
+.s3d-side .hint { margin: 8px 0 0; }
+.s3d-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.s3d-fact { padding: 8px 10px; border-radius: var(--r-sm); background: var(--sunken); min-width: 0; }
+.s3d-fact small { display: block; font-size: 11px; color: var(--muted); }
+.s3d-fact strong { display: block; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s3d-layers { display: grid; gap: 6px; }
+.s3d-layer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
+.s3d-layer.on { border-color: var(--accent); background: var(--accent-soft); }
+.s3d-layer span { display: grid; min-width: 0; }
+.s3d-layer strong { font-size: 13px; }
+.s3d-layer small { font-size: 11.5px; color: var(--muted); }
+.s3d-layer input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.s3d-layer:has(input:disabled) { cursor: default; opacity: 0.6; }
+.s3d-slider { display: grid; grid-template-columns: 22px 1fr 52px; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.s3d-slider input { accent-color: var(--accent); }
+.s3d-slider strong { text-align: right; font-variant-numeric: tabular-nums; }
+.s3d-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.s3d-btns button { padding: 6px 4px; font-size: 12.5px; background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
+.s3d-btns button.on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+@media (max-width: 900px) {
+  .s3d-body { grid-template-columns: 1fr; grid-template-rows: minmax(300px, 55vh) auto; overflow-y: auto; }
+  .s3d-side { border-left: 0; overflow: visible; }
+  .s3d-head { flex-wrap: wrap; }
+  .s3d-title { flex-basis: 100%; }
+}
+.s3d:focus { outline: none; }
+.s3d-btns.two { grid-template-columns: 1fr 1fr; }
+.s3d-btns button:disabled { opacity: 0.5; }
+.s3d-facts.three { grid-template-columns: repeat(3, 1fr); margin-top: 10px; }
+.s3d-fact.ok strong { color: var(--ok); }
+.s3d-fact.bad strong { color: var(--error); }
+.s3d-slider { grid-template-columns: 30px 1fr 52px; }
+/* 3D에서는 지도 보기 줄이 길어져 설계 옵션 줄과 겹치므로 한 줄 내린다. */
+.map-stage:has(.map3d) .design-bar { top: 54px; right: 12px; }
+@media (max-width: 900px) {
+  .s3d-sun-badge { top: 10px; bottom: auto; left: 52px; right: 10px; transform: none; white-space: normal; border-radius: var(--r-md); }
+}
