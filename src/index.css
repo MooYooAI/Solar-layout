@@ -1232,3 +1232,20 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .design-seg button[aria-selected='true'] .step-no { background: var(--accent); color: var(--accent-text); }
 .design-seg small { font-size: 11px; font-weight: 500; color: var(--muted); }
 .bld-box { margin-bottom: 10px; }
+
+/* ── 영역 선택(지적선택·다각형·사각형·도면) ── */
+.area-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 0 8px; }
+.area-modes > span { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--muted); }
+.area-mode { height: 32px; padding: 0 4px; white-space: nowrap; font-size: 12.5px; font-weight: 650; background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-strong); }
+.area-mode:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.area-mode.on { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }
+.area-mode::before { margin-right: 5px; font-size: 12px; }
+.area-mode.cadastral::before { content: '▦'; }
+.area-mode.polygon::before { content: '△'; }
+.area-mode.rect::before { content: '▭'; }
+.area-mode.dxf::before { content: '⎘'; }
+.dxf-in { display: grid; gap: 8px; }
+.file-pick { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.file-pick:hover { background: var(--sunken); color: var(--ink); }
+.file-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.file-pick:focus-within { box-shadow: var(--focus); }

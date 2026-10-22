@@ -46,7 +46,7 @@ export interface FlyTarget {
  * draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기,
  * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기
  */
-export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole'
+export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole' | 'place'
 
 /** 입지검토 표시: 주변 도로·구거 지번(고른 것은 진하게)과 전주 */
 export type MapMark =
