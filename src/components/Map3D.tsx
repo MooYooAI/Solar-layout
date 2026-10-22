@@ -27,13 +27,14 @@ import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/t
 import { shared } from '../lib/viewState'
 import type { FlyTarget, MapTool } from './MapView'
 
-export type CameraView = 'top' | 'front' | 'side'
+export type CameraView = 'top' | 'front' | 'side' | 'persp' | 'fit'
 
-/** top: 위에서, front: 남쪽에서 모듈 정면, side: 동쪽에서 본 측면 */
-const CAMERA: Record<CameraView, { pitch: number; bearing: number }> = {
+/** top: 위에서, front: 남쪽에서 모듈 정면, side: 동쪽에서 본 측면, persp: 남서쪽 위에서 비스듬히. fit은 필지에 다시 맞춘다. */
+const CAMERA: Record<Exclude<CameraView, 'fit'>, { pitch: number; bearing: number }> = {
   top: { pitch: 0, bearing: 0 },
   front: { pitch: 72, bearing: 0 },
   side: { pitch: 80, bearing: -90 },
+  persp: { pitch: 58, bearing: -28 },
 }
 
 interface Props {
@@ -59,11 +60,13 @@ interface Props {
   elec: ElecResult | null
   /** 지형 높이 과장 배율 */
   exaggeration: number
-  /** 시점 바꾸기 요청. seq가 바뀔 때마다 그 시점으로 돌린다. */
-  camera: { view: CameraView; seq: number } | null
+  /** 시점 바꾸기 요청. seq가 바뀔 때마다 그 시점으로 돌린다. bearing이 있으면 그 방향을 낮게 바라본다. */
+  camera: { view: CameraView; seq: number; bearing?: number } | null
   onMapClick: (lon: number, lat: number) => void
   onSelect: (ids: string[], additive: boolean) => void
   onAddSet: (lon: number, lat: number) => void
+  /** 다른 화면 위에 따로 띄우는 지도. 공유 시점을 쓰지 않고, 열 때 필지에 맞춘다. */
+  standalone?: boolean
 }
 
 const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
@@ -470,6 +473,22 @@ function setWms(map: MlMap, id: string, tiles: string[] | null, opacity: number,
  * 중심 높이와 실제 지면 높이를 비교해 다르면 같은 중심으로 jumpTo해 높이를 다시 잡는다.
  * 사용자가 지도를 움직였거나 새 이동이 시작됐으면 손대지 않는다.
  */
+/** 필지가 화면에 다 들어오게 맞춘다. */
+function fitParcel(map: MlMap, parcel: Parcel, pitch: number, bearing = map.getBearing()) {
+  const pts = parcel.rings.flat()
+  const lons = pts.map((c) => c[0])
+  const lats = pts.map((c) => c[1])
+  settle(map, () =>
+    map.fitBounds(
+      [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ],
+      { padding: 80, maxZoom: 19, pitch, bearing, duration: 600 },
+    ),
+  )
+}
+
 let settleSeq = 0
 function settle(map: MlMap, move: () => void) {
   const seq = ++settleSeq
@@ -535,6 +554,7 @@ export default function Map3D(props: Props) {
       if (panels.current.refreshHeights()) panels.current.rebuild()
     })
     map.on('moveend', () => {
+      if (latest.current.standalone) return
       const c = map.getCenter()
       shared.view = { lon: c.lng, lat: c.lat, zoom: map.getZoom() + 1, bearing: map.getBearing(), pitch: map.getPitch() }
     })
@@ -597,32 +617,34 @@ export default function Map3D(props: Props) {
   const { camera } = props
   useEffect(() => {
     if (!camera) return
-    whenReady(() => mapRef.current!.easeTo({ ...CAMERA[camera.view], duration: 700 }))
+    whenReady(() => {
+      const map = mapRef.current!
+      const parcel = latest.current.parcel
+      if (camera.bearing !== undefined) map.easeTo({ pitch: 78, bearing: camera.bearing, duration: 900 })
+      else if (camera.view === 'fit') {
+        if (parcel) fitParcel(map, parcel, CAMERA.persp.pitch, CAMERA.persp.bearing)
+      } else map.easeTo({ ...CAMERA[camera.view], duration: 700 })
+    })
   }, [camera])
 
   useEffect(() => {
     whenReady(() => mapRef.current!.setTerrain({ source: 'dem', exaggeration }))
   }, [exaggeration])
 
+  const fittedHere = useRef<Parcel | null>(null)
   useEffect(() => {
     whenReady(() => {
       const map = mapRef.current!
       ;(map.getSource('parcel') as GeoJSONSource).setData(fc(parcel ? parcel.rings.map((r) => poly([r])) : []))
-      if (!parcel || shared.fitted === parcel) return
+      if (!parcel) return
+      if (latest.current.standalone) {
+        if (fittedHere.current === parcel) return
+        fittedHere.current = parcel
+        return fitParcel(map, parcel, CAMERA.persp.pitch, CAMERA.persp.bearing)
+      }
+      if (shared.fitted === parcel) return
       shared.fitted = parcel
-      const pts = parcel.rings.flat()
-      const lons = pts.map((c) => c[0])
-      const lats = pts.map((c) => c[1])
-      const pitch = map.getPitch() || 60
-      settle(map, () =>
-        map.fitBounds(
-          [
-            [Math.min(...lons), Math.min(...lats)],
-            [Math.max(...lons), Math.max(...lats)],
-          ],
-          { padding: 80, maxZoom: 19, pitch, duration: 600 },
-        ),
-      )
+      fitParcel(map, parcel, map.getPitch() || 60)
     })
   }, [parcel])
 
