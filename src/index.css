@@ -359,6 +359,11 @@ details.chart summary { cursor: pointer; }
 .plan-svg .plan-grid line { stroke: oklch(92% 0.008 80); stroke-width: 1; }
 .plan-svg .plan-parcel { fill: oklch(63% 0.18 42 / 0.06); stroke: var(--accent); stroke-width: 1.5; }
 .plan-svg .plan-obstacle { fill: oklch(80% 0.01 255); stroke: var(--ink-2); stroke-width: 1; }
+.plan-svg .plan-pad polygon { fill: rgba(28, 126, 214, 0.35); stroke: #1c7ed6; stroke-width: 1.5; }
+.plan-svg .plan-pad.movable { cursor: move; }
+.plan-svg .plan-pad.movable:hover polygon { fill: rgba(28, 126, 214, 0.55); stroke-width: 2; }
+/* 좌표가 미터라 글자 크기도 미터(약 1.1 m) */
+.plan-svg .plan-pad-label { font-size: 1.1px; font-weight: 700; fill: #fff; stroke: #1c7ed6; stroke-width: 2.5; paint-order: stroke; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .plan-svg .plan-set { cursor: grab; }
 .plan-svg .plan-set > polygon:first-child { fill: var(--module); stroke: oklch(30% 0.08 262); stroke-width: 1; }
 .plan-svg .plan-set .plan-module { fill: none; stroke: oklch(80% 0.06 262 / 0.7); stroke-width: 0.5; }

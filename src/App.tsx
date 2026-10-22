@@ -2718,6 +2718,7 @@ export default function App() {
             canRedo={history.future.length > 0}
             onUndo={undo}
             onRedo={redo}
+            onPadMove={equipPad ? (lon, lat) => movePad([lon, lat], 'manual') : undefined}
           />
         )}
         {ws === 'drawing' && (

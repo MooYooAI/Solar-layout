@@ -31,6 +31,7 @@ interface Props {
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  onPadMove?: (lon: number, lat: number) => void
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
@@ -153,6 +154,7 @@ export default function LayoutEditor(props: Props) {
             onSelect={props.onSelect}
             onMoveSets={props.onMoveSets}
             onAddSet={props.onAddSet}
+            onPadMove={props.onPadMove}
           />
         </div>
 
