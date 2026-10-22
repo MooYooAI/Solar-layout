@@ -5,7 +5,6 @@ import ZoomFrame from './ZoomFrame'
 import DetailDrawings from './DetailDrawings'
 import Overview, { type OverviewStep } from './Overview'
 import { LocalFrame } from '../lib/geo'
-import type { MapTool } from './MapView'
 import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
@@ -22,22 +21,9 @@ interface Props {
   stats: LayoutStats
   obstacles: Obstacle[]
   selected: ReadonlySet<string>
-  tool: MapTool
-  onTool: (t: MapTool) => void
   elec: ElecResult | null
   elecParams: ElecParams
   designBusy: boolean
-  onSelect: (ids: string[], additive: boolean) => void
-  onMoveSets: (moved: Array<{ id: string; lon: number; lat: number }>) => void
-  onAddSet: (lon: number, lat: number) => void
-  onAutoLayout: () => void
-  onDeleteSelected: () => void
-  onRotateSelected: (deg: number) => void
-  onClear: () => void
-  canUndo: boolean
-  canRedo: boolean
-  onUndo: () => void
-  onRedo: () => void
   /** 돌아갈 작업 기록이 있는지(타임라인은 상단 바에 있다) */
   hasTimeline: boolean
   /** 개요 보기에 쓰는 값 */
@@ -50,14 +36,14 @@ interface Props {
   onGoStep: (key: string) => void
 }
 
+const NOOP = () => {}
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 
-/** 오른쪽 작업면: 가배치 도면을 보고 바로 고치는 곳, 전기 설계가 끝나면 단선결선도도 본다. */
+/** 오른쪽 보기: 개요, 보기 전용 배치도, 상세도, 단선결선도. 배치 편집은 가운데 작업면에서 한다. */
 export default function SidePanel(props: Props) {
-  const { parcel, stats, tool, onTool, selected } = props
-  const [view, setView] = useState<'overview' | 'plan' | 'side' | 'sld'>('plan')
+  const { parcel, stats, selected } = props
+  const [view, setView] = useState<'overview' | 'plan' | 'side' | 'sld'>('overview')
   const [plan3d, setPlan3d] = useState(false)
-  const n = selected.size
   const sld = useMemo(
     () =>
       view === 'sld' && props.elec
@@ -161,11 +147,12 @@ export default function SidePanel(props: Props) {
                 geometry={props.geometry}
                 obstacles={props.obstacles}
                 selected={selected}
-                tool={tool}
+                tool="none"
                 elec={props.elec}
-                onSelect={props.onSelect}
-                onMoveSets={props.onMoveSets}
-                onAddSet={props.onAddSet}
+                onSelect={NOOP}
+                onMoveSets={NOOP}
+                onAddSet={NOOP}
+                readOnly
               />
             ) : (
               <p className="empty">
@@ -180,46 +167,10 @@ export default function SidePanel(props: Props) {
             )}
           </div>
 
-          <div className="toolbar" role="toolbar" aria-label="배치 편집">
-            <button type="button" className="primary" disabled={!parcel} onClick={props.onAutoLayout}>
-              자동 배치
-            </button>
-            <button type="button" className={tool === 'select' ? 'toggle on' : 'toggle'} disabled={!parcel} onClick={() => onTool(tool === 'select' ? 'none' : 'select')}>
-              지도에서 선택
-            </button>
-            <button type="button" className={tool === 'add' ? 'toggle on' : 'toggle'} disabled={!parcel} onClick={() => onTool(tool === 'add' ? 'none' : 'add')}>
-              세트 추가
-            </button>
-          </div>
-          <div className="toolbar" role="toolbar" aria-label="선택한 세트">
-            <button type="button" className="ghost" disabled={!n} onClick={() => props.onRotateSelected(-5)} title="반시계 5°">
-              ⟲ 5°
-            </button>
-            <button type="button" className="ghost" disabled={!n} onClick={() => props.onRotateSelected(5)} title="시계 5°">
-              ⟳ 5°
-            </button>
-            <button type="button" className="ghost" disabled={!n} onClick={props.onDeleteSelected}>
-              삭제{n > 0 && ` ${n}`}
-            </button>
-            <span className="toolbar-sep" />
-            <button type="button" className="ghost icon" disabled={!props.canUndo} onClick={props.onUndo} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기">
-              ↶
-            </button>
-            <button type="button" className="ghost icon" disabled={!props.canRedo} onClick={props.onRedo} title="다시실행 (Ctrl+Shift+Z)" aria-label="다시실행">
-              ↷
-            </button>
-            <button type="button" className="ghost danger" disabled={!stats.sets} onClick={props.onClear}>
-              전체 지우기
-            </button>
-          </div>
           <p className="hint">
             {plan3d
-              ? '3D는 보기 전용입니다. 끌어서 돌리고 휠이나 +/−로 확대합니다. 세트 편집은 2D에서 합니다.'
-              : tool === 'add'
-              ? '도면이나 지도를 클릭한 자리에 세트가 놓입니다.'
-              : tool === 'select'
-                ? '지도에서도 세트를 끌어 옮길 수 있습니다. Shift+드래그로 영역 선택.'
-                : '도면에서 세트를 끌어 옮기고, Shift+클릭으로 여러 개를 고릅니다. 화살표 키로 10 cm(Shift는 1 m)씩 움직이고 Delete로 지웁니다.'}
+              ? '3D는 끌어서 돌리고 휠이나 +/−로 확대합니다.'
+              : '보기 전용입니다. 휠로 확대하고 끌어서 옮깁니다. 배치는 기본설계의 지도와 배치 편집에서 고칩니다.'}
           </p>
         </>
       ) : view === 'side' ? (

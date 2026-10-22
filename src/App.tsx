@@ -6,7 +6,7 @@ import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
 const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
-import { getParcelAt, getParcelForResult, getParcelsInBox, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem } from './lib/vworld'
+import { getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
   autoLayout,
@@ -73,7 +73,7 @@ import SiteReviewPanel from './components/SiteReviewPanel'
 import DesignBar from './components/DesignBar'
 import SideElevation from './components/SideElevation'
 import CapacityCompare, { type CapacityOption } from './components/CapacityCompare'
-import { forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
+import { forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
 import { isForest, pctToDeg } from './lib/siteReview'
 import type { MapMark } from './components/MapView'
 import ShadeCleanup from './components/ShadeCleanup'
@@ -86,6 +86,8 @@ import { projectStore, projectToFile, type ProjectData } from './lib/projectStor
 
 /** 오른쪽 개요의 진행 상황에 보여 줄 화면 */
 const NO_MARKS: MapMark[] = []
+/** 비동기 작업 중 부지가 바뀌었다는 표시 */
+class StaleParcel extends Error {}
 const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
 
 /** 왼쪽 입력 패널·오른쪽 작업면 폭(px). 사용자가 끈 값을 브라우저에 기억한다. */
@@ -151,6 +153,8 @@ export default function App() {
   const [clearMeasuresSeq, setClearMeasuresSeq] = useState(0)
   // 지번(PNU)별 용도지역. 직접 그린 영역은 'manual:…' 키.
   const [zoning, setZoning] = useState<Record<string, string[] | 'error'>>({})
+  // 지번별 토지소유정보. 결과가 오기 전(undefined)은 조회 중으로 본다.
+  const [possession, setPossession] = useState<Record<string, Possession | 'error'>>({})
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ParcelSearchItem[]>([])
   const [parcel, setParcelState] = useState<Parcel | null>(null)
@@ -224,6 +228,10 @@ export default function App() {
   const [maxDesignSlope, setMaxDesignSlope] = useState(15)
   const [terrainView, setTerrainView] = useState<TerrainView>('slope')
   const demCache = useRef<{ parcel: Parcel; dem: Dem } | null>(null)
+  const parcelNow = useRef<Parcel | null>(null)
+  useEffect(() => {
+    parcelNow.current = parcel
+  }, [parcel])
   const [elevGrid, setElevGrid] = useState<ElevGrid | null>(null)
   const [buildOptions, setBuildOptions] = useState<BuildableOptions>(DEFAULT_BUILDABLE)
   const [buildable, setBuildable] = useState<BuildableResult | null>(null)
@@ -420,6 +428,35 @@ export default function App() {
     ),
   ]
 
+  // 지번마다 소유 구분을 찾아 둔다. 입지검토의 소유 구분은 이 값을 기본으로 쓰고 사용자가 고칠 수 있다.
+  const possessionRequested = useRef(new Set<string>())
+  const possessionPnus = useMemo(() => (parcel?.lots?.length ? parcel.lots.map((l) => l.pnu) : parcel?.pnu ? [parcel.pnu] : []), [parcel])
+  useEffect(() => {
+    if (!vworldKey) return
+    for (const pnu of possessionPnus) {
+      if (possessionRequested.current.has(pnu)) continue
+      possessionRequested.current.add(pnu)
+      getPossession(pnu, vworldKey).then(
+        (r) => setPossession((m) => ({ ...m, [pnu]: r })),
+        () => {
+          possessionRequested.current.delete(pnu)
+          setPossession((m) => ({ ...m, [pnu]: 'error' }))
+        },
+      )
+    }
+  }, [possessionPnus, vworldKey])
+  const ownerFetched = useMemo(() => {
+    const rs = possessionPnus.map((p) => possession[p])
+    if (!rs.length) return { kind: undefined, text: '조회할 지번 없음' }
+    if (rs.some((r) => r === undefined)) return { kind: undefined, text: '조회 중…' }
+    const ok = rs.filter((r): r is Possession => !!r && r !== 'error')
+    const names = [...new Set(ok.flatMap((r) => r.kinds))]
+    const kind = ownerKindOf(names)
+    if (!names.length) return { kind, text: ok.length < rs.length ? '조회 실패' : '자료 없음' }
+    const co = Math.max(0, ...ok.map((r) => r.coOwners))
+    return { kind, text: `${names.join(', ')}${co > 1 ? ` · 공유 ${co}명` : ''}${ok.length < rs.length ? ' · 일부 지번 실패' : ''}` }
+  }, [possessionPnus, possession])
+
   const removeLot = (pnu: string) => {
     if (!lots) return
     const next = lots.filter((l) => l.pnu !== pnu)
@@ -446,7 +483,10 @@ export default function App() {
 
   // 검색 대표점으로 먼저 날아가지 않는다. 대표점이 필지 밖에 찍히면 엉뚱한 곳을 보여 주기 때문이다.
   // 필지를 찾으면 지도가 그 경계에 맞춰지고, 못 찾을 때만 대표점으로 옮긴다.
-  const pickResult = (it: ParcelSearchItem) =>
+  const pickResult = (it: ParcelSearchItem) => {
+    // 고른 주소를 검색창에 남기고 결과 목록은 닫는다.
+    setQuery(it.address)
+    setResults([])
     void selectParcel(
       () => getParcelForResult(it, vworldKey),
       () => {
@@ -454,6 +494,7 @@ export default function App() {
         setMessage('이 주소의 지적 경계를 찾지 못했습니다. 지도에서 필지를 클릭해 주세요.')
       },
     )
+  }
 
   // 사각형 수치 입력: 가로(동서)·세로(남북) m, 회전(도, 시계 방향)
   const [rect, setRect] = useState({ width: 50, depth: 30, rotation: 0 })
@@ -940,7 +981,12 @@ export default function App() {
   /** 표고 타일을 받아 격자와 설계 가능 영역을 만든다(필지당 한 번). */
   const ensureTerrain = async (): Promise<{ grid: ElevGrid; buildable: BuildableResult }> => {
     if (!parcel) throw new Error('필지가 없습니다.')
-    if (demCache.current?.parcel !== parcel) demCache.current = { parcel, dem: await loadDem(parcel, 15, 120) }
+    if (demCache.current?.parcel !== parcel) {
+      const dem = await loadDem(parcel, 15, 120)
+      // 표고를 받는 사이 부지가 바뀌었으면 옛 부지의 결과는 버린다.
+      if (parcelNow.current !== parcel) throw new StaleParcel()
+      demCache.current = { parcel, dem }
+    }
     const grid = elevGrid ?? sampleElevGrid(parcel, demCache.current.dem)
     const b = buildable ?? computeBuildable(parcel, grid, buildOptions)
     setElevGrid(grid)
@@ -961,11 +1007,20 @@ export default function App() {
       if (!terrain) setTerrainView('buildable')
       setTerrain(analyzeTerrain(parcel, demCache.current!.dem, { cell: 3, mode, maxDesignSlopePct: maxSlope }))
     } catch (e) {
+      if (e instanceof StaleParcel) return
       setTerrainError(`표고 자료를 불러오지 못했습니다. (${e instanceof Error ? e.message : String(e)})`)
     } finally {
       setTerrainBusy(false)
     }
   }
+  // 부지를 고르면 지형을 바로 분석한다. 같은 부지에서 실패하면 다시 시도하지 않고 '다시 분석'에 맡긴다.
+  const autoTerrainFor = useRef<Parcel | null>(null)
+  useEffect(() => {
+    if (!parcel || terrain || autoTerrainFor.current === parcel) return
+    autoTerrainFor.current = parcel
+    void runTerrain()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, terrain])
   // 이미 분석했다면 방식·경사를 바꿀 때 바로 다시 계산한다(표고는 캐시).
   const changeGrading = (mode: GradingMode, maxSlope: number) => {
     setGradingMode(mode)
@@ -1383,7 +1438,7 @@ export default function App() {
   const terrainSlopeDeg = terrain ? pctToDeg(terrain.meanSlopePct) : null
   const gridNeedKW = design?.elec?.kWac ?? ((confirmed?.kWp ?? stats.kWp) > 0 ? (confirmed?.kWp ?? stats.kWp) / 1.2 : null)
   const siteReviews = {
-    land: landReview(siteLand, siteZoning, siteCheck.land.owner, siteCheck.kind),
+    land: landReview(siteLand, siteZoning, siteCheck.land.owner ?? ownerFetched.kind, siteCheck.kind),
     terrain: terrainReview(terrainSlopeDeg),
     road: roadReview(siteCheck.road),
     grid: gridReview(siteCheck.grid, gridNeedKW, parcel?.rings ?? null),
@@ -1659,7 +1714,7 @@ export default function App() {
           <SiteReviewPanel
             check={siteCheck}
             onCheck={setSiteCheck}
-            fetched={{ landCategory: parcel?.landCategory, zoning: parcelZoning, area }}
+            fetched={{ landCategory: parcel?.landCategory, zoning: parcelZoning, area, owner: ownerFetched.kind, ownerText: vworldKey ? ownerFetched.text : '인증키 없음' }}
             hasParcel={!!parcel}
             canFindRoads={!!vworldKey && parcel?.source === 'vworld'}
             roads={roads}
@@ -2341,22 +2396,9 @@ export default function App() {
           stats={stats}
           obstacles={obstacles}
           selected={selected}
-          tool={tool}
-          onTool={setTool}
           elec={design?.elec ?? null}
           elecParams={elec}
           designBusy={designBusy}
-          onSelect={onSelect}
-          onMoveSets={onMoveSets}
-          onAddSet={onAddSet}
-          onAutoLayout={runAutoLayout}
-          onDeleteSelected={deleteSelected}
-          onRotateSelected={rotateSelected}
-          onClear={clearSets}
-          canUndo={history.past.length > 0}
-          canRedo={history.future.length > 0}
-          onUndo={undo}
-          onRedo={redo}
           hasTimeline={timeline.length > 0}
           area={area}
           zoning={parcelZoning}
