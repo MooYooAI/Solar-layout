@@ -52,6 +52,8 @@ interface Props {
   /** 설치비를 전기 설계 물량으로 잡았으면 그 합계(만원) */
   designCapex: number | null
   horizon: Horizon | null
+  /** 현장정보 입지검토 판정(도로·계통·산지·토지). 인허가·계통연계 섹션에 합친다. */
+  siteChecks?: { land: SectionReview; road: SectionReview; grid: SectionReview; forest: SectionReview | null }
   onClose: () => void
 }
 
@@ -248,7 +250,23 @@ export default function ReportView(props: Props) {
         checks: verdict !== 'ok' ? ['판매 단가·설치비·융자 조건을 바꿔 사업성을 다시 보세요.'] : [],
       }
     })()
-    return [site, cap, civil, permit, grid, money]
+    // 입지검토에서 판정한 항목은 같은 주제의 섹션에 합친다: 판정은 더 나쁜 쪽, 확인 사항은 앞에.
+    const rank: Record<Verdict, number> = { info: 0, ok: 1, warn: 2, bad: 3 }
+    const merge = (base: SectionReview, extra: SectionReview[]): SectionReview => {
+      const known = extra.filter((e) => e.verdict !== 'info')
+      if (!known.length) return base
+      const verdict = known.reduce<Verdict>((v, e) => (rank[e.verdict] > rank[v] ? e.verdict : v), base.verdict)
+      return {
+        ...base,
+        verdict,
+        summary: [base.verdict === 'info' ? null : base.summary, ...known.map((e) => `${e.title}: ${e.summary}`)].filter(Boolean).join(' / '),
+        checks: [...known.flatMap((e) => e.checks), ...(base.verdict === 'info' ? [] : base.checks)],
+      }
+    }
+    const sc = props.siteChecks
+    const permitAll = sc ? merge(permit, [sc.road, ...(sc.forest ? [sc.forest] : [])]) : permit
+    const gridAll = sc ? merge(grid, [sc.grid]) : grid
+    return [site, cap, civil, permitAll, gridAll, money]
   })()
 
   const overall = overallGrade(reviews)

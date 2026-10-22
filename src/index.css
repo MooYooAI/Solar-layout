@@ -1103,3 +1103,27 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .quote-items tr.sum td { font-weight: 650; text-align: right; }
 .quote-note { white-space: pre-wrap; border: 0.3mm solid #444; padding: 2mm 3mm; margin: 0; }
 .order-list td:nth-child(2) { white-space: nowrap; }
+
+/* ── 입지검토 ── */
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.seg3 button { display: grid; gap: 2px; height: auto; padding: 10px 6px; background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); font-weight: 650; }
+.seg3 button small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.seg3 button.on { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 10%, var(--surface)); color: var(--ink); }
+.grade { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-left: 6px; border-radius: 99px; font-size: 14px; color: #fff; vertical-align: middle; }
+.grade.g-A { background: oklch(55% 0.13 150); }
+.grade.g-B { background: oklch(60% 0.12 230); }
+.grade.g-C { background: oklch(65% 0.13 70); }
+.grade.g-D { background: oklch(55% 0.17 25); }
+.sr-sum { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.sr-sum li { display: grid; grid-template-columns: 64px auto 1fr; align-items: center; gap: 8px; font-size: 13px; }
+.sr-sum li small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-verdict { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--sunken); font-size: 13px; }
+.sr-verdict.bad { background: oklch(96% 0.03 25); }
+.sr-verdict.warn { background: oklch(97% 0.04 85); }
+.sr-verdict.ok { background: oklch(97% 0.03 150); }
+.sr-verdict strong { display: block; font-weight: 600; }
+.sr-verdict ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+.sr-verdict li + li { margin-top: 3px; }
+.sr-roads td:first-child { width: 24px; }
+.sr-roads td:nth-child(3) { white-space: nowrap; }

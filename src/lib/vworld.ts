@@ -156,6 +156,29 @@ async function getParcel(filter: { geomFilter: string } | { attrFilter: string }
   return result?.featureCollection.features[0] ?? null
 }
 
+/** 경위도 사각형 안의 연속지적도 필지들(최대 size개). 주변 도로·구거를 찾는 데 쓴다. */
+export async function getParcelsInBox(box: [number, number, number, number], key: string, size = 200): Promise<ParcelFeature[]> {
+  const data = await jsonp<DataResponse>(`${API}/data`, {
+    service: 'data',
+    request: 'GetFeature',
+    version: '2.0',
+    data: 'LP_PA_CBND_BUBUN',
+    geomFilter: `BOX(${box.join(',')})`,
+    crs: 'EPSG:4326',
+    geometry: 'true',
+    attribute: 'true',
+    size: String(size),
+    format: 'json',
+    errorformat: 'json',
+    domain: DOMAIN,
+    key,
+  })
+  const { status, error, result } = data.response
+  if (status === 'NOT_FOUND') return []
+  if (status !== 'OK') throw new Error(error?.text ?? '주변 필지를 가져오지 못했습니다.')
+  return result?.featureCollection.features ?? []
+}
+
 export type BaseMap = 'Base' | 'Satellite'
 
 export function wmtsUrl(key: string, layer: BaseMap | 'Hybrid'): string {
