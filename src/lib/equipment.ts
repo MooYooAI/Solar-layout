@@ -34,21 +34,36 @@ export function padKindFor(areaM2: number): PadKind {
   return areaM2 * KW_PER_M2 >= LV_LIMIT_KW ? 'MV' : 'LV'
 }
 
-/**
- * 전기실 자리를 고른다. 경계를 1m 간격으로 훑어 함체가 경계 안쪽에 들어가는 자리 가운데
- * 전주(anchor)에 가장 가까운 곳, 전주가 없으면 부지 가운데에 가깝고 북쪽 경계인 곳을 고른다.
- */
-export function placeEquipPad(parcel: Parcel, kind: PadKind, anchor?: Vec | null): EquipPad | null {
+/** 경계 안쪽에 함체가 들어가는 자리 하나(부지 평면 좌표) */
+interface Slot {
+  quad: Vec[]
+  keep: Vec[]
+  /** 함체가 붙은 경계 위 점 */
+  at: Vec
+  /** 함체 가운데 */
+  center: Vec
+  /** 경계에서 안쪽을 가리키는 단위 법선 */
+  inward: Vec
+}
+
+/** 경계 방향 단위벡터 u, 안쪽 법선 n으로 놓은 함체와 점검 공간 */
+function padBox(c: Vec, u: Vec, n: Vec, kind: PadKind): { quad: Vec[]; keep: Vec[] } {
+  const [w, d] = PAD_SIZE[kind]
+  const box = (hw: number, hd: number): Vec[] => [
+    [c[0] - u[0] * hw - n[0] * hd, c[1] - u[1] * hw - n[1] * hd],
+    [c[0] + u[0] * hw - n[0] * hd, c[1] + u[1] * hw - n[1] * hd],
+    [c[0] + u[0] * hw + n[0] * hd, c[1] + u[1] * hw + n[1] * hd],
+    [c[0] - u[0] * hw + n[0] * hd, c[1] - u[1] * hw + n[1] * hd],
+  ]
+  return { quad: box(w / 2, d / 2), keep: box(w / 2 + SERVICE, d / 2 + SERVICE) }
+}
+
+/** 경계를 step(m) 간격으로 훑어 함체가 경계 안쪽에 들어가는 자리를 모두 모은다. */
+function padSlots(parcel: Parcel, kind: PadKind, step = 1) {
   const frame = LocalFrame.around(parcel.rings)
   const rings = parcel.rings.map((r) => r.map((c) => frame.toLocal(c)))
   const [w, d] = PAD_SIZE[kind]
-  const pts = rings.flat()
-  const cx = pts.reduce((t, p) => t + p[0], 0) / pts.length
-  const cy = pts.reduce((t, p) => t + p[1], 0) / pts.length
-  const span = Math.max(...pts.map((p) => Math.hypot(p[0] - cx, p[1] - cy)))
-  const a = anchor ? frame.toLocal(anchor) : null
-
-  let best: { score: number; quad: Vec[]; keep: Vec[] } | null = null
+  const slots: Slot[] = []
   for (const ring of rings) {
     // 링 방향과 관계없이 안쪽을 가리키는 법선을 쓰도록, 법선 쪽 시험점이 링 안에 있는지로 정한다.
     for (let i = 0; i < ring.length - 1; i++) {
@@ -56,41 +71,86 @@ export function placeEquipPad(parcel: Parcel, kind: PadKind, anchor?: Vec | null
       const [bx, by] = ring[i + 1]
       const len = Math.hypot(bx - ax, by - ay)
       if (len < w + 2 * EDGE_GAP) continue
-      const ux = (bx - ax) / len
-      const uy = (by - ay) / len
-      let [nx, ny] = [-uy, ux]
-      const mid: Vec = [(ax + bx) / 2 + nx * 0.5, (ay + by) / 2 + ny * 0.5]
-      if (!pointInRing(mid, ring)) [nx, ny] = [-nx, -ny]
-      for (let t = w / 2 + EDGE_GAP; t <= len - w / 2 - EDGE_GAP; t += 1) {
-        const px = ax + ux * t
-        const py = ay + uy * t
-        const box = (half: number, depth0: number, depth1: number): Vec[] => [
-          [px - ux * half + nx * depth0, py - uy * half + ny * depth0],
-          [px + ux * half + nx * depth0, py + uy * half + ny * depth0],
-          [px + ux * half + nx * depth1, py + uy * half + ny * depth1],
-          [px - ux * half + nx * depth1, py - uy * half + ny * depth1],
-        ]
-        const quad = box(w / 2, EDGE_GAP, EDGE_GAP + d)
+      const u: Vec = [(bx - ax) / len, (by - ay) / len]
+      let n: Vec = [-u[1], u[0]]
+      if (!pointInRing([(ax + bx) / 2 + n[0] * 0.5, (ay + by) / 2 + n[1] * 0.5], ring)) n = [-n[0], -n[1]]
+      for (let t = w / 2 + EDGE_GAP; t <= len - w / 2 - EDGE_GAP; t += step) {
+        const at: Vec = [ax + u[0] * t, ay + u[1] * t]
+        const depth = EDGE_GAP + d / 2
+        const center: Vec = [at[0] + n[0] * depth, at[1] + n[1] * depth]
+        const { quad, keep } = padBox(center, u, n, kind)
         if (!quadFitsInRing(quad, ring, EDGE_GAP * 0.5)) continue
-        const q0 = quad[0]
-        const q2 = quad[2]
-        const qc: Vec = [(q0[0] + q2[0]) / 2, (q0[1] + q2[1]) / 2]
-        const score = a
-          ? Math.hypot(px - a[0], py - a[1])
-          : Math.hypot(qc[0] - cx, qc[1] - cy) + (ny > 0.3 ? span : 0) // 안쪽 법선이 북쪽이면(남쪽 경계) 뒤로 미룬다.
-        if (!best || score < best.score) best = { score, quad, keep: box(w / 2 + SERVICE, 0, EDGE_GAP + d + SERVICE) }
+        slots.push({ quad, keep, at, center, inward: n })
       }
     }
   }
-  if (!best) return null
+  return { frame, rings, slots }
+}
+
+function toPad(frame: LocalFrame, kind: PadKind, quad: Vec[], keep: Vec[]): EquipPad {
   const close = (q: Vec[]) => [...q, q[0]].map((v) => frame.toLonLat(v) as number[])
-  const c = best.quad
   return {
     kind,
     label: PAD_LABEL[kind],
-    ring: close(c),
-    keepOut: close(best.keep),
-    center: frame.toLonLat([(c[0][0] + c[2][0]) / 2, (c[0][1] + c[2][1]) / 2]),
+    ring: close(quad),
+    keepOut: close(keep),
+    center: frame.toLonLat([(quad[0][0] + quad[2][0]) / 2, (quad[0][1] + quad[2][1]) / 2]),
     height: 2.5,
   }
+}
+
+/**
+ * 기본 자리: 경계 안쪽 자리 가운데 전주(anchor)에 가장 가까운 곳,
+ * 전주가 없으면 부지 가운데에 가깝고 북쪽 경계인 곳을 고른다.
+ */
+export function placeEquipPad(parcel: Parcel, kind: PadKind, anchor?: Vec | null): EquipPad | null {
+  const { frame, rings, slots } = padSlots(parcel, kind)
+  if (!slots.length) return null
+  const pts = rings.flat()
+  const cx = pts.reduce((t, p) => t + p[0], 0) / pts.length
+  const cy = pts.reduce((t, p) => t + p[1], 0) / pts.length
+  const span = Math.max(...pts.map((p) => Math.hypot(p[0] - cx, p[1] - cy)))
+  const a = anchor ? frame.toLocal(anchor) : null
+  const score = (s: Slot) =>
+    a
+      ? Math.hypot(s.at[0] - a[0], s.at[1] - a[1])
+      : Math.hypot(s.center[0] - cx, s.center[1] - cy) + (s.inward[1] > 0.3 ? span : 0) // 안쪽 법선이 북쪽이면(남쪽 경계) 뒤로 미룬다.
+  const best = slots.reduce((b, s) => (score(s) < score(b) ? s : b))
+  return toPad(frame, kind, best.quad, best.keep)
+}
+
+/** 최적 자리 찾기에 쓸 후보: 경계 둘레를 따라 고르게 n곳 */
+export function padCandidates(parcel: Parcel, kind: PadKind, n = 16): EquipPad[] {
+  const { frame, slots } = padSlots(parcel, kind)
+  if (!slots.length) return []
+  const pick = slots.length <= n ? slots : Array.from({ length: n }, (_, i) => slots[Math.floor(((i + 0.5) * slots.length) / n)])
+  return pick.map((s) => toPad(frame, kind, s.quad, s.keep))
+}
+
+/**
+ * 사용자가 끌어다 놓은 자리(경위도). 가장 가까운 경계 방향으로 돌려 그 자리에 놓고,
+ * 부지 밖으로 나가면 가장 가까운 경계 안쪽 자리로 붙인다.
+ */
+export function padNear(parcel: Parcel, kind: PadKind, at: Vec): EquipPad | null {
+  const { frame, rings, slots } = padSlots(parcel, kind)
+  const p = frame.toLocal(at)
+  let edge: { u: Vec; ring: Vec[]; d: number } | null = null
+  for (const ring of rings)
+    for (let i = 0; i < ring.length - 1; i++) {
+      const [ax, ay] = ring[i]
+      const [bx, by] = ring[i + 1]
+      const len = Math.hypot(bx - ax, by - ay)
+      if (!len) continue
+      const t = Math.max(0, Math.min(len, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / len))
+      const d = Math.hypot(ax + ((bx - ax) * t) / len - p[0], ay + ((by - ay) * t) / len - p[1])
+      if (!edge || d < edge.d) edge = { u: [(bx - ax) / len, (by - ay) / len], ring, d }
+    }
+  if (edge) {
+    const n: Vec = [-edge.u[1], edge.u[0]]
+    const { quad, keep } = padBox(p, edge.u, n, kind)
+    if (quadFitsInRing(quad, edge.ring, EDGE_GAP * 0.5)) return toPad(frame, kind, quad, keep)
+  }
+  if (!slots.length) return null
+  const best = slots.reduce((b, s) => (Math.hypot(s.center[0] - p[0], s.center[1] - p[1]) < Math.hypot(b.center[0] - p[0], b.center[1] - p[1]) ? s : b))
+  return toPad(frame, kind, best.quad, best.keep)
 }

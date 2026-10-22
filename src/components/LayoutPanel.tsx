@@ -15,7 +15,18 @@ interface Props {
   layoutMode: LayoutMode
   onLayoutMode: (m: LayoutMode) => void
   /** 전기실 자리 비워 두기. label은 자리를 찾았을 때 그 이름 */
-  pad: { on: boolean; label: string | null; onToggle: (on: boolean) => void }
+  pad: {
+    on: boolean
+    label: string | null
+    onToggle: (on: boolean) => void
+    /** 최적 자리 찾기 진행·결과 한 줄 */
+    status: string | null
+    busy: boolean
+    /** 기본 자리에서 옮겼는지 */
+    moved: boolean
+    onFind: () => void
+    onReset: () => void
+  }
 }
 
 /** 자동 배치 방식: 한 방향 격자, 또는 구역별 방위각(zones.ts) */
@@ -184,6 +195,22 @@ export default function LayoutPanel(props: Props) {
           <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 전기실 자리 비워 두기
           {props.pad.on && <small className="hint"> {props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</small>}
         </label>
+        {props.pad.on && (
+          <div className="pad-tools">
+            <div className="row">
+              <button type="button" className="secondary" disabled={props.pad.busy} onClick={props.pad.onFind}>
+                {props.pad.busy ? '자리 찾는 중…' : '최적 자리 찾기'}
+              </button>
+              {props.pad.moved && (
+                <button type="button" className="link" onClick={props.pad.onReset}>
+                  기본 자리로
+                </button>
+              )}
+            </div>
+            {props.pad.status && <p className="hint">{props.pad.status}</p>}
+            <p className="hint">지도에서 전기실을 끌어 옮길 수도 있습니다. 옮기면 그 자리를 비워 다시 배치합니다.</p>
+          </div>
+        )}
         <label className="field">
           <span>배치 방식</span>
           <select value={props.layoutMode} onChange={(e) => props.onLayoutMode(e.target.value as LayoutMode)}>
