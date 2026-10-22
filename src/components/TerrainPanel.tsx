@@ -39,6 +39,7 @@ export default function TerrainPanel(props: Props) {
     <>
       <section className="card">
         <h2>지형 분석</h2>
+        <p className="hint">부지를 고르면 자동으로 분석합니다. 정지 방식이나 최대 경사를 바꾸면 그 값으로 다시 계산합니다.</p>
         <div className="grid2">
           <label className="field">
             <span>정지 방식</span>
@@ -61,7 +62,7 @@ export default function TerrainPanel(props: Props) {
           </label>
         </div>
         <button type="button" className="block" disabled={!props.canRun || props.busy} onClick={props.onRun}>
-          {props.busy ? '표고 불러오는 중…' : r ? '다시 분석' : '지형 불러와 분석'}
+          {props.busy ? '지형 분석 중…' : r ? '다시 분석' : '지형 분석'}
         </button>
         {!props.canRun && <p className="hint">필지 탭에서 필지를 먼저 선택하세요.</p>}
         {props.error && <p className="error">{props.error}</p>}

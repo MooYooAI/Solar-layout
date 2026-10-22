@@ -19,6 +19,8 @@ interface Props {
   onSelect: (ids: string[], additive: boolean) => void
   onMoveSets: (moved: Array<{ id: string; lon: number; lat: number }>) => void
   onAddSet: (lon: number, lat: number) => void
+  /** 보기 전용: 세트를 고르거나 옮기지 않고 확대·화면 이동만 한다 */
+  readOnly?: boolean
 }
 
 /** 이보다 모듈이 많으면 패널 줄눈은 생략하고 세트 외곽만 그린다(그리기 부담). */
@@ -130,6 +132,11 @@ export default function PlanEditor(props: Props) {
     const p = toLocal(e.clientX, e.clientY)
     const id = (e.target as Element).closest('[data-set]')?.getAttribute('data-set')
     svgRef.current?.focus({ preventScroll: true })
+    if (props.readOnly) {
+      setDrag({ kind: 'pan', start: [e.clientX, e.clientY], startCenter: c, moved: false })
+      e.currentTarget.setPointerCapture(e.pointerId)
+      return
+    }
     if (props.tool === 'add' && !id) {
       const [lon, lat] = frame.toLonLat(p)
       props.onAddSet(lon, lat)
@@ -176,7 +183,7 @@ export default function PlanEditor(props: Props) {
       const [y0, y1] = [Math.min(drag.start[1], drag.end[1]), Math.max(drag.start[1], drag.end[1])]
       const ids = local.quads.filter(({ center: [x, y] }) => x >= x0 && x <= x1 && y >= y0 && y <= y1).map((q) => q.id)
       if (ids.length) props.onSelect(ids, true)
-    } else if (!drag.moved) props.onSelect([], false)
+    } else if (!drag.moved && !props.readOnly) props.onSelect([], false)
     setDrag(null)
   }
 
@@ -206,6 +213,7 @@ export default function PlanEditor(props: Props) {
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (props.readOnly) return
     const step = e.shiftKey ? 1 : 0.1
     const d: Record<string, Vec> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }
     if (!d[e.key] || !selected.size) return

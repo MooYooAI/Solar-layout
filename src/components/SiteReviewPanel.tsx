@@ -16,7 +16,7 @@ interface Props {
   check: SiteCheck
   onCheck: (c: SiteCheck) => void
   /** 조회한 값(보정 전) */
-  fetched: { landCategory?: string; zoning: string[]; area: number }
+  fetched: { landCategory?: string; zoning: string[]; area: number; owner?: OwnerKind; ownerText: string }
   hasParcel: boolean
   canFindRoads: boolean
   roads: RoadCandidate[] | null
@@ -160,8 +160,13 @@ export default function SiteReviewPanel(props: Props) {
             </datalist>
           </label>
           <label className="field">
-            <span>소유 구분</span>
-            <select value={c.land.owner ?? ''} onChange={(e) => land({ owner: (e.target.value || undefined) as OwnerKind | undefined })}>
+            <span>
+              소유 구분 <small className="hint">(조회 {props.fetched.ownerText})</small>
+            </span>
+            <select
+              value={c.land.owner ?? props.fetched.owner ?? ''}
+              onChange={(e) => land({ owner: e.target.value === props.fetched.owner ? undefined : ((e.target.value || undefined) as OwnerKind | undefined) })}
+            >
               <option value="">미확인</option>
               {(Object.keys(OWNER_KIND) as OwnerKind[]).map((k) => (
                 <option key={k} value={k}>

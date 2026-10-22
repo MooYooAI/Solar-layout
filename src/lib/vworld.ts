@@ -251,6 +251,41 @@ export async function getZoningAt(lon: number, lat: number, key: string): Promis
   return [...new Set(all.flat())]
 }
 
+interface PossessionResponse {
+  possessions?: { field?: PossessionField[] | PossessionField; totalCount?: string }
+}
+interface PossessionField {
+  /** 소유구분명(개인, 국유지, 법인 …) */
+  posesnSeCodeNm?: string
+  /** 공유인수 */
+  cnrsPsnCo?: string
+}
+
+export interface Possession {
+  /** 소유구분 이름들(공유면 여럿일 수 있다) */
+  kinds: string[]
+  /** 공유인 수. 모르면 0 */
+  coOwners: number
+}
+
+/** 토지소유정보(국가공간정보센터). 지번 하나의 소유 구분을 찾는다. 자료가 없으면 kinds가 빈 배열이다. */
+export async function getPossession(pnu: string, key: string): Promise<Possession> {
+  const d = await jsonp<PossessionResponse>('https://api.vworld.kr/ned/data/getPossessionAttr', {
+    pnu,
+    format: 'json',
+    numOfRows: '100',
+    pageNo: '1',
+    domain: DOMAIN,
+    key,
+  })
+  const f = d.possessions?.field
+  const rows = Array.isArray(f) ? f : f ? [f] : []
+  return {
+    kinds: [...new Set(rows.map((r) => r.posesnSeCodeNm?.trim()).filter((n): n is string => !!n))],
+    coOwners: Math.max(0, ...rows.map((r) => Number(r.cnrsPsnCo) || 0)),
+  }
+}
+
 /** PNU 11번째 자리: 1=일반, 2=산 */
 export function describePnu(pnu: string): { legalDong: string; isMountain: boolean } {
   return { legalDong: pnu.slice(0, 10), isMountain: pnu.charAt(10) === '2' }

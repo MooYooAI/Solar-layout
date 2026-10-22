@@ -12,6 +12,15 @@ export const SITE_KIND: Record<SiteKind, { label: string; sub: string }> = {
 export type OwnerKind = 'person' | 'corp' | 'public'
 export const OWNER_KIND: Record<OwnerKind, string> = { person: '개인', corp: '법인', public: '국공유' }
 
+/** 토지소유정보의 소유구분 이름을 세 갈래로 묶는다. 국공유가 하나라도 섞이면 국공유로 본다. */
+export function ownerKindOf(names: string[]): OwnerKind | undefined {
+  if (!names.length) return undefined
+  if (names.some((n) => /국유|공유지|시유|도유|군유|구유|시도유|지자체|국가/.test(n))) return 'public'
+  if (names.some((n) => /법인|종중|종교|단체|회사|조합/.test(n))) return 'corp'
+  if (names.some((n) => /개인|외국인/.test(n))) return 'person'
+  return undefined
+}
+
 /** 조회값이 틀리거나 비었을 때 사람이 고쳐 넣는 값. 비워 두면 조회값을 쓴다. */
 export interface LandOverride {
   landCategory?: string
