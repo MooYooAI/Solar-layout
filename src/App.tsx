@@ -24,6 +24,7 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
+import { padKindFor, placeEquipPad } from './lib/equipment'
 import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
 import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempModel } from './lib/climate'
@@ -537,6 +538,21 @@ export default function App() {
   }
 
   const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
+  // 전기실(저압반·변압기) 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
+  const [reservePad, setReservePad] = useState(true)
+  const gridPole = siteCheck.grid.pole
+  const equipPad = useMemo(
+    () => (parcel && reservePad ? placeEquipPad(parcel, padKindFor(area), gridPole ?? null) : null),
+    [parcel, reservePad, area, gridPole],
+  )
+  /** 사용자가 그린 장애물에 전기실 함체를 더한 것(그림자·3D·도면용) */
+  const siteObstacles = useMemo<Obstacle[]>(
+    () => (equipPad ? [...obstacles, { id: 'equip-pad', name: equipPad.label, ring: equipPad.ring, height: equipPad.height }] : obstacles),
+    [obstacles, equipPad],
+  )
+  /** 모듈을 놓지 않을 자리: 장애물 바닥과 전기실(점검 공간 포함) */
+  const keepOut = useMemo(() => [...obstacles.map((o) => o.ring), ...(equipPad ? [equipPad.keepOut] : [])], [obstacles, equipPad])
+  const switchboardAt = equipPad?.center ?? null
   const geometry = useMemo(() => setGeometry(params), [params])
 
   // 연속 편집(입력칸 타이핑, 끌어 옮기기 등)은 한 줄로 합친다.
@@ -654,8 +670,8 @@ export default function App() {
   const horizon = horizonOn ? (horizonFresh?.horizon ?? null) : null
 
   const scene = useMemo(
-    () => (parcel ? buildScene(parcel.rings, sets, obstacles, params, geometry, sets, horizon) : null),
-    [parcel, sets, obstacles, params, geometry, horizon],
+    () => (parcel ? buildScene(parcel.rings, sets, siteObstacles, params, geometry, sets, horizon) : null),
+    [parcel, sets, siteObstacles, params, geometry, horizon],
   )
   const n = dayOfYear(shadeDate.month, shadeDate.day)
   const decl = declination(n)
@@ -720,7 +736,9 @@ export default function App() {
     const input: OptimizeInput = {
       parcel,
       base: params,
-      obstacles,
+      obstacles: siteObstacles,
+      keepOut,
+      switchboard: switchboardAt,
       performanceRatio,
       temperature,
       elec,
@@ -791,7 +809,7 @@ export default function App() {
         layoutEnergy({
           rings: parcel.rings,
           sets,
-          obstacles,
+          obstacles: siteObstacles,
           params,
           horizon,
           shade: withShade ? 'full' : false,
@@ -810,7 +828,7 @@ export default function App() {
 
   /** 자동 배치. 확정 상태를 풀고 새 배치를 넣으면 그 배치를 돌려준다(취소하면 null). */
   const layoutWith = (p: LayoutParams) =>
-    parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, mask })) ?? autoLayout(parcel, p, 0, mask)) : []
+    parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, mask, keepOut })) ?? autoLayout(parcel, p, 0, mask, keepOut)) : []
   const placeSets = (label: string, p: LayoutParams = params): ModuleSet[] | null => {
     if (!parcel) return null
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return null
@@ -1038,9 +1056,9 @@ export default function App() {
   const designInput = useMemo<DesignInput | null>(
     () =>
       parcel && sets.length
-        ? { parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon }
+        ? { parcel, params, sets, obstacles: siteObstacles, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon, switchboard: switchboardAt }
         : null,
-    [parcel, params, sets, obstacles, performanceRatio, temperature, elec, costs, econ, elevGrid, horizon],
+    [parcel, params, sets, siteObstacles, performanceRatio, temperature, elec, costs, econ, elevGrid, horizon, switchboardAt],
   )
   const designWorker = useRef<Worker | null>(null)
   const designPending = useRef<{ seq: number; input: DesignInput } | null>(null)
@@ -1326,7 +1344,7 @@ export default function App() {
               sets,
               params,
               geometry,
-              obstacles,
+              obstacles: siteObstacles,
               elec: design?.elec ?? null,
               buildable,
               grid: elevGrid,
@@ -1474,16 +1492,15 @@ export default function App() {
   const roads = roadResult && roadResult.parcel === parcel ? roadResult.list : null
   const { picked } = siteCheck.road
   const { pole, poleNo } = siteCheck.grid
-  const mapMarks: MapMark[] = useMemo(
-    () =>
-      tab !== 'review'
-        ? NO_MARKS
-        : [
-            ...(roads ?? []).map((r) => ({ kind: 'road' as const, rings: r.rings, label: r.label, on: picked.includes(r.pnu) })),
-            ...(pole ? [{ kind: 'pole' as const, at: pole, label: poleNo || '전주' }] : []),
-          ],
-    [tab, roads, picked, pole, poleNo],
-  )
+  const mapMarks: MapMark[] = useMemo(() => {
+    const pad: MapMark[] = equipPad ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '저압반' }] : []
+    if (tab !== 'review') return pad.length ? pad : NO_MARKS
+    return [
+      ...pad,
+      ...(roads ?? []).map((r) => ({ kind: 'road' as const, rings: r.rings, label: r.label, on: picked.includes(r.pnu) })),
+      ...(pole ? [{ kind: 'pole' as const, at: pole, label: poleNo || '전주' }] : []),
+    ]
+  }, [tab, roads, picked, pole, poleNo, equipPad])
 
   const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
@@ -1649,6 +1666,7 @@ export default function App() {
             maskActive={!!mask}
             layoutMode={layoutMode}
             onLayoutMode={setLayoutMode}
+            pad={{ on: reservePad, label: equipPad ? `${equipPad.label} 자리를 ${gridPole ? '전주에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에 비워 둡니다.` : null, onToggle: setReservePad }}
           />
         )}
 
@@ -2263,7 +2281,7 @@ export default function App() {
               onMapClick={onMapClick}
               onSelect={onSelect}
               onAddSet={onAddSet}
-              obstacles={obstacles}
+              obstacles={siteObstacles}
               shadows={shadeView?.shadows ?? NO_SHADOWS}
               setShade={shadeView?.perSet ?? null}
               panelShade={shadeView?.panel ?? null}
@@ -2294,7 +2312,7 @@ export default function App() {
             onSelect={onSelect}
             onMoveSets={onMoveSets}
             onAddSet={onAddSet}
-            obstacles={obstacles}
+            obstacles={siteObstacles}
             shadows={shadeView?.shadows ?? NO_SHADOWS}
             setShade={shadeView?.perSet ?? null}
             onObstacleDrawn={onObstacleDrawn}
@@ -2350,7 +2368,7 @@ export default function App() {
             params={params}
             geometry={geometry}
             stats={stats}
-            obstacles={obstacles}
+            obstacles={siteObstacles}
             selected={selected}
             tool={tool}
             onTool={setTool}
@@ -2403,7 +2421,7 @@ export default function App() {
             sets={sets}
             params={params}
             geometry={geometry}
-            obstacles={obstacles}
+            obstacles={siteObstacles}
             scene={scene}
             elec={design?.elec ?? null}
             terrain={terrain}
@@ -2431,7 +2449,7 @@ export default function App() {
           params={params}
           geometry={geometry}
           stats={stats}
-          obstacles={obstacles}
+          obstacles={siteObstacles}
           selected={selected}
           elec={design?.elec ?? null}
           elecParams={elec}
@@ -2457,7 +2475,7 @@ export default function App() {
         geometry={geometry}
         stats={stats}
         sets={sets}
-        obstacles={obstacles}
+        obstacles={siteObstacles}
         scene={scene}
         suggestedRowSpacing={suggestedRowSpacing}
         energy={energy}

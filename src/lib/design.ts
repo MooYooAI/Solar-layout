@@ -2,7 +2,7 @@
 // → 설계 기반 설치비 → LCOE·IRR·NPV·회수기간. AI 설계의 후보 비교와 현재 배치의 실시간 지표가 함께 쓴다.
 
 import { buildScene, shadeTable, spreadSample, type ShadeQuality } from './analysis'
-import { LocalFrame } from './geo'
+import { LocalFrame, type Vec } from './geo'
 import type { TempModel } from './climate'
 import { capexFor, type Capex, type CostParams } from './costs'
 import { layoutEarthwork, type EarthworkResult } from './earthwork'
@@ -28,6 +28,8 @@ export interface DesignInput {
   grid?: ElevGrid | null
   /** 주변 지형 지평선(있으면 산 그늘을 넣는다) */
   horizon?: Horizon | null
+  /** 수배전반 위치(경위도, 전기실 자리). 없으면 전기 설계가 경계에서 고른다. */
+  switchboard?: Vec | null
 }
 
 export interface DesignMetrics {
@@ -165,7 +167,7 @@ export interface EvalOptions {
 export function evaluateDesign(d: DesignInput, o: EvalOptions = {}): DesignResult {
   const g = setGeometry(d.params)
   const stats = layoutStats(d.sets, g, parcelArea(d.parcel))
-  const elec = designElectrical(d.parcel, d.sets, d.params, g, d.elec)
+  const elec = designElectrical(d.parcel, d.sets, d.params, g, d.elec, d.switchboard)
   const kWdc = elec?.kWdc ?? stats.kWp
   const energy = layoutEnergy({
     rings: d.parcel.rings,

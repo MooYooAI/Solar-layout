@@ -134,6 +134,8 @@ export function designElectrical(
   p: LayoutParams,
   g: SetGeometry,
   e: ElecParams,
+  /** 수배전반 위치(경위도). 전기실 자리를 비워 두었으면 그 가운데 */
+  switchboardAt?: Vec | null,
 ): ElecResult | null {
   if (!sets.length || g.modules <= 0) return null
   const warnings: string[] = []
@@ -289,12 +291,12 @@ export function designElectrical(
   const dcAmp = DC_AMPACITY.find(([mm2]) => mm2 >= e.dcCableMm2)?.[1] ?? 0
   if (dcAmp < 1.25 * e.isc) warnings.push(`DC 케이블 ${e.dcCableMm2}㎟는 단락전류 ${e.isc}A의 1.25배를 감당하기 어렵습니다.`)
 
-  // 수배전반: 인버터들 가운데에서 가장 가까운 부지 경계 위의 점
+  // 수배전반: 전기실 자리가 있으면 그곳, 없으면 인버터들 가운데에서 가장 가까운 부지 경계 위의 점
   const mid: Vec = [
     inverters.reduce((t, v) => t + v.pos[0], 0) / inverters.length,
     inverters.reduce((t, v) => t + v.pos[1], 0) / inverters.length,
   ]
-  const sb = nearestBoundaryPoint(parcel.rings.map((ring) => ring.map((c) => frame.toLocal(c))), mid)
+  const sb = switchboardAt ? frame.toLocal(switchboardAt) : nearestBoundaryPoint(parcel.rings.map((ring) => ring.map((c) => frame.toLocal(c))), mid)
   const sbRow = toRow(sb)
 
   let acCableM = 0

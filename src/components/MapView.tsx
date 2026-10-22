@@ -49,7 +49,10 @@ export interface FlyTarget {
 export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole'
 
 /** 입지검토 표시: 주변 도로·구거 지번(고른 것은 진하게)과 전주 */
-export type MapMark = { kind: 'road'; rings: number[][][]; label: string; on: boolean } | { kind: 'pole'; at: [number, number]; label: string }
+export type MapMark =
+  | { kind: 'road'; rings: number[][][]; label: string; on: boolean }
+  | { kind: 'pole'; at: [number, number]; label: string }
+  | { kind: 'pad'; rings: number[][][]; label: string }
 
 interface Props {
   vworldKey: string
@@ -124,6 +127,10 @@ const markStyle = (f: FeatureLike): Style => {
   })
   if (f.get('kind') === 'pole')
     return new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#fa5252' }), stroke: new Stroke({ color: '#fff', width: 2 }) }), text: label })
+  if (f.get('kind') === 'pad') {
+    label.getStroke()?.setColor('#1c7ed6')
+    return new Style({ stroke: new Stroke({ color: '#1c7ed6', width: 2 }), fill: new Fill({ color: 'rgba(28, 126, 214, 0.35)' }), text: label })
+  }
   return new Style({
     stroke: new Stroke({ color: on ? '#15aabf' : '#adb5bd', width: on ? 3 : 1.5, lineDash: on ? undefined : [5, 4] }),
     fill: new Fill({ color: on ? 'rgba(21, 170, 191, 0.25)' : 'rgba(173, 181, 189, 0.15)' }),

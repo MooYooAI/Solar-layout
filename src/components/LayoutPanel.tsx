@@ -1,5 +1,5 @@
-import type { LayoutParams, SetGeometry } from '../lib/layout'
-import { MODULES, RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
+import { continuousParams, isContinuous, type LayoutParams, type SetGeometry } from '../lib/layout'
+import { MODULES, RACKING, findModule, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { ZoneMode } from '../lib/zones'
 
 interface Props {
@@ -14,6 +14,8 @@ interface Props {
   maskActive: boolean
   layoutMode: LayoutMode
   onLayoutMode: (m: LayoutMode) => void
+  /** 전기실 자리 비워 두기. label은 자리를 찾았을 때 그 이름 */
+  pad: { on: boolean; label: string | null; onToggle: (on: boolean) => void }
 }
 
 /** 자동 배치 방식: 한 방향 격자, 또는 구역별 방위각(zones.ts) */
@@ -54,10 +56,16 @@ function Field(props: {
   )
 }
 
+/** 모듈 목록을 제조사별로 묶는다. 일반 규격이 먼저 */
+const MODULE_GROUPS: Array<[string, ModuleSpec[]]> = [...new Set(MODULES.map((m) => m.maker ?? '일반 규격'))].map((maker) => [
+  maker,
+  MODULES.filter((m) => (m.maker ?? '일반 규격') === maker),
+])
+
 export default function LayoutPanel(props: Props) {
   const { params: p, onParams } = props
   const set = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => onParams({ ...p, [k]: v })
-  const preset = MODULES.find((m) => m.length === p.moduleLength && m.width === p.moduleWidth && m.watt === p.moduleWatt)
+  const preset = findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)
   const pitch = props.geometry.depth + p.rowSpacing
 
   return (
@@ -73,16 +81,21 @@ export default function LayoutPanel(props: Props) {
               if (m) props.onModule(m)
             }}
           >
-            {MODULES.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
+            {MODULE_GROUPS.map(([maker, list]) => (
+              <optgroup key={maker} label={maker}>
+                {list.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.maker ? `${m.model} · ${m.label}` : m.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
             <option value="custom" disabled>
               직접 입력
             </option>
           </select>
         </label>
+        {preset?.maker && <p className="hint" style={{ marginTop: 0 }}>{`${preset.maker} ${preset.model}: 데이터시트 STC 값(Voc ${preset.voc} V, Isc ${preset.isc} A)으로 스트링을 짭니다.`}</p>}
         <div className="grid2">
           <Field label="긴 변" unit="mm" value={p.moduleLength} onChange={set('moduleLength')} />
           <Field label="짧은 변" unit="mm" value={p.moduleWidth} onChange={set('moduleWidth')} />
@@ -157,6 +170,19 @@ export default function LayoutPanel(props: Props) {
           </p>
         )}
         <p className="hint">세트 간격은 같은 열에서 옆 세트와의 거리, 열 이격거리는 앞 세트 뒤끝부터 뒷 세트 앞끝까지입니다.</p>
+        <div className="row" style={{ margin: '8px 0' }}>
+          <button type="button" className="secondary" disabled={isContinuous(p)} onClick={() => onParams(continuousParams(p))}>
+            {isContinuous(p) ? '연속 배열 사용 중' : '줄 잇기(연속 배열)'}
+          </button>
+        </div>
+        <p className="hint">
+          연속 배열은 세트를 기둥 한 칸({p.portrait ? '세로 2열' : '가로 1열'}) 단위로 줄이고 모듈 간격으로 이어 붙여, 줄이 비스듬한 경계 끝까지 채워지게
+          합니다.
+        </p>
+        <label className="row" style={{ marginTop: 6 }}>
+          <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 전기실 자리 비워 두기
+          {props.pad.on && <small className="hint"> {props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</small>}
+        </label>
         <label className="field">
           <span>배치 방식</span>
           <select value={props.layoutMode} onChange={(e) => props.onLayoutMode(e.target.value as LayoutMode)}>
