@@ -6,7 +6,7 @@ import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
 const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
-import { getParcelAt, getParcelForResult, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem } from './lib/vworld'
+import { getParcelAt, getParcelForResult, getParcelsInBox, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
 import {
   autoLayout,
@@ -69,6 +69,10 @@ import AiAnalyzing from './components/AiAnalyzing'
 import TimelineMenu from './components/TimelineMenu'
 import DrawingWorkspace from './components/DrawingWorkspace'
 import PermitPanel from './components/PermitPanel'
+import SiteReviewPanel from './components/SiteReviewPanel'
+import { forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
+import { isForest, pctToDeg } from './lib/siteReview'
+import type { MapMark } from './components/MapView'
 import ShadeCleanup from './components/ShadeCleanup'
 import OrderPanel from './components/OrderPanel'
 import { orderLines } from './lib/order'
@@ -78,6 +82,7 @@ import ProjectDialog from './components/ProjectDialog'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
 
 /** 오른쪽 개요의 진행 상황에 보여 줄 화면 */
+const NO_MARKS: MapMark[] = []
 const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
 
 /** 왼쪽 입력 패널·오른쪽 작업면 폭(px). 사용자가 끈 값을 브라우저에 기억한다. */
@@ -239,6 +244,11 @@ export default function App() {
   }, [confirmedId])
   const [permits, setPermits] = useState<PermitProgress>({})
   const [plant, setPlant] = useState<PlantInfo>(EMPTY_PLANT)
+  const [siteCheck, setSiteCheck] = useState<SiteCheck>(() => mergeSiteCheck())
+  // 주변 도로 조회 결과. 부지가 바뀌면 버리도록 어느 부지의 결과인지 같이 둔다.
+  const [roadResult, setRoadResult] = useState<{ parcel: Parcel; list: RoadCandidate[] } | null>(null)
+  const [roadBusy, setRoadBusy] = useState(false)
+  const [roadError, setRoadError] = useState<string | null>(null)
   /** 도면 탭에서 그려 넣은 주석(도면별) */
   const [sheetAnnots, setSheetAnnots] = useState<Partial<Record<SheetId, Annot[]>>>({})
   const drawing = tool === 'draw'
@@ -271,6 +281,7 @@ export default function App() {
     lockRef.current = null
     setConfirmedId(null)
     setPermits({})
+    setSiteCheck(mergeSiteCheck())
     setLayoutBasis(null)
     if (!p) setAddingLot(false)
     setTerrain(null)
@@ -459,6 +470,10 @@ export default function App() {
   }
   const onMapClick = (lon: number, lat: number) => {
     if (tool === 'rect') return placeRect(lon, lat)
+    if (tool === 'pole') {
+      setSiteCheck((c) => ({ ...c, grid: { ...c.grid, pole: [lon, lat] } }))
+      return setTool('none')
+    }
     if (addingLot) return void selectParcelAt(lon, lat)
     // 부지가 정해진 뒤에는 필지 단계에서만 지도 클릭으로 부지를 바꾼다.
     // 다른 단계에서 지도를 누르다가 작업이 사라지는 일을 막는다.
@@ -988,6 +1003,7 @@ export default function App() {
           confirmedId,
           permits,
           plant,
+          siteCheck,
           tab,
         }
       : null
@@ -1039,6 +1055,7 @@ export default function App() {
     setConfirmedId(lock)
     setPermits(d.permits ?? {})
     setPlant({ ...EMPTY_PLANT, ...d.plant })
+    setSiteCheck(mergeSiteCheck(d.siteCheck))
     if (d.tab && d.tab in TABS) switchTab(d.tab)
     setProject(id ? { id, name } : null)
     setShowProjects(false)
@@ -1077,7 +1094,7 @@ export default function App() {
     return () => clearTimeout(id)
     // 저장할 값이 바뀔 때만 저장한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, plant, projectId])
+  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, plant, siteCheck, projectId])
 
   // ── 설계 확정 ──
   const confirmDesign = () => {
@@ -1297,12 +1314,17 @@ export default function App() {
     energy: !!energy,
     econ: !!econResult,
   }
+  // 입지검토: 사람이 고친 토지 정보가 있으면 조회값 대신 쓴다.
+  const siteLand = siteCheck.land.landCategory ?? parcel?.landCategory
+  const siteZoning = siteCheck.land.zoning !== undefined ? siteCheck.land.zoning.split(/\s*,\s*/).filter(Boolean) : parcelZoning
+  const siteArea = siteCheck.land.area ?? area
+  const siteParcel = parcel && siteLand !== parcel.landCategory ? { ...parcel, landCategory: siteLand } : parcel
   // 발전소 정보 일람표: 지번별 현장 정보와 설비 요약
   const plantLots = !parcel
     ? []
     : parcel.lots?.length
       ? parcel.lots.map((l) => ({ address: l.address, land: l.landCategory ?? '-', area: l.area, zoning: vworldKey ? zoningText(l.pnu) : '-' }))
-      : [{ address: parcel.address, land: parcel.landCategory ?? '-', area, zoning: parcelZoning.join(', ') || (vworldKey ? zoningText(parcelZoningKeys[0]) : '-') }]
+      : [{ address: parcel.address, land: siteLand ?? '-', area: siteArea, zoning: siteZoning.join(', ') || (vworldKey ? zoningText(parcelZoningKeys[0]) : '-') }]
   const plantEquipment: Array<[string, string]> = design
     ? [
         ['설비용량', `${fmt(design.metrics.kWp, 2)} kWp (AC ${fmt(design.metrics.kWac, 1)} kW)`],
@@ -1313,6 +1335,50 @@ export default function App() {
         ['연계', design.elec?.connection === 'MV' ? '특고압(22.9 kV)' : '저압'],
       ]
     : [['설비', '배치 전']]
+  const terrainSlopeDeg = terrain ? pctToDeg(terrain.meanSlopePct) : null
+  const gridNeedKW = design?.elec?.kWac ?? ((confirmed?.kWp ?? stats.kWp) > 0 ? (confirmed?.kWp ?? stats.kWp) / 1.2 : null)
+  const siteReviews = {
+    land: landReview(siteLand, siteZoning, siteCheck.land.owner, siteCheck.kind),
+    terrain: terrainReview(terrainSlopeDeg),
+    road: roadReview(siteCheck.road),
+    grid: gridReview(siteCheck.grid, gridNeedKW, parcel?.rings ?? null),
+    forest: isForest(siteLand) ? forestReview(siteCheck.forest, terrainSlopeDeg) : null,
+  }
+  const findRoads = async () => {
+    if (!parcel || !vworldKey) return
+    setRoadBusy(true)
+    setRoadError(null)
+    try {
+      const feats = await getParcelsInBox(searchBox(parcel.rings, 150), vworldKey)
+      const list = nearbyRoads(
+        parcel.rings,
+        parcel.lots?.map((l) => l.pnu) ?? (parcel.pnu ? [parcel.pnu] : []),
+        feats.map((f) => {
+          const l = lotFromFeature(f)
+          return { pnu: l.pnu, jibun: f.properties.jibun, rings: l.rings, area: l.area }
+        }),
+      )
+      setRoadResult({ parcel, list })
+    } catch (e) {
+      setRoadError((e as Error).message)
+    } finally {
+      setRoadBusy(false)
+    }
+  }
+  const roads = roadResult && roadResult.parcel === parcel ? roadResult.list : null
+  const { picked } = siteCheck.road
+  const { pole, poleNo } = siteCheck.grid
+  const mapMarks: MapMark[] = useMemo(
+    () =>
+      tab !== 'review'
+        ? NO_MARKS
+        : [
+            ...(roads ?? []).map((r) => ({ kind: 'road' as const, rings: r.rings, label: r.label, on: picked.includes(r.pnu) })),
+            ...(pole ? [{ kind: 'pole' as const, at: pole, label: poleNo || '전주' }] : []),
+          ],
+    [tab, roads, picked, pole, poleNo],
+  )
+
   const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
   const mapTerrainView = tab === 'terrain' ? terrainView : tab === 'layout' && mask ? 'buildable' : 'none'
@@ -1485,9 +1551,9 @@ export default function App() {
             <PermitPanel
               kWp={confirmed?.kWp ?? stats.kWp}
               address={parcel.address}
-              landCategory={parcel.landCategory}
-              area={area}
-              zoning={parcelZoning}
+              landCategory={siteLand}
+              area={siteArea}
+              zoning={siteZoning}
               progress={permits}
               onProgress={setPermits}
               plant={plant}
@@ -1528,6 +1594,27 @@ export default function App() {
             address={parcel?.address ?? ''}
             fileBase={fileBase()}
             onCsv={() => exportGroups[1].items.find((i) => i.key === 'capex')!.run()}
+          />
+        )}
+
+        {tab === 'review' && (
+          <SiteReviewPanel
+            check={siteCheck}
+            onCheck={setSiteCheck}
+            fetched={{ landCategory: parcel?.landCategory, zoning: parcelZoning, area }}
+            hasParcel={!!parcel}
+            canFindRoads={!!vworldKey && parcel?.source === 'vworld'}
+            roads={roads}
+            roadBusy={roadBusy}
+            roadError={roadError}
+            onFindRoads={() => void findRoads()}
+            needKW={gridNeedKW}
+            picking={tool === 'pole'}
+            onPickPole={() => setTool(tool === 'pole' ? 'none' : 'pole')}
+            forest={isForest(siteLand)}
+            terrainSlopeDeg={terrainSlopeDeg}
+            onGoTerrain={() => switchTab('terrain')}
+            reviews={siteReviews}
           />
         )}
 
@@ -1637,7 +1724,7 @@ export default function App() {
           <EconomicsPanel
             kWp={capexMode === 'design' && design ? design.metrics.kWp : stats.kWp}
             energyKWh={energy ? energy.specificYield * stats.kWp : null}
-            landCategory={parcel?.landCategory}
+            landCategory={siteLand}
             settings={econ}
             onSettings={setEcon}
             hours={econHours}
@@ -1754,6 +1841,13 @@ export default function App() {
               <dd>
                 {fmt(area)} ㎡ ({fmt(area / SQM_PER_PYEONG)} 평)
               </dd>
+              <dt>위치</dt>
+              <dd className="mono">
+                {(() => {
+                  const [lon, lat] = interiorPoint(parcel.rings)
+                  return `위도 ${lat.toFixed(4)} · 경도 ${lon.toFixed(4)}`
+                })()}
+              </dd>
               {vworldKey && (
                 <>
                   <dt>용도지역</dt>
@@ -1814,7 +1908,10 @@ export default function App() {
               </>
             )}
             <div className="row" style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => switchTab('ai')}>
+              <button type="button" onClick={() => switchTab('review')}>
+                입지검토
+              </button>
+              <button type="button" className="secondary" onClick={() => switchTab('ai')}>
                 {lots && lots.length > 1 ? '이 부지로 가설계' : '이 필지로 가설계'}
               </button>
               <button type="button" className="secondary" onClick={() => setParcel(null)}>
@@ -2058,6 +2155,7 @@ export default function App() {
             terrainView={mapTerrainView}
             buildable={buildable}
             elec={mapElec}
+            marks={mapMarks}
           />
         )}
         <div className="map-mode" role="group" aria-label="지도 보기">
@@ -2199,9 +2297,10 @@ export default function App() {
     </div>
     {showReport && parcel && (
       <ReportView
-        parcel={parcel}
-        area={area}
-        zoning={parcelZoning}
+        parcel={siteParcel ?? parcel}
+        area={siteArea}
+        zoning={siteZoning}
+        siteChecks={{ land: siteReviews.land, road: siteReviews.road.review, grid: siteReviews.grid.review, forest: siteReviews.forest }}
         params={params}
         geometry={geometry}
         stats={stats}

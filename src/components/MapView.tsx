@@ -44,9 +44,12 @@ export interface FlyTarget {
 
 /**
  * draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기,
- * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기
+ * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기
  */
-export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect'
+export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole'
+
+/** 입지검토 표시: 주변 도로·구거 지번(고른 것은 진하게)과 전주 */
+export type MapMark = { kind: 'road'; rings: number[][][]; label: string; on: boolean } | { kind: 'pole'; at: [number, number]; label: string }
 
 interface Props {
   vworldKey: string
@@ -72,6 +75,7 @@ interface Props {
   buildable: BuildableResult | null
   /** 전기 설계(인버터별 세트 색, 인버터, AC 케이블, 수배전반). 있으면 그린다. */
   elec: ElecResult | null
+  marks?: MapMark[]
   onObstacleDrawn: (ring: number[][]) => void
   onMapClick: (lon: number, lat: number) => void
   onDrawEnd: (ring: number[][]) => void
@@ -107,6 +111,25 @@ const setSelectedStyle = new Style({
   stroke: new Stroke({ color: '#ffd43b', width: 2 }),
   fill: new Fill({ color: 'rgba(25, 113, 194, 0.95)' }),
 })
+
+const markStyle = (f: FeatureLike): Style => {
+  const on = f.get('on')
+  const label = new Text({
+    text: f.get('label'),
+    font: '600 12px system-ui, sans-serif',
+    fill: new Fill({ color: '#fff' }),
+    stroke: new Stroke({ color: f.get('kind') === 'pole' ? '#c92a2a' : on ? '#0b7285' : '#495057', width: 3 }),
+    offsetY: f.get('kind') === 'pole' ? -16 : 0,
+    overflow: true,
+  })
+  if (f.get('kind') === 'pole')
+    return new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#fa5252' }), stroke: new Stroke({ color: '#fff', width: 2 }) }), text: label })
+  return new Style({
+    stroke: new Stroke({ color: on ? '#15aabf' : '#adb5bd', width: on ? 3 : 1.5, lineDash: on ? undefined : [5, 4] }),
+    fill: new Fill({ color: on ? 'rgba(21, 170, 191, 0.25)' : 'rgba(173, 181, 189, 0.15)' }),
+    text: label,
+  })
+}
 
 const fmtLen = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(1)} m`)
 const fmtArea = (a: number) =>
@@ -176,7 +199,7 @@ const slopeStyles = SLOPE_COLORS.map((c) => new Style({ fill: new Fill({ color: 
 const cutFillStyles = CUTFILL_COLORS.map((c) => new Style({ fill: new Fill({ color: c }), stroke: new Stroke({ color: c, width: 1 }) }))
 
 export default function MapView(props: Props) {
-  const { vworldKey, baseMap, showCadastral, showZoning, clearMeasuresSeq, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView, buildable, elec } = props
+  const { vworldKey, baseMap, showCadastral, showZoning, clearMeasuresSeq, parcel, flyTo, tool, sets, params, geometry, selected, obstacles, shadows, setShade, terrainCells, terrainView, buildable, elec, marks } = props
   const el = useRef<HTMLDivElement>(null)
   const mapRef = useRef<OlMap | null>(null)
   const baseLayer = useRef(new TileLayer({ zIndex: 0 }))
@@ -187,6 +210,7 @@ export default function MapView(props: Props) {
   const parcelSource = useRef(new VectorSource())
   const setSource = useRef(new VectorSource())
   const obstacleSource = useRef(new VectorSource())
+  const markSource = useRef(new VectorSource())
   const shadowSource = useRef(new VectorSource())
   const terrainSource = useRef(new VectorSource())
   const buildSource = useRef(new VectorSource())
@@ -245,6 +269,7 @@ export default function MapView(props: Props) {
         setLayer,
         new VectorLayer({ source: obstacleSource.current, style: obstacleStyle, zIndex: 12 }),
         new VectorLayer({ source: measureSource.current, style: measureStyle, zIndex: 13 }),
+        new VectorLayer({ source: markSource.current, style: markStyle, zIndex: 14 }),
       ],
       view: new View({
         center: shared.view ? fromLonLat([shared.view.lon, shared.view.lat]) : SEOUL,
@@ -320,6 +345,15 @@ export default function MapView(props: Props) {
   useEffect(() => {
     measureSource.current.clear()
   }, [clearMeasuresSeq])
+
+  useEffect(() => {
+    const src = markSource.current
+    src.clear()
+    for (const m of marks ?? []) {
+      const geom = m.kind === 'pole' ? new Point(fromLonLat(m.at)) : new MultiPolygon(m.rings.map((r) => [r])).transform('EPSG:4326', 'EPSG:3857')
+      src.addFeature(new Feature({ geometry: geom, kind: m.kind, label: m.label, on: m.kind === 'road' && m.on }))
+    }
+  }, [marks])
 
   useEffect(() => {
     const src = parcelSource.current

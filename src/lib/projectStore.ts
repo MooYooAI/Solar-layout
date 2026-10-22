@@ -6,6 +6,7 @@ import type { Obstacle } from './shading'
 import type { ElecParams } from './electrical'
 import type { CostParams } from './costs'
 import type { EconSettings } from './economics'
+import type { SiteCheck } from './siteCheck'
 import type { BuildableOptions } from './buildable'
 import type { GradingMode } from './terrain'
 import type { Scenario } from '../components/OptimizePanel'
@@ -37,6 +38,7 @@ export interface ProjectData {
   confirmedId?: string | null
   permits?: PermitProgress
   plant?: PlantInfo
+  siteCheck?: Partial<SiteCheck>
   /** 마지막으로 보던 화면 */
   tab?: Tab
 }

@@ -5,13 +5,14 @@ import type { Obstacle } from './shading'
 import type { ElecParams } from './electrical'
 
 /** 왼쪽 패널 화면. 단계 하나에 화면이 여럿일 수 있다. */
-export type Tab = 'parcel' | 'terrain' | 'ai' | 'layout' | 'elec' | 'shade' | 'energy' | 'sheets' | 'export' | 'permit' | 'econ' | 'order'
+export type Tab = 'parcel' | 'terrain' | 'review' | 'ai' | 'layout' | 'elec' | 'shade' | 'energy' | 'sheets' | 'export' | 'permit' | 'econ' | 'order'
 
 export type Stage = 'site' | 'design' | 'drawing' | 'permit' | 'econ' | 'order'
 
 export const TABS: Record<Tab, { label: string; desc: string }> = {
   parcel: { label: '부지', desc: '지번을 검색하거나 영역을 그려 부지를 정합니다.' },
   terrain: { label: '지형', desc: '경사·절성토를 보고 설계 가능 영역을 정합니다.' },
+  review: { label: '입지검토', desc: '토지 정보를 바로잡고, 진입 도로·계통연계·산지 기준을 확인해 입지를 판정합니다.' },
   ai: { label: '가설계', desc: 'AI가 여러 배치안을 비교해 추천합니다. 하나를 골라 기본설계로 넘깁니다.' },
   layout: { label: '배치', desc: '모듈·간격을 정해 자동 배치하고, 배치 편집에서 손봅니다.' },
   elec: { label: '전기', desc: '스트링과 인버터를 묶고 케이블을 잡습니다.' },
@@ -25,7 +26,7 @@ export const TABS: Record<Tab, { label: string; desc: string }> = {
 }
 
 export const STAGES: Array<{ key: Stage; label: string; tabs: Tab[] }> = [
-  { key: 'site', label: '현장정보', tabs: ['parcel', 'terrain', 'ai'] },
+  { key: 'site', label: '현장정보', tabs: ['parcel', 'terrain', 'review', 'ai'] },
   { key: 'design', label: '기본설계', tabs: ['layout', 'elec', 'shade', 'energy'] },
   { key: 'drawing', label: '도면', tabs: ['sheets', 'export'] },
   { key: 'permit', label: '인허가', tabs: ['permit'] },
