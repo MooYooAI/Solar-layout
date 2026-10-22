@@ -21,7 +21,11 @@ interface Props {
   onAddSet: (lon: number, lat: number) => void
   /** 보기 전용: 세트를 고르거나 옮기지 않고 확대·화면 이동만 한다 */
   readOnly?: boolean
+  /** 전기실(장애물 id 'equip-pad')을 끌어 놓은 자리(함체 가운데) */
+  onPadMove?: (lon: number, lat: number) => void
 }
+
+const PAD_ID = 'equip-pad'
 
 /** 이보다 모듈이 많으면 패널 줄눈은 생략하고 세트 외곽만 그린다(그리기 부담). */
 const MAX_MODULE_LINES = 6000
@@ -30,6 +34,7 @@ type Drag =
   | { kind: 'move'; ids: string[]; start: Vec; d: Vec }
   | { kind: 'pan'; start: Vec; startCenter: Vec; moved: boolean }
   | { kind: 'box'; start: Vec; end: Vec }
+  | { kind: 'pad'; start: Vec; d: Vec }
 
 /**
  * 지도 타일 없이 필지·세트를 미터 단위로 그린 편집용 배치도.
@@ -100,7 +105,10 @@ export default function PlanEditor(props: Props) {
     return { quads, modules }
   }, [sets, frame, geometry, props.params])
 
-  const obstacles = useMemo(() => props.obstacles.map((o) => o.ring.map((c) => frame.toLocal(c))), [props.obstacles, frame])
+  const obstacles = useMemo(
+    () => props.obstacles.map((o) => ({ id: o.id, name: o.name, ring: o.ring.map((c) => frame.toLocal(c)) })),
+    [props.obstacles, frame],
+  )
 
   const pts = (r: Vec[], dx = 0, dy = 0) => r.map(([x, y]) => `${(x + dx).toFixed(3)},${(-(y + dy)).toFixed(3)}`).join(' ')
 
@@ -132,6 +140,11 @@ export default function PlanEditor(props: Props) {
     const p = toLocal(e.clientX, e.clientY)
     const id = (e.target as Element).closest('[data-set]')?.getAttribute('data-set')
     svgRef.current?.focus({ preventScroll: true })
+    if (!props.readOnly && props.onPadMove && (e.target as Element).closest('[data-pad]')) {
+      setDrag({ kind: 'pad', start: p, d: [0, 0] })
+      e.currentTarget.setPointerCapture(e.pointerId)
+      return
+    }
     if (props.readOnly) {
       setDrag({ kind: 'pan', start: [e.clientX, e.clientY], startCenter: c, moved: false })
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -161,7 +174,7 @@ export default function PlanEditor(props: Props) {
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!drag) return
-    if (drag.kind === 'move') {
+    if (drag.kind === 'move' || drag.kind === 'pad') {
       const p = toLocal(e.clientX, e.clientY)
       setDrag({ ...drag, d: [p[0] - drag.start[0], p[1] - drag.start[1]] })
     } else if (drag.kind === 'box') {
@@ -178,6 +191,16 @@ export default function PlanEditor(props: Props) {
   const onPointerUp = () => {
     if (!drag) return
     if (drag.kind === 'move') commitMove(drag.ids, drag.d)
+    else if (drag.kind === 'pad') {
+      const pad = obstacles.find((o) => o.id === PAD_ID)
+      if (pad && Math.hypot(drag.d[0], drag.d[1]) > 0.05) {
+        const r = pad.ring.slice(0, -1)
+        const cx = r.reduce((t, q) => t + q[0], 0) / r.length + drag.d[0]
+        const cy = r.reduce((t, q) => t + q[1], 0) / r.length + drag.d[1]
+        const [lon, lat] = frame.toLonLat([cx, cy])
+        props.onPadMove?.(lon, lat)
+      }
+    }
     else if (drag.kind === 'box') {
       const [x0, x1] = [Math.min(drag.start[0], drag.end[0]), Math.max(drag.start[0], drag.end[0])]
       const [y0, y1] = [Math.min(drag.start[1], drag.end[1]), Math.max(drag.start[1], drag.end[1])]
@@ -263,9 +286,22 @@ export default function PlanEditor(props: Props) {
         {base.rings.map((r, i) => (
           <polygon key={`p${i}`} points={pts(r)} className="plan-parcel" />
         ))}
-        {obstacles.map((r, i) => (
-          <polygon key={`o${i}`} points={pts(r)} className="plan-obstacle" />
-        ))}
+        {obstacles.map((o, i) => {
+          if (o.id !== PAD_ID) return <polygon key={`o${i}`} points={pts(o.ring)} className="plan-obstacle" />
+          const [dx, dy] = drag?.kind === 'pad' ? drag.d : [0, 0]
+          const r = o.ring.slice(0, -1)
+          const cx = r.reduce((t, q) => t + q[0], 0) / r.length + dx
+          const cy = r.reduce((t, q) => t + q[1], 0) / r.length + dy
+          return (
+            <g key={`o${i}`} data-pad="" className={props.onPadMove && !props.readOnly ? 'plan-pad movable' : 'plan-pad'}>
+              <title>{props.onPadMove && !props.readOnly ? `${o.name} · 끌어서 옮기기` : o.name}</title>
+              <polygon points={pts(o.ring, dx, dy)} />
+              <text x={cx} y={-cy} className="plan-pad-label">
+                {o.name.includes('변압기') ? '전기실' : '저압반'}
+              </text>
+            </g>
+          )
+        })}
         {local.quads.map((s, i) => {
           const [dx, dy] = moving?.has(s.id) ? md : [0, 0]
           const q = setQuadLocal(s.center, s.azimuth, geometry)
