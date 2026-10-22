@@ -52,6 +52,7 @@ import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
 import { INVERTERS, RACKING, ROOF_EDGE_SETBACK, type ModuleSpec } from './lib/catalog'
 import { buildingsOnParcel, ringsBox, type Building } from './lib/buildings'
+import { DXF_CRS, guessCrs, parseDxf, shapeToLonLat, type DxfCrs, type DxfShape } from './lib/dxfImport'
 import {
   arraysCsv,
   capexCsv,
@@ -148,6 +149,9 @@ try {
 }
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
+
+/** 현장정보 단계 안에서 아래 '다음' 버튼이 가는 작업. 지형은 필지를 고르면 저절로 분석하므로 부지에서 바로 입지검토로 간다. */
+const SITE_NEXT: Partial<Record<Tab, Tab>> = { parcel: 'review', terrain: 'review', review: 'ai' }
 
 export default function App() {
   const vworldKey = VWORLD_KEY
@@ -519,13 +523,52 @@ export default function App() {
     setTool('none')
     setParcel({ address: `사각형 영역 ${rect.width}×${rect.depth} m`, rings: [[...ring, ring[0]]], source: 'manual' })
   }
+  // 부지 영역을 고르는 방법: 지적(필지 클릭·검색), 다각형 그리기, 사각형 수치, 사용자 DXF 도면
+  type AreaMode = 'cadastral' | 'polygon' | 'rect' | 'dxf'
+  const [areaMode, setAreaMode] = useState<AreaMode>('cadastral')
+  const chooseAreaMode = (m: AreaMode) => {
+    setAreaMode(m)
+    setTool(m === 'polygon' ? 'draw' : 'none')
+  }
+  const [dxfIn, setDxfIn] = useState<{ name: string; shapes: DxfShape[]; pick: number; crs: DxfCrs; unitM: number } | null>(null)
+  const [dxfError, setDxfError] = useState<string | null>(null)
+  const openDxf = async (file: File) => {
+    setDxfError(null)
+    try {
+      const d = parseDxf(await file.text())
+      if (!d.shapes.length) throw new Error('닫힌 경계선(폴리라인)을 찾지 못했습니다. 부지 경계를 닫힌 폴리라인으로 그린 도면인지 확인하세요.')
+      const hintLon = parcel ? interiorPoint(parcel.rings)[0] : (flyTo?.lon ?? 127.5)
+      setDxfIn({ name: file.name, shapes: d.shapes, pick: 0, ...guessCrs(d, hintLon) })
+    } catch (e) {
+      setDxfIn(null)
+      setDxfError((e as Error).message)
+    }
+  }
+  /** 고른 도면 경계를 부지로. 좌표 없는 도면은 at(지도에서 누른 자리)에 놓는다. */
+  const applyDxf = (at?: [number, number]) => {
+    if (!dxfIn) return
+    try {
+      const ring = shapeToLonLat(dxfIn.shapes[dxfIn.pick], dxfIn.crs, dxfIn.unitM, at)
+      setTool('none')
+      setParcel({ address: `도면 ${dxfIn.name}`, rings: [ring], source: 'manual' })
+      if (!at) {
+        const [lon, lat] = interiorPoint([ring])
+        setFlyTo({ lon, lat, seq: Date.now() })
+      }
+    } catch (e) {
+      setDxfError((e as Error).message)
+    }
+  }
   const onMapClick = (lon: number, lat: number) => {
     if (tool === 'rect') return placeRect(lon, lat)
+    if (tool === 'place') return applyDxf([lon, lat])
     if (tool === 'pole') {
       setSiteCheck((c) => ({ ...c, grid: { ...c.grid, pole: [lon, lat] } }))
       return setTool('none')
     }
     if (addingLot) return void selectParcelAt(lon, lat)
+    // 다각형·사각형·도면으로 영역을 정하는 중에는 지도 클릭이 필지를 고르지 않는다.
+    if (areaMode !== 'cadastral') return
     // 부지가 정해진 뒤에는 필지 단계에서만 지도 클릭으로 부지를 바꾼다.
     // 다른 단계에서 지도를 누르다가 작업이 사라지는 일을 막는다.
     if (parcel && tab !== 'parcel') return
@@ -1964,7 +2007,7 @@ export default function App() {
         )}
 
         <section className="card">
-          <h2>지번 검색</h2>
+          <h2>부지 선택</h2>
           <form onSubmit={onSearch} className="row">
             <input
               value={query}
@@ -1986,47 +2029,127 @@ export default function App() {
               ))}
             </ul>
           )}
-          <p className="hint">
-            {vworldKey ? '지도에서 필지를 클릭해도 선택됩니다.' : ''}{' '}
-            <button type="button" className="link" onClick={() => setDrawing((d) => !d)}>
-              {drawing ? '그리기 취소' : '영역 직접 그리기'}
-            </button>
-          </p>
-          {drawing && <p className="hint">지도를 클릭해 꼭짓점을 찍고, 첫 점을 다시 클릭하면 끝납니다.</p>}
-          <details style={{ marginTop: 10 }} open={tool === 'rect'}>
-            <summary>사각형 수치 입력</summary>
+          <div className="area-modes" role="radiogroup" aria-label="영역 선택">
+            <span>영역 선택</span>
+            {(
+              [
+                ['cadastral', '지적선택'],
+                ['polygon', '다각형'],
+                ['rect', '사각형'],
+                ['dxf', '도면(DXF)'],
+              ] as const
+            ).map(([m, label]) => (
+              <button key={m} type="button" role="radio" aria-checked={areaMode === m} className={`area-mode ${m}${areaMode === m ? ' on' : ''}`} onClick={() => chooseAreaMode(m)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {areaMode === 'cadastral' && (
+            <p className="hint">{vworldKey ? '지번을 검색하거나 지도에서 필지를 클릭하세요. 옆 지번은 선택한 뒤 더할 수 있습니다.' : 'VWorld 키가 없어 지적선택을 쓸 수 없습니다. 다른 방법으로 영역을 정하세요.'}</p>
+          )}
+          {areaMode === 'polygon' && (
+            <>
+              <p className="hint">지도를 클릭해 꼭짓점을 찍고, 첫 점을 다시 클릭하면 끝납니다.</p>
+              <button type="button" className={drawing ? 'block' : 'secondary block'} onClick={() => setDrawing((d) => !d)}>
+                {drawing ? '그리기 취소' : '지도에 다시 그리기'}
+              </button>
+            </>
+          )}
+          {areaMode === 'rect' && <div style={{ marginTop: 4 }}>
             <div className="grid2" style={{ marginTop: 8 }}>
-              {(
-                [
-                  ['width', '가로(동서)', 'm'],
-                  ['depth', '세로(남북)', 'm'],
-                  ['rotation', '회전', '°'],
-                ] as const
-              ).map(([k, label, unit]) => (
-                <label key={k} className="field">
-                  <span>{label}</span>
-                  <input
-                    type="number"
-                    step={k === 'rotation' ? 1 : 0.5}
-                    min={k === 'rotation' ? -90 : 1}
-                    max={k === 'rotation' ? 90 : undefined}
-                    value={rect[k]}
-                    onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && setRect({ ...rect, [k]: e.target.valueAsNumber })}
-                  />
-                  <em>{unit}</em>
-                </label>
-              ))}
+                {(
+                  [
+                    ['width', '가로(동서)', 'm'],
+                    ['depth', '세로(남북)', 'm'],
+                    ['rotation', '회전', '°'],
+                  ] as const
+                ).map(([k, label, unit]) => (
+                  <label key={k} className="field">
+                    <span>{label}</span>
+                    <input
+                      type="number"
+                      step={k === 'rotation' ? 1 : 0.5}
+                      min={k === 'rotation' ? -90 : 1}
+                      max={k === 'rotation' ? 90 : undefined}
+                      value={rect[k]}
+                      onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && setRect({ ...rect, [k]: e.target.valueAsNumber })}
+                    />
+                    <em>{unit}</em>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={tool === 'rect' ? 'block' : 'secondary block'}
+                disabled={rect.width <= 0 || rect.depth <= 0}
+                onClick={() => setTool(tool === 'rect' ? 'none' : 'rect')}
+              >
+                {tool === 'rect' ? '놓기 취소' : '지도에 놓기'}
+              </button>
+              {tool === 'rect' && <p className="hint">사각형 중심이 될 자리를 지도에서 클릭하세요. 회전은 시계 방향입니다.</p>}
+          </div>}
+          {areaMode === 'dxf' && (
+            <div className="dxf-in">
+              <label className="file-pick secondary">
+                <input type="file" accept=".dxf" onChange={(e) => { const f = e.target.files?.[0]; if (f) void openDxf(f); e.target.value = '' }} />
+                {dxfIn ? `${dxfIn.name} · 다른 파일` : 'DXF 파일 고르기'}
+              </label>
+              {dxfIn ? (
+                <>
+                  {dxfIn.shapes.length > 1 && (
+                    <label className="field">
+                      <span>부지 경계</span>
+                      <select value={dxfIn.pick} onChange={(e) => setDxfIn({ ...dxfIn, pick: Number(e.target.value) })}>
+                        {dxfIn.shapes.slice(0, 50).map((sh, i) => (
+                          <option key={i} value={i}>
+                            {`${sh.layer} 레이어 · ${fmt(sh.area * dxfIn.unitM * dxfIn.unitM)} ㎡ · 꼭짓점 ${sh.pts.length}개`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="grid2">
+                    <label className="field">
+                      <span>좌표계</span>
+                      <select value={String(dxfIn.crs)} onChange={(e) => setDxfIn({ ...dxfIn, crs: (e.target.value === 'local' ? 'local' : Number(e.target.value)) as DxfCrs })}>
+                        {DXF_CRS.map(([c, label]) => (
+                          <option key={c} value={String(c)}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>도면 단위</span>
+                      <select value={dxfIn.unitM} onChange={(e) => setDxfIn({ ...dxfIn, unitM: Number(e.target.value) })}>
+                        <option value={1}>m</option>
+                        <option value={0.001}>mm</option>
+                        <option value={0.01}>cm</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p className="hint">
+                    경계 면적 {fmt(dxfIn.shapes[dxfIn.pick].area * dxfIn.unitM * dxfIn.unitM)} ㎡.{' '}
+                    {dxfIn.crs === 'local'
+                      ? '도면에 실제 좌표가 없으면 지도에서 경계 가운데가 될 자리를 클릭해 놓습니다. 방향은 도면 위쪽을 북으로 봅니다.'
+                      : '도면 좌표를 그대로 지도에 겹칩니다. 위치가 어긋나면 좌표계(원점)를 바꿔 보세요.'}
+                  </p>
+                  {dxfIn.crs === 'local' ? (
+                    <button type="button" className={tool === 'place' ? 'block' : 'secondary block'} onClick={() => setTool(tool === 'place' ? 'none' : 'place')}>
+                      {tool === 'place' ? '놓기 취소' : '지도에 놓기'}
+                    </button>
+                  ) : (
+                    <button type="button" className="block" onClick={() => applyDxf()}>
+                      이 경계로 부지 정하기
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p className="hint">부지 경계를 닫힌 폴리라인으로 그린 CAD 도면(DXF)을 고르세요. 측량·지적 도면의 TM 좌표를 알아서 읽습니다.</p>
+              )}
+              {dxfError && <p className="error">{dxfError}</p>}
             </div>
-            <button
-              type="button"
-              className={tool === 'rect' ? 'block' : 'secondary block'}
-              disabled={rect.width <= 0 || rect.depth <= 0}
-              onClick={() => setTool(tool === 'rect' ? 'none' : 'rect')}
-            >
-              {tool === 'rect' ? '놓기 취소' : '지도에 놓기'}
-            </button>
-            {tool === 'rect' && <p className="hint">사각형 중심이 될 자리를 지도에서 클릭하세요. 회전은 시계 방향입니다.</p>}
-          </details>
+          )}
           {message && <p className="error">{message}</p>}
           {busy && <p className="hint">불러오는 중…</p>}
         </section>
@@ -2173,9 +2296,6 @@ export default function App() {
               </>
             )}
             <div className="row" style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => switchTab('review')}>
-                입지검토
-              </button>
               <button type="button" className="secondary" onClick={() => switchTab('ai')}>
                 {lots && lots.length > 1 ? '이 부지로 가설계' : '이 필지로 가설계'}
               </button>
@@ -2287,13 +2407,19 @@ export default function App() {
           <button type="button" className="ghost" disabled={!entryChanged} onClick={restoreEntry} title="이 단계에 들어올 때의 상태로 되돌립니다">
             들어올 때로
           </button>
-          <button
-            type="button"
-            disabled={stageIndex === STAGES.length - 1}
-            onClick={() => goStage(STAGES[stageIndex + 1].key)}
-          >
-            {stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1].label : '다음'} →
-          </button>
+          {SITE_NEXT[tab] ? (
+            <button type="button" disabled={!parcel} onClick={() => switchTab(SITE_NEXT[tab]!)}>
+              {TABS[SITE_NEXT[tab]!].label} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={stageIndex === STAGES.length - 1}
+              onClick={() => goStage(STAGES[stageIndex + 1].key)}
+            >
+              {stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1].label : '다음'} →
+            </button>
+          )}
         </footer>
       </aside>
 
