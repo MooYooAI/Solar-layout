@@ -6,6 +6,8 @@ interface Props {
   geometry: SetGeometry
   /** 위도(도). 동지 정오 그림자 길이를 그린다. */
   lat: number
+  /** 주면 동지 정오 대신 이 시각의 해로 그림자를 그린다(라디안, 방위는 남 0·서 +). */
+  sun?: { altitude: number; azimuth: number; label: string } | null
 }
 
 const fmt = (n: number, d = 2) => n.toLocaleString('ko-KR', { maximumFractionDigits: d })
@@ -14,7 +16,7 @@ const fmt = (n: number, d = 2) => n.toLocaleString('ko-KR', { maximumFractionDig
  * 측면도: 동쪽에서 본 앞뒤 두 열의 세트 단면. 경사각, 지상고, 상단 높이, 경사면 길이, 투영 깊이,
  * 열 사이 이격거리와 피치, 동지 정오 그림자를 치수로 적는다. 왼쪽이 남쪽(앞)이다.
  */
-export default function SideElevation({ params: p, geometry: g, lat }: Props) {
+export default function SideElevation({ params: p, geometry: g, lat, sun }: Props) {
   const W = 400
   const pad = 30
   // 왼쪽은 '지상고' 치수 글자가 잘리지 않게 넉넉히 둔다.
@@ -29,9 +31,17 @@ export default function SideElevation({ params: p, geometry: g, lat }: Props) {
   const tilt = deg2rad(p.tilt)
   const across = (p.portrait ? p.moduleLength : p.moduleWidth) / 1000
   const gap = p.moduleGap / 1000
-  // 동지 정오 태양고도
-  const alt = 90 - lat - 23.44
+  // 동지 정오 태양고도. 시각을 주면 그 해를 단면(남북)에 투영한 고도를 쓴다: tan(투영 고도) = tan(고도) ÷ cos(방위차)
+  const facing = sun ? Math.cos(sun.azimuth - deg2rad(p.azimuth)) : 1
+  const alt = sun ? (sun.altitude > 0 && facing > 0.05 ? (Math.atan(Math.tan(sun.altitude) / facing) * 180) / Math.PI : 0) : 90 - lat - 23.44
   const tanAlt = Math.tan(deg2rad(Math.max(alt, 1)))
+  const sunText = sun
+    ? sun.altitude <= 0
+      ? `${sun.label} · 해가 진 시각`
+      : facing <= 0.05
+        ? `${sun.label} · 해가 세트 옆·뒤에 있어 앞뒤 열 그림자 없음`
+        : `${sun.label} · 태양고도 ${fmt((sun.altitude * 180) / Math.PI, 1)}°`
+    : null
   const shadowTip = g.depth + (g.height - p.groundClearance) / tanAlt // 상단 그림자가 지상고 높이에 닿는 곳
   const backFront = g.depth + p.rowSpacing
   const margin = backFront - shadowTip
@@ -132,9 +142,13 @@ export default function SideElevation({ params: p, geometry: g, lat }: Props) {
 
       {/* 제목과 겹치지 않게 판정은 둘째 줄에 둔다 */}
       <text x={pad} y={38} className={margin >= 0 ? 'se-ok' : 'se-warn'}>
-        {alt > 0
-          ? `동지 정오 태양고도 ${fmt(alt, 1)}° · ${margin >= 0 ? `그림자 여유 ${fmt(margin)} m` : `뒷열에 ${fmt(-margin)} m 그늘`}`
-          : '동지 정오에 해가 뜨지 않는 위도'}
+        {sunText
+          ? alt > 0
+            ? `${sunText} · ${margin >= 0 ? `그림자 여유 ${fmt(margin)} m` : `뒷열에 ${fmt(-margin)} m 그늘`}`
+            : sunText
+          : alt > 0
+            ? `동지 정오 태양고도 ${fmt(alt, 1)}° · ${margin >= 0 ? `그림자 여유 ${fmt(margin)} m` : `뒷열에 ${fmt(-margin)} m 그늘`}`
+            : '동지 정오에 해가 뜨지 않는 위도'}
       </text>
     </svg>
   )
