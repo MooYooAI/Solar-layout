@@ -70,6 +70,9 @@ import TimelineMenu from './components/TimelineMenu'
 import DrawingWorkspace from './components/DrawingWorkspace'
 import PermitPanel from './components/PermitPanel'
 import SiteReviewPanel from './components/SiteReviewPanel'
+import DesignBar from './components/DesignBar'
+import SideElevation from './components/SideElevation'
+import CapacityCompare, { type CapacityOption } from './components/CapacityCompare'
 import { forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
 import { isForest, pctToDeg } from './lib/siteReview'
 import type { MapMark } from './components/MapView'
@@ -558,6 +561,26 @@ export default function App() {
 
 
   const panelRef = useRef<HTMLElement>(null)
+
+  // 복제 방지(가벼운 장치): 지도·도면·보고서에서 우클릭 저장과 끌어서 복사를 막는다. 입력칸은 그대로 둔다.
+  useEffect(() => {
+    const guarded = (t: EventTarget | null) => t instanceof Element && !t.closest('input, textarea, select') && !!t.closest('.map, .map-stage, .sheet, .side-elev, .report-page, .dw-canvas, svg, canvas')
+    const block = (e: Event) => guarded(e.target) && e.preventDefault()
+    document.addEventListener('contextmenu', block)
+    document.addEventListener('dragstart', block)
+    document.addEventListener('copy', block)
+    return () => {
+      document.removeEventListener('contextmenu', block)
+      document.removeEventListener('dragstart', block)
+      document.removeEventListener('copy', block)
+    }
+  }, [])
+  // 인쇄 워터마크 문구: 프로젝트 이름(없으면 부지 주소)과 날짜
+  useEffect(() => {
+    const name = project?.name ?? parcel?.address ?? ''
+    const text = `솔라 레이아웃 · ${name} · ${new Date().toLocaleDateString('ko-KR')}`.replace(/"/g, '')
+    document.documentElement.style.setProperty('--print-wm', `"${text}"`)
+  }, [project, parcel])
   const switchTab = (t: Tab) => {
     if (t !== tab) panelRef.current?.scrollTo({ top: 0 })
     setLastTab((m) => ({ ...m, [stageOf(t)]: t }))
@@ -739,19 +762,41 @@ export default function App() {
   const layoutOutdated = sets.length > 0 && layoutBasis !== null && layoutBasis !== params
 
   /** 자동 배치. 확정 상태를 풀고 새 배치를 넣으면 그 배치를 돌려준다(취소하면 null). */
-  const placeSets = (label: string): ModuleSet[] | null => {
+  const layoutWith = (p: LayoutParams) =>
+    parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, mask })) ?? autoLayout(parcel, p, 0, mask)) : []
+  const placeSets = (label: string, p: LayoutParams = params): ModuleSet[] | null => {
     if (!parcel) return null
     if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return null
     if (!unlock()) return null
     mark(label)
-    const zoned = layoutMode === 'grid' ? null : zonedLayout(parcel, params, { mode: layoutMode, mask })
-    const next = zoned ?? autoLayout(parcel, params, 0, mask)
+    const next = layoutWith(p)
+    if (p !== params) setParams(p)
     editSets(next)
-    setLayoutBasis(params)
+    setLayoutBasis(p)
     setSelected(new Set())
     return next
   }
   const runAutoLayout = () => void placeSets('자동 배치')
+
+  // 표준·권장 설계용량: 동지 9~15시 무음영 이격(표준)과 10~14시 무음영 이격(권장, 용량 우선)으로 각각 배치해 본다.
+  const [capCompare, setCapCompare] = useState<{ key: unknown[]; rows: CapacityOption[] } | null>(null)
+  const capKey = [parcel, params, mask, layoutMode]
+  const capRows = capCompare && capCompare.key.every((v, i) => v === capKey[i]) ? capCompare.rows : null
+  const compareCapacity = () => {
+    if (!parcel) return
+    const { lat0 } = LocalFrame.around(parcel.rings)
+    const h = geometry.height - params.groundClearance
+    const opts: Array<[CapacityOption['key'], string, string, number, number]> = [
+      ['standard', '표준', '동지 9~15시 앞 열 그림자 없음', 9, 15],
+      ['recommended', '권장', '동지 10~14시 앞 열 그림자 없음(용량 우선)', 10, 14],
+    ]
+    const rows = opts.map(([key, label, basis, from, to]) => {
+      const spacing = Math.ceil(rowSpacingForNoShade(lat0, h, params.azimuth, from, to) * 10) / 10
+      const n = layoutWith({ ...params, rowSpacing: spacing }).length
+      return { key, label, basis, spacing, sets: n, kWp: (n * geometry.watt) / 1000 }
+    })
+    setCapCompare({ key: capKey, rows })
+  }
 
   /**
    * 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
@@ -1465,6 +1510,11 @@ export default function App() {
             </li>
           ))}
         </ol>
+        <p className="rail-copy" title="이 화면과 도면은 저작권 보호 대상입니다. 무단 복제·배포를 금합니다.">
+          © 솔라 레이아웃
+          <br />
+          무단 복제 금지
+        </p>
       </nav>
 
       <aside className="panel" aria-labelledby="panel-title" ref={panelRef}>
@@ -1517,6 +1567,14 @@ export default function App() {
               </p>
             )}
           </section>
+        )}
+        {tab === 'layout' && parcel && (
+          <CapacityCompare
+            rows={capRows}
+            current={{ spacing: params.rowSpacing, kWp: stats.kWp }}
+            onCompare={compareCapacity}
+            onApply={(r) => void placeSets(`${r.label} 설계용량으로 배치`, { ...params, rowSpacing: r.spacing })}
+          />
         )}
         {tab === 'layout' && (
           <LayoutPanel
@@ -1668,6 +1726,18 @@ export default function App() {
             sunTimes={sunTimes}
             lat={scene?.frame.lat0 ?? null}
           />
+        )}
+        {tab === 'shade' && scene && (
+          <section className="card">
+            <h2>측면도로 보는 그림자</h2>
+            <p className="hint">위 시각 막대를 움직이면 앞 열 그림자가 뒷열에 닿는지 단면으로 보여 줍니다.</p>
+            <SideElevation
+              params={params}
+              geometry={geometry}
+              lat={scene.frame.lat0}
+              sun={shadeView ? { ...shadeView.sun, label: `${shadeDate.month}/${shadeDate.day} ${String(Math.floor(shadeHour)).padStart(2, '0')}:${String(Math.round((shadeHour % 1) * 60)).padStart(2, '0')}` } : null}
+            />
+          </section>
         )}
         {tab === 'shade' && (
           <ShadeCleanup
@@ -2099,6 +2169,9 @@ export default function App() {
           </button>
         </div>
         <div className="map-stage">
+        {tab === 'layout' && parcel && (
+          <DesignBar params={params} onParams={updateParams} noShadeSpacing={suggestedRowSpacing} canPlace={!!parcel} onPlace={runAutoLayout} kWp={stats.kWp} />
+        )}
         {show3d ? (
           <Suspense fallback={<div className="map map-loading">3D 지도를 불러오는 중…</div>}>
             <Map3D
