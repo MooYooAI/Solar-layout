@@ -1231,3 +1231,4 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .design-seg .step-no { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; font-size: 11px; font-weight: 700; background: var(--line-strong); color: var(--ink-2); }
 .design-seg button[aria-selected='true'] .step-no { background: var(--accent); color: var(--accent-text); }
 .design-seg small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.bld-box { margin-bottom: 10px; }

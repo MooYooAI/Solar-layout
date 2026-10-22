@@ -179,6 +179,41 @@ export async function getParcelsInBox(box: [number, number, number, number], key
   return result?.featureCollection.features ?? []
 }
 
+export interface BuildingFeature {
+  type: 'Feature'
+  geometry: { type: 'MultiPolygon' | 'Polygon'; coordinates: number[][][] | number[][][][] }
+  properties: {
+    /** 건물 이름(없으면 빈 값) */
+    buld_nm?: string
+    buld_nm_dc?: string
+    /** 지상 층수 */
+    gro_flo_co?: string
+  }
+}
+
+/** 경위도 사각형 안의 건물(도로명주소 건물 도형). 지붕 윤곽과 높이를 어림하는 데 쓴다. */
+export async function getBuildingsInBox(box: [number, number, number, number], key: string, size = 100): Promise<BuildingFeature[]> {
+  const data = await jsonp<{ response: { status: string; error?: { text: string }; result?: { featureCollection: { features: BuildingFeature[] } } } }>(`${API}/data`, {
+    service: 'data',
+    request: 'GetFeature',
+    version: '2.0',
+    data: 'LT_C_SPBD',
+    geomFilter: `BOX(${box.join(',')})`,
+    crs: 'EPSG:4326',
+    geometry: 'true',
+    attribute: 'true',
+    size: String(size),
+    format: 'json',
+    errorformat: 'json',
+    domain: DOMAIN,
+    key,
+  })
+  const { status, error, result } = data.response
+  if (status === 'NOT_FOUND') return []
+  if (status !== 'OK') throw new Error(error?.text ?? '건물 정보를 가져오지 못했습니다.')
+  return result?.featureCollection.features ?? []
+}
+
 export type BaseMap = 'Base' | 'Satellite'
 
 export function wmtsUrl(key: string, layer: BaseMap | 'Hybrid'): string {

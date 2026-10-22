@@ -187,7 +187,7 @@ export function evaluateDesign(d: DesignInput, o: EvalOptions = {}): DesignResul
   const monthly = energy.monthly.map((m) => ({ ...m, kWh: m.kWh * k, kWhNoShade: m.kWhNoShade * k }))
   const annualKWh = energy.annualKWh * k
 
-  const earth = d.grid && d.sets.length ? layoutEarthwork(d.sets, d.params, g, d.grid) : null
+  const earth = d.grid && d.sets.length && d.params.racking !== 'roof' ? layoutEarthwork(d.sets, d.params, g, d.grid) : null
   const capex = capexFor(kWdc, d.params.racking, elec, earth, d.costs)
   const econ = evaluateEcon({ ...d.econ, kWp: kWdc, annualKWh, capex: capex.total })
 
