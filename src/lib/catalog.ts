@@ -49,7 +49,7 @@ export const findModule = (length: number, width: number, watt: number) => MODUL
 /** 제조사 제품이면 "제조사 모델명", 일반 규격이면 null */
 export const moduleName = (m: ModuleSpec | undefined) => (m?.maker ? `${m.maker} ${m.model}` : null)
 
-export type RackingType = 'pile' | 'concrete' | 'agri'
+export type RackingType = 'pile' | 'concrete' | 'agri' | 'roof'
 
 export interface RackingSpec {
   label: string
@@ -88,7 +88,19 @@ export const RACKING: Record<RackingType, RackingSpec> = {
     reveal: 0.3,
     groundClearance: 3.5,
   },
+  roof: {
+    label: '지붕 고정식 · 옥상 앵커·블록',
+    detail: '평지붕·옥상에 앵커나 무게 블록으로 고정. 토공이 없고 지붕 가장자리에서 띄워 놓는다.',
+    // 지붕 바닥은 평평하다고 보고 지형 경사·요철은 따지지 않는다.
+    nsSlopePct: 100,
+    ewSlopePct: 100,
+    reveal: 0,
+    groundClearance: 0.3,
+  },
 }
+
+/** 지붕 배치 때 지붕 가장자리(파라펫)에서 띄우는 거리(m). 모서리 풍압이 크고 점검 통로가 있어야 한다. */
+export const ROOF_EDGE_SETBACK = 1.5
 
 export interface InverterSpec {
   id: string

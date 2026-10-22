@@ -6,7 +6,7 @@ import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
 const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
-import { getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
+import { getBuildingsInBox, getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SITE_KINDS, siteKindLabel, SQM_PER_PYEONG, type Parcel, type SiteKind } from './lib/parcel'
 import {
   autoLayout,
@@ -50,7 +50,8 @@ import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
 import { DEFAULT_COSTS, type CostParams } from './lib/costs'
 import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
-import { INVERTERS, RACKING, type ModuleSpec } from './lib/catalog'
+import { INVERTERS, RACKING, ROOF_EDGE_SETBACK, type ModuleSpec } from './lib/catalog'
+import { buildingsOnParcel, ringsBox, type Building } from './lib/buildings'
 import {
   arraysCsv,
   capexCsv,
@@ -300,6 +301,7 @@ export default function App() {
     setSiteCheck(mergeSiteCheck())
     setLayoutBasis(null)
     if (!p) setAddingLot(false)
+    setLandParcel(null)
     setTerrain(null)
     setTerrainError(null)
     setElevGrid(null)
@@ -541,6 +543,56 @@ export default function App() {
   // 전기실(저압반·변압기) 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
   const [reservePad, setReservePad] = useState(true)
   const [siteKind, setSiteKind] = useState<SiteKind>('land')
+  // 필지 안 건물(불러온 뒤에만). 지붕 배치로 바꾸면 원래 필지를 기억해 되돌릴 수 있게 한다.
+  const [buildings, setBuildings] = useState<{ for: Parcel; list: Building[] } | { for: Parcel; error: string } | null>(null)
+  const [landParcel, setLandParcel] = useState<Parcel | null>(null)
+  /**
+   * 설치 장소를 바꾸면 구조물·이격 기준을 맞춘다. 건물은 지붕 고정식에 지붕 가장자리 이격, 전기실 자리 없음(건물 안),
+   * 지형 경사 제외 없음. 토지·복합은 지상 구조물로 돌린다.
+   */
+  const chooseSiteKind = (k: SiteKind) => {
+    setSiteKind(k)
+    if (k === 'building') {
+      if (params.racking !== 'roof')
+        updateParams({ ...params, racking: 'roof', groundClearance: RACKING.roof.groundClearance, boundarySetback: ROOF_EDGE_SETBACK })
+      setReservePad(false)
+      setUseMask(false)
+    } else {
+      if (params.racking === 'roof')
+        updateParams({ ...params, racking: 'pile', groundClearance: RACKING.pile.groundClearance, boundarySetback: DEFAULT_PARAMS.boundarySetback })
+      setReservePad(true)
+      setUseMask(true)
+    }
+  }
+  const buildingBase = landParcel ?? parcel
+  const loadBuildings = async () => {
+    const base = buildingBase
+    if (!base || !vworldKey) return
+    try {
+      const list = buildingsOnParcel(await getBuildingsInBox(ringsBox(base.rings), vworldKey), base)
+      setBuildings({ for: base, list })
+    } catch (e) {
+      setBuildings({ for: base, error: (e as Error).message })
+    }
+  }
+  /** 건물 하나의 지붕을 배치 영역으로 */
+  const placeOnRoof = (b: Building) => {
+    const base = buildingBase
+    if (!base) return
+    setParcel({ ...base, address: `${base.address} ${b.name} 지붕`, rings: b.rings, lots: undefined, source: 'manual' })
+    setLandParcel(base)
+  }
+  const restoreLand = () => {
+    if (landParcel) setParcel(landParcel)
+  }
+  /** 복합: 건물 자리를 지상 배치에서 비우고 건물 그늘을 넣는다 */
+  const addBuildingObstacles = (list: Building[]) =>
+    updateObstacles((prev) => [
+      ...prev,
+      ...list
+        .filter((b) => !prev.some((o) => o.id === b.id))
+        .map((b) => ({ id: b.id, name: `${b.name} (${b.floors}층)`, ring: b.rings[0], height: b.height })),
+    ])
   const gridPole = siteCheck.grid.pole
   const equipPad = useMemo(
     () => (parcel && reservePad ? placeEquipPad(parcel, padKindFor(area), gridPole ?? null) : null),
@@ -1162,7 +1214,7 @@ export default function App() {
     setObstacles([...d.obstacles])
     if (d.layoutMode) setLayoutMode(d.layoutMode as LayoutMode)
     if (d.elec) setElec({ ...DEFAULT_ELEC, ...d.elec })
-    if (d.costs) setCosts({ ...DEFAULT_COSTS, ...d.costs })
+    if (d.costs) setCosts({ ...DEFAULT_COSTS, ...d.costs, racking: { ...DEFAULT_COSTS.racking, ...d.costs.racking } })
     if (d.econ) setEcon({ ...DEFAULT_ECON, ...d.econ })
     if (d.econHours !== undefined) setEconHours(d.econHours)
     if (d.performanceRatio !== undefined) setPerformanceRatio(d.performanceRatio)
@@ -1985,13 +2037,62 @@ export default function App() {
             <p className="site-kind-label">설치 장소</p>
             <div className="seg3" role="radiogroup" aria-label="설치 장소">
               {SITE_KINDS.map(([k, label, short]) => (
-                <button key={k} type="button" role="radio" aria-checked={siteKind === k} className={siteKind === k ? 'on' : ''} onClick={() => setSiteKind(k)}>
+                <button key={k} type="button" role="radio" aria-checked={siteKind === k} className={siteKind === k ? 'on' : ''} onClick={() => chooseSiteKind(k)}>
                   {label}
                   <small>{short}</small>
                 </button>
               ))}
             </div>
             <p className="hint" style={{ marginBottom: 10 }}>{SITE_KINDS.find(([k]) => k === siteKind)![3]}</p>
+            {siteKind !== 'land' && (
+              <div className="bld-box">
+                {landParcel && (
+                  <p className="hint">
+                    지금 배치 영역은 건물 지붕입니다.{' '}
+                    <button type="button" className="link" onClick={restoreLand}>
+                      필지 전체로 되돌리기
+                    </button>
+                  </p>
+                )}
+                {!vworldKey ? (
+                  <p className="hint">건물 자리는 영역 직접 그리기(지붕)나 장애물 그리기(복합)로 넣으세요.</p>
+                ) : !buildings || buildings.for !== buildingBase ? (
+                  <button type="button" className="secondary block" onClick={() => void loadBuildings()}>
+                    필지 안 건물 불러오기
+                  </button>
+                ) : 'error' in buildings ? (
+                  <p className="error">{buildings.error}</p>
+                ) : buildings.list.length === 0 ? (
+                  <p className="hint">필지 안에서 건물을 찾지 못했습니다. 영역 직접 그리기로 지붕 윤곽을 그리세요.</p>
+                ) : (
+                  <>
+                    <ul className="lots">
+                      {buildings.list.map((b) => (
+                        <li key={b.id}>
+                          <span>
+                            {b.name}
+                            <small>
+                              {b.floors}층 · 높이 약 {fmt(b.height, 1)} m · 지붕 {fmt(b.area)} ㎡
+                            </small>
+                          </span>
+                          {siteKind === 'building' && (
+                            <button type="button" className="secondary" onClick={() => placeOnRoof(b)}>
+                              이 지붕에 배치
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {siteKind === 'mixed' && (
+                      <button type="button" className="secondary block" onClick={() => addBuildingObstacles(buildings.list)}>
+                        건물 자리 비우기 ({buildings.list.length}동, 그림자 반영)
+                      </button>
+                    )}
+                    <p className="hint">높이는 층수 × 3.5 m로 어림했습니다. 장애물 목록에서 고칠 수 있습니다.</p>
+                  </>
+                )}
+              </div>
+            )}
             <dl className="facts">
               <dt>주소</dt>
               <dd>{parcel.address}</dd>

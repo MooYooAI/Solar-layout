@@ -36,7 +36,7 @@ export interface CostParams {
 export const DEFAULT_COSTS: CostParams = {
   moduleWonPerW: 300,
   inverterPerKW: 8,
-  racking: { pile: 18, concrete: 24, agri: 45 },
+  racking: { pile: 18, concrete: 24, agri: 45, roof: 20 },
   bosPerKW: 6,
   laborPerKW: 18,
   dcCableWonPerM: 2500,
