@@ -7,7 +7,7 @@ const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
 const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
 import { getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
-import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SQM_PER_PYEONG, type Parcel } from './lib/parcel'
+import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SITE_KINDS, siteKindLabel, SQM_PER_PYEONG, type Parcel, type SiteKind } from './lib/parcel'
 import {
   autoLayout,
   DEFAULT_PARAMS,
@@ -540,6 +540,7 @@ export default function App() {
   const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
   // 전기실(저압반·변압기) 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
   const [reservePad, setReservePad] = useState(true)
+  const [siteKind, setSiteKind] = useState<SiteKind>('land')
   const gridPole = siteCheck.grid.pole
   const equipPad = useMemo(
     () => (parcel && reservePad ? placeEquipPad(parcel, padKindFor(area), gridPole ?? null) : null),
@@ -1128,6 +1129,7 @@ export default function App() {
           permits,
           plant,
           siteCheck,
+          siteKind,
           tab,
         }
       : null
@@ -1180,6 +1182,7 @@ export default function App() {
     setPermits(d.permits ?? {})
     setPlant({ ...EMPTY_PLANT, ...d.plant })
     setSiteCheck(mergeSiteCheck(d.siteCheck))
+    setSiteKind(d.siteKind ?? 'land')
     if (d.tab && d.tab in TABS) switchTab(d.tab)
     setProject(id ? { id, name } : null)
     setShowProjects(false)
@@ -1601,9 +1604,11 @@ export default function App() {
           <h1 id="panel-title">{STAGES[stageIndex].label}</h1>
           {STAGES[stageIndex].tabs.length > 1 && (
             <div className="seg design-seg" role="tablist" aria-label={`${STAGES[stageIndex].label} 화면`}>
-              {STAGES[stageIndex].tabs.map((t) => (
+              {STAGES[stageIndex].tabs.map((t, i) => (
                 <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => switchTab(t)}>
-                  {TABS[t].label}
+                  <b className="step-no">{i + 1}</b>
+                  {TABS[t].step ?? TABS[t].label}
+                  {TABS[t].note && <small>({TABS[t].note})</small>}
                 </button>
               ))}
             </div>
@@ -1977,6 +1982,16 @@ export default function App() {
         {parcel && (
           <section className="card">
             <h2>{lots && lots.length > 1 ? `선택한 부지 (${lots.length}필지)` : '선택한 필지'}</h2>
+            <p className="site-kind-label">설치 장소</p>
+            <div className="seg3" role="radiogroup" aria-label="설치 장소">
+              {SITE_KINDS.map(([k, label, short]) => (
+                <button key={k} type="button" role="radio" aria-checked={siteKind === k} className={siteKind === k ? 'on' : ''} onClick={() => setSiteKind(k)}>
+                  {label}
+                  <small>{short}</small>
+                </button>
+              ))}
+            </div>
+            <p className="hint" style={{ marginBottom: 10 }}>{SITE_KINDS.find(([k]) => k === siteKind)![3]}</p>
             <dl className="facts">
               <dt>주소</dt>
               <dd>{parcel.address}</dd>
@@ -2070,47 +2085,6 @@ export default function App() {
           </section>
         )}
 
-        <section className="card">
-          <h2>지도</h2>
-          <div className="row">
-            <label>
-              <input type="radio" checked={baseMap === 'Satellite'} onChange={() => setBaseMap('Satellite')} /> 위성
-            </label>
-            <label>
-              <input type="radio" checked={baseMap === 'Base'} onChange={() => setBaseMap('Base')} /> 일반
-            </label>
-            <label>
-              <input type="checkbox" checked={showCadastral} onChange={(e) => setShowCadastral(e.target.checked)} /> 지적도
-            </label>
-            {vworldKey && (
-              <label>
-                <input type="checkbox" checked={showZoning} onChange={(e) => setShowZoning(e.target.checked)} /> 용도지역
-              </label>
-            )}
-          </div>
-          <div className="row" style={{ marginTop: 10 }}>
-            <button
-              type="button"
-              className={tool === 'measureLine' ? '' : 'secondary'}
-              onClick={() => setTool(tool === 'measureLine' ? 'none' : 'measureLine')}
-            >
-              거리 재기
-            </button>
-            <button
-              type="button"
-              className={tool === 'measureArea' ? '' : 'secondary'}
-              onClick={() => setTool(tool === 'measureArea' ? 'none' : 'measureArea')}
-            >
-              면적 재기
-            </button>
-            <button type="button" className="secondary" onClick={() => setClearMeasuresSeq((n) => n + 1)}>
-              지우기
-            </button>
-          </div>
-          {(tool === 'measureLine' || tool === 'measureArea') && (
-            <p className="hint">지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다.</p>
-          )}
-        </section>
 
         </>
         )}
@@ -2351,6 +2325,50 @@ export default function App() {
           )}
           {mapMode === '3d' && !show3d && <span>그리기 중에는 2D</span>}
         </div>
+        <div className="map-mode map-layers" role="group" aria-label="지도 설정">
+          <button type="button" className={baseMap === 'Satellite' ? 'on' : ''} aria-pressed={baseMap === 'Satellite'} onClick={() => setBaseMap('Satellite')}>
+            위성
+          </button>
+          <button type="button" className={baseMap === 'Base' ? 'on' : ''} aria-pressed={baseMap === 'Base'} onClick={() => setBaseMap('Base')}>
+            일반
+          </button>
+          <span className="map-mode-sep" />
+          <label>
+            <input type="checkbox" checked={showCadastral} onChange={(e) => setShowCadastral(e.target.checked)} /> 지적도
+          </label>
+          {vworldKey && (
+            <label>
+              <input type="checkbox" checked={showZoning} onChange={(e) => setShowZoning(e.target.checked)} /> 용도지역
+            </label>
+          )}
+          {!show3d && (
+            <>
+              <span className="map-mode-sep" />
+              <button
+                type="button"
+                className={tool === 'measureLine' ? 'on' : ''}
+                aria-pressed={tool === 'measureLine'}
+                onClick={() => setTool(tool === 'measureLine' ? 'none' : 'measureLine')}
+                title="지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다."
+              >
+                거리 재기
+              </button>
+              <button
+                type="button"
+                className={tool === 'measureArea' ? 'on' : ''}
+                aria-pressed={tool === 'measureArea'}
+                onClick={() => setTool(tool === 'measureArea' ? 'none' : 'measureArea')}
+                title="지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다."
+              >
+                면적 재기
+              </button>
+              <button type="button" onClick={() => setClearMeasuresSeq((n) => n + 1)} title="잰 선과 면적 지우기">
+                지우기
+              </button>
+            </>
+          )}
+          {(tool === 'measureLine' || tool === 'measureArea') && <span>마지막 점에서 두 번 클릭하면 끝</span>}
+        </div>
         {ws === 'edit' && (
           <LayoutEditor
             parcel={parcel}
@@ -2445,6 +2463,7 @@ export default function App() {
           elecParams={elec}
           designBusy={designBusy}
           hasTimeline={timeline.length > 0}
+          siteKind={siteKindLabel(siteKind)}
           area={area}
           zoning={parcelZoning}
           energy={energy}
