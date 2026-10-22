@@ -57,10 +57,11 @@ function Field(props: {
 }
 
 /** 모듈 목록을 제조사별로 묶는다. 일반 규격이 먼저 */
-const MODULE_GROUPS: Array<[string, ModuleSpec[]]> = [...new Set(MODULES.map((m) => m.maker ?? '일반 규격'))].map((maker) => [
-  maker,
-  MODULES.filter((m) => (m.maker ?? '일반 규격') === maker),
-])
+const GENERIC = '일반 규격'
+/** 제조사 제품(목록 순서, 국산 먼저)을 위에, 일반 규격을 맨 아래에 */
+const MODULE_GROUPS: Array<[string, ModuleSpec[]]> = [
+  ...new Set([...MODULES.flatMap((m) => (m.maker ? [m.maker] : [])), GENERIC]),
+].map((maker) => [maker, MODULES.filter((m) => (m.maker ?? GENERIC) === maker)])
 
 export default function LayoutPanel(props: Props) {
   const { params: p, onParams } = props

@@ -1829,16 +1829,6 @@ export default function App() {
           />
         )}
 
-        {tab === 'ai' && parcel && (
-          <section className="card s3d-entry">
-            <h2>3D 입지 분석</h2>
-            <p>가설계한 배치를 위성 지형 위에 3D로 띄워 시공 치수와 계절·시각별 그림자를 봅니다.</p>
-            <button type="button" className="block" onClick={() => setShowSite3d(true)}>
-              3D 입지 분석 열기
-            </button>
-            {!sets.length && <p className="hint">아직 배치가 없어 부지만 보입니다. AI 추천 배치를 적용하면 모듈까지 보입니다.</p>}
-          </section>
-        )}
         {tab === 'ai' && (
           <OptimizePanel
             canRun={!!parcel}

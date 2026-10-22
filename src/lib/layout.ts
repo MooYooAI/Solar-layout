@@ -34,10 +34,11 @@ export interface LayoutParams {
   racking: RackingType
 }
 
+/** 기본 모듈: 한화큐셀 Q.TRON XL-G2.3/BFG 640 (catalog.ts의 qcells-qtron-xl-640) */
 export const DEFAULT_PARAMS: LayoutParams = {
-  moduleLength: 2278,
+  moduleLength: 2462,
   moduleWidth: 1134,
-  moduleWatt: 550,
+  moduleWatt: 640,
   portrait: true,
   setCols: 10,
   setRows: 2,
