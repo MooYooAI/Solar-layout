@@ -9,11 +9,12 @@ export type Tab = 'parcel' | 'terrain' | 'review' | 'ai' | 'layout' | 'elec' | '
 
 export type Stage = 'site' | 'design' | 'drawing' | 'permit' | 'econ' | 'order'
 
-export const TABS: Record<Tab, { label: string; desc: string }> = {
-  parcel: { label: '부지', desc: '지번을 검색하거나 영역을 그려 부지를 정합니다.' },
-  terrain: { label: '지형', desc: '경사·절성토를 보고 설계 가능 영역을 정합니다.' },
+/** label은 짧은 이름(진행 상황 칸 등), step은 단계 안 작업 순서 버튼에 쓰는 이름, note는 그 옆 작은 글씨 */
+export const TABS: Record<Tab, { label: string; desc: string; step?: string; note?: string }> = {
+  parcel: { label: '부지', step: '부지선정', desc: '지번을 검색하거나 영역을 그려 부지를 정합니다.' },
+  terrain: { label: '지형', step: '지형 자동분석', note: '수정 가능', desc: '필지를 고르면 경사·절성토를 저절로 분석합니다. 설계 가능 영역 기준은 고칠 수 있습니다.' },
   review: { label: '입지검토', desc: '토지 정보를 바로잡고, 진입 도로·계통연계·산지 기준을 확인해 입지를 판정합니다.' },
-  ai: { label: '가설계', desc: 'AI가 여러 배치안을 비교해 추천합니다. 하나를 골라 기본설계로 넘깁니다.' },
+  ai: { label: '가설계', step: 'AI 가설계', desc: 'AI가 여러 배치안을 비교해 추천합니다. 하나를 골라 기본설계로 넘깁니다.' },
   layout: { label: '배치', desc: '모듈·간격을 정해 자동 배치하고, 배치 편집에서 손봅니다.' },
   elec: { label: '전기', desc: '스트링과 인버터를 묶고 케이블을 잡습니다.' },
   shade: { label: '음영', desc: '날짜·시각별 그림자와 하루 음영 손실을 봅니다.' },

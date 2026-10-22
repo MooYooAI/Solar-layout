@@ -15,6 +15,15 @@ export interface Lot {
   area: number
 }
 
+/** 설치 장소: 땅 위(지상), 건물 지붕, 둘 다 */
+export type SiteKind = 'land' | 'building' | 'mixed'
+export const SITE_KINDS: Array<[SiteKind, string, string, string]> = [
+  ['land', '토지', '지상', '필지 땅 위에 지상 구조물로 설치합니다.'],
+  ['building', '건물', '지붕·옥상', '건물 지붕이나 옥상에 설치합니다. 지붕 윤곽을 영역 직접 그리기로 그리면 그 안에 배치합니다.'],
+  ['mixed', '복합', '지상+지붕', '땅과 건물 지붕에 함께 설치합니다. 건물 자리는 장애물로 그려 비우고 지붕은 따로 검토합니다.'],
+]
+export const siteKindLabel = (k: SiteKind) => SITE_KINDS.find(([v]) => v === k)![1]
+
 /** 앱 전체에서 쓰는 필지(부지) 표현. 좌표는 EPSG:4326 [lon, lat]. */
 export interface Parcel {
   pnu?: string

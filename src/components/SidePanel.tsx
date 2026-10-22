@@ -29,6 +29,8 @@ interface Props {
   /** 개요 보기에 쓰는 값 */
   area: number
   zoning: string[]
+  /** 설치 장소 이름(토지·건물·복합) */
+  siteKind: string
   energy: EnergyResult | null
   econ: EconSettings
   econHours: number
@@ -107,6 +109,7 @@ export default function SidePanel(props: Props) {
           parcel={parcel}
           area={props.area}
           zoning={props.zoning}
+          siteKind={props.siteKind}
           params={props.params}
           stats={stats}
           energy={props.energy}

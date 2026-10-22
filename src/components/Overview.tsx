@@ -17,6 +17,7 @@ interface Props {
   parcel: Parcel | null
   area: number
   zoning: string[]
+  siteKind: string
   params: LayoutParams
   stats: LayoutStats
   energy: EnergyResult | null
@@ -75,6 +76,8 @@ export default function Overview(props: Props) {
         <dl className="facts wide">
           <dt>소재지</dt>
           <dd>{parcel.address}</dd>
+          <dt>설치 장소</dt>
+          <dd>{props.siteKind}</dd>
           {parcel.landCategory && (
             <>
               <dt>지목</dt>

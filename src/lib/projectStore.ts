@@ -1,7 +1,7 @@
 // 프로젝트 저장·불러오기. 지금은 이 브라우저(localStorage)에 두고, 로그인이 생기면 같은 모양의
 // 서버 저장소로 바꿔 끼운다. 그래서 모든 메서드를 비동기로 둔다.
 import type { LayoutParams, ModuleSet } from './layout'
-import type { Parcel } from './parcel'
+import type { Parcel, SiteKind } from './parcel'
 import type { Obstacle } from './shading'
 import type { ElecParams } from './electrical'
 import type { CostParams } from './costs'
@@ -39,6 +39,8 @@ export interface ProjectData {
   permits?: PermitProgress
   plant?: PlantInfo
   siteCheck?: Partial<SiteCheck>
+  /** 설치 장소(토지·건물·복합) */
+  siteKind?: SiteKind
   /** 마지막으로 보던 화면 */
   tab?: Tab
 }
