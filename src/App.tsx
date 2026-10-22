@@ -71,6 +71,7 @@ import DrawingWorkspace from './components/DrawingWorkspace'
 import PermitPanel from './components/PermitPanel'
 import ShadeCleanup from './components/ShadeCleanup'
 import OrderPanel from './components/OrderPanel'
+import { orderLines } from './lib/order'
 import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type PlantInfo, type Stage, type Tab, EMPTY_PLANT } from './lib/stages'
 import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
@@ -1522,8 +1523,10 @@ export default function App() {
           <OrderPanel
             metrics={design?.metrics ?? null}
             busy={designBusy}
-            params={params}
-            elec={elec}
+            lines={design ? orderLines({ params, elecParams: elec, elec: design.elec, metrics: design.metrics, costs }) : []}
+            plant={plant}
+            address={parcel?.address ?? ''}
+            fileBase={fileBase()}
             onCsv={() => exportGroups[1].items.find((i) => i.key === 'capex')!.run()}
           />
         )}
