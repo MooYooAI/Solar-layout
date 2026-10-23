@@ -133,7 +133,7 @@ function Summary({ data, x, y, w }: { data: SheetData; x: number; y: number; w: 
     ['경사·방위', `${p.tilt}° · ${azText(p.azimuth)}`],
     ['부지 면적', `${fmt(data.area)} ㎡`],
     ['세트', `${p.setCols}열×${p.setRows}단 · ${fmt(stats.sets)}개`],
-    ['열 이격', `${p.rowSpacing} m · 경계 ${p.boundarySetback} m`],
+    ['열 이격', `${p.rowSpacing} m · 경계 ${p.boundarySetback} m${p.edgeSetbacks?.length ? ` (변별 ${p.edgeSetbacks.length}곳)` : ''}`],
   ]
   const cols = 4
   const cw = w / cols

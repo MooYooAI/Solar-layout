@@ -81,19 +81,24 @@ function segmentsIntersect(a: Vec, b: Vec, c: Vec, d: Vec): boolean {
 }
 
 /** 두 선분 사이 최단거리 */
+/** 점과 선분 사이 거리 */
+export const pointSegDist = (p: Vec, a: Vec, b: Vec) => Math.sqrt(pointSegDist2(p, a, b))
+
 export function segSegDist(a: Vec, b: Vec, c: Vec, d: Vec): number {
   if (segmentsIntersect(a, b, c, d)) return 0
   return Math.sqrt(Math.min(pointSegDist2(a, c, d), pointSegDist2(b, c, d), pointSegDist2(c, a, b), pointSegDist2(d, a, b)))
 }
 
 /** 볼록 사각형 quad가 ring 안에 완전히 들어가고 경계에서 margin 이상 떨어져 있는지 */
-export function quadFitsInRing(quad: Vec[], ring: Vec[], margin: number): boolean {
+export function quadFitsInRing(quad: Vec[], ring: Vec[], margin: number | readonly number[]): boolean {
   for (const p of quad) if (!pointInRing(p, ring)) return false
   for (let i = 0; i < ring.length - 1; i++) {
     const a = ring[i]
     const b = ring[i + 1]
+    // 변마다 다른 이격을 주면 i번째 변(ring[i] → ring[i + 1])에 margin[i]를 쓴다
+    const m = typeof margin === 'number' ? margin : margin[i]
     for (let k = 0; k < 4; k++) {
-      if (segSegDist(quad[k], quad[(k + 1) % 4], a, b) < margin) return false
+      if (segSegDist(quad[k], quad[(k + 1) % 4], a, b) < m) return false
     }
   }
   return true

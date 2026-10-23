@@ -44,15 +44,18 @@ export interface FlyTarget {
 
 /**
  * draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기,
- * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기
+ * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기,
+ * place: 좌표 없는 도면 놓기, edge: 경계 이격을 따로 줄 필지 변 고르기
  */
-export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole' | 'place'
+export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole' | 'place' | 'edge'
 
 /** 입지검토 표시: 주변 도로·구거 지번(고른 것은 진하게)과 전주 */
 export type MapMark =
   | { kind: 'road'; rings: number[][][]; label: string; on: boolean }
   | { kind: 'pole'; at: [number, number]; label: string }
   | { kind: 'pad'; rings: number[][][]; label: string }
+  /** 필지 변(경계 이격을 따로 준 변, 고른 변) */
+  | { kind: 'edge'; line: number[][]; label: string; on: boolean }
 
 interface Props {
   vworldKey: string
@@ -129,6 +132,12 @@ const markStyle = (f: FeatureLike): Style => {
   })
   if (f.get('kind') === 'pole')
     return new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#fa5252' }), stroke: new Stroke({ color: '#fff', width: 2 }) }), text: label })
+  if (f.get('kind') === 'edge') {
+    label.getStroke()?.setColor(on ? '#ae3ec9' : '#862e9c')
+    label.setPlacement('line')
+    label.setOffsetY(-12)
+    return new Style({ stroke: new Stroke({ color: on ? '#da77f2' : '#ae3ec9', width: on ? 6 : 4, lineDash: on ? undefined : [8, 5] }), text: label })
+  }
   if (f.get('kind') === 'pad') {
     label.getStroke()?.setColor('#1c7ed6')
     return new Style({ stroke: new Stroke({ color: '#1c7ed6', width: 2 }), fill: new Fill({ color: 'rgba(28, 126, 214, 0.35)' }), text: label })
@@ -303,7 +312,10 @@ export default function MapView(props: Props) {
     map.on('pointermove', (e) => {
       if (e.dragging) return
       const p = latest.current
-      const onPad = !!p.onPadMove && (p.tool === 'none' || p.tool === 'select') && map.hasFeatureAtPixel(e.pixel, { layerFilter: (l) => l === markLayer })
+      const onPad =
+        !!p.onPadMove &&
+        (p.tool === 'none' || p.tool === 'select') &&
+        !!map.forEachFeatureAtPixel(e.pixel, (f) => f.get('kind') === 'pad' || undefined, { layerFilter: (l) => l === markLayer })
       map.getTargetElement()?.classList.toggle('pad-hover', onPad)
     })
     map.on('singleclick', (e) => {
@@ -378,8 +390,13 @@ export default function MapView(props: Props) {
     const src = markSource.current
     src.clear()
     for (const m of marks ?? []) {
-      const geom = m.kind === 'pole' ? new Point(fromLonLat(m.at)) : new MultiPolygon(m.rings.map((r) => [r])).transform('EPSG:4326', 'EPSG:3857')
-      src.addFeature(new Feature({ geometry: geom, kind: m.kind, label: m.label, on: m.kind === 'road' && m.on }))
+      const geom =
+        m.kind === 'pole'
+          ? new Point(fromLonLat(m.at))
+          : m.kind === 'edge'
+            ? new LineString(m.line.map((c) => fromLonLat(c)))
+            : new MultiPolygon(m.rings.map((r) => [r])).transform('EPSG:4326', 'EPSG:3857')
+      src.addFeature(new Feature({ geometry: geom, kind: m.kind, label: m.label, on: (m.kind === 'road' || m.kind === 'edge') && m.on }))
     }
   }, [marks])
 
