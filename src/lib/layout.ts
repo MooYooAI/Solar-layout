@@ -24,6 +24,8 @@ export interface LayoutParams {
   rowSpacing: number
   /** 필지 경계로부터 이격거리(m) */
   boundarySetback: number
+  /** 변마다 따로 정한 경계 이격. 정하지 않은 변은 boundarySetback을 쓴다. */
+  edgeSetbacks?: EdgeSetback[]
   /** 경사각(도) */
   tilt: number
   /** 세트가 바라보는 방향(도). 남 0, 서 +, 동 − */
@@ -33,6 +35,37 @@ export interface LayoutParams {
   /** 구조물(래킹) 방식: 지형 허용 경사와 토공, 구조물 단가가 달라진다 */
   racking: RackingType
 }
+
+/** 한 변의 경계 이격. 변은 가운데 점(경위도)으로 찾아 필지 링 순서가 바뀌어도 같은 변에 붙는다. */
+export interface EdgeSetback {
+  mid: [number, number]
+  m: number
+}
+
+/** 같은 변으로 보는 가운데 점 거리(m) */
+const EDGE_MATCH_M = 0.5
+
+/** 경위도 링의 변 가운데 점 */
+export const edgeMid = (a: number[], b: number[]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+
+const sameEdge = (a: number[], b: number[]) => {
+  const [x, y] = new LocalFrame(a[0], a[1]).toLocal(b)
+  return Math.hypot(x, y) <= EDGE_MATCH_M
+}
+
+/** 가운데 점이 mid인 변에 따로 정한 이격(m). 없으면 null. */
+export const edgeSetbackAt = (p: LayoutParams, mid: number[]): number | null =>
+  p.edgeSetbacks?.find((e) => sameEdge(e.mid, mid))?.m ?? null
+
+/** 가운데 점이 mid인 변의 이격을 m으로 정한다. null이면 따로 정한 값을 지워 경계 이격을 따르게 한다. */
+export function withEdgeSetback(p: LayoutParams, mid: [number, number], m: number | null): LayoutParams {
+  const rest = (p.edgeSetbacks ?? []).filter((e) => !sameEdge(e.mid, mid))
+  return { ...p, edgeSetbacks: m === null ? rest : [...rest, { mid, m }] }
+}
+
+/** 경위도 링 변마다의 이격(m). i번째 값은 ring[i] → ring[i + 1] 변. */
+export const ringMargins = (ring: number[][], p: LayoutParams): number[] =>
+  ring.slice(0, -1).map((a, i) => (p.edgeSetbacks?.length ? edgeSetbackAt(p, edgeMid(a, ring[i + 1])) : null) ?? p.boundarySetback)
 
 /** 기본 모듈: 한화큐셀 Q.TRON XL-G2.3/BFG 640 (catalog.ts의 qcells-qtron-xl-640) */
 export const DEFAULT_PARAMS: LayoutParams = {
@@ -171,17 +204,19 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
   const toFrame = (q: Vec[]) => q.map((v) => rotate(v, r))
   const keep = (o.keepOut ?? []).filter((k) => k.length >= 3).map((k) => convexHull(k.map((c) => frame.toLocal(c))))
 
-  for (const ring of rings) {
+  rings.forEach((ring, ri) => {
+    const margins = ringMargins(parcel.rings[ri], p)
+    const edge = margins.length ? Math.min(...margins) : p.boundarySetback
     const xs = ring.map((v) => v[0])
     const ys = ring.map((v) => v[1])
     const [minX, maxX] = [Math.min(...xs), Math.max(...xs)]
     const [minY, maxY] = [Math.min(...ys), Math.max(...ys)]
-    for (let cy = minY + p.boundarySetback + g.depth / 2 + rowOffset; cy + g.depth / 2 <= maxY; cy += rowPitch) {
-      let cx = minX + p.boundarySetback + g.width / 2
+    for (let cy = minY + edge + g.depth / 2 + rowOffset; cy + g.depth / 2 <= maxY; cy += rowPitch) {
+      let cx = minX + edge + g.width / 2
       while (cx + g.width / 2 <= maxX) {
         const quad = setQuadLocal([cx, cy], 0, g)
         const ok =
-          quadFitsInRing(quad, ring, p.boundarySetback) &&
+          quadFitsInRing(quad, ring, margins) &&
           !blocked?.(cx, cy, r) &&
           (!o.accept || o.accept(toFrame(quad))) &&
           (!keep.length || !keep.some((k) => convexOverlap(toFrame(quad), k))) &&
@@ -196,7 +231,7 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
         }
       }
     }
-  }
+  })
   return out
 }
 

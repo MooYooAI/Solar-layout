@@ -27,6 +27,18 @@ interface Props {
     onFind: () => void
     onReset: () => void
   }
+  /** 변마다 따로 정하는 경계 이격 */
+  edges: {
+    /** 지도에서 변을 고르는 중인지 */
+    picking: boolean
+    onPick: () => void
+    /** 고른 변의 길이(m)와 따로 정한 이격(없으면 null) */
+    selected: { length: number; m: number | null } | null
+    onSet: (m: number | null) => void
+    /** 이격을 따로 정한 변 수 */
+    count: number
+    onClear: () => void
+  }
 }
 
 /** 자동 배치 방식: 한 방향 격자, 또는 구역별 방위각(zones.ts) */
@@ -182,6 +194,40 @@ export default function LayoutPanel(props: Props) {
           </p>
         )}
         <p className="hint">세트 간격은 같은 열에서 옆 세트와의 거리, 열 이격거리는 앞 세트 뒤끝부터 뒷 세트 앞끝까지입니다.</p>
+        <div className="edge-tools">
+          <div className="row">
+            <button type="button" className={props.edges.picking ? '' : 'secondary'} disabled={!props.canLayout} onClick={props.edges.onPick}>
+              {props.edges.picking ? '변 고르기 끝' : '변마다 경계 이격 정하기'}
+            </button>
+            {props.edges.count > 0 && (
+              <button type="button" className="link" onClick={props.edges.onClear}>
+                모두 지우기
+              </button>
+            )}
+          </div>
+          {props.edges.picking && !props.edges.selected && <p className="hint">지도에서 이격을 따로 줄 경계 변을 클릭하세요.</p>}
+          {props.edges.selected && (
+            <div className="edge-pick">
+              <Field
+                label={`고른 변 (길이 ${fmt(props.edges.selected.length, 1)} m)`}
+                unit="m"
+                value={props.edges.selected.m ?? p.boundarySetback}
+                step={0.5}
+                onChange={(v) => props.edges.onSet(v)}
+              />
+              {props.edges.selected.m !== null && (
+                <button type="button" className="link" onClick={() => props.edges.onSet(null)}>
+                  경계 이격({fmt(p.boundarySetback, 1)} m)으로 되돌리기
+                </button>
+              )}
+            </div>
+          )}
+          <p className="hint">
+            {props.edges.count > 0
+              ? `${props.edges.count}개 변에 이격을 따로 정했습니다. 나머지 변은 경계 이격 ${fmt(p.boundarySetback, 1)} m를 씁니다.`
+              : '도로 쪽처럼 한 변만 더 띄우려면 지도에서 그 변을 골라 거리를 넣으세요.'}
+          </p>
+        </div>
         <div className="row" style={{ margin: '8px 0' }}>
           <button type="button" className="secondary" disabled={isContinuous(p)} onClick={() => onParams(continuousParams(p))}>
             {isContinuous(p) ? '연속 배열 사용 중' : '줄 잇기(연속 배열)'}

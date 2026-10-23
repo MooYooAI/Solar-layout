@@ -247,7 +247,7 @@ button.block { width: 100%; margin-top: 12px; height: 38px; }
 .field em { position: absolute; right: 10px; bottom: 9px; font-style: normal; font-size: 12px; color: var(--muted); pointer-events: none; }
 .field.inline { display: block; }
 
-.map.tool-add, .map.tool-obstacle, .map.tool-rect { cursor: crosshair; }
+.map.tool-add, .map.tool-obstacle, .map.tool-rect, .map.tool-edge, .map.tool-place, .map.tool-pole { cursor: crosshair; }
 .time-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .time-row input[type='range'] { flex: 1; accent-color: var(--accent); }
 .time-row button { width: 36px; padding: 0; }
@@ -1253,4 +1253,7 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .file-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .file-pick:focus-within { box-shadow: var(--focus); }
 .pad-tools { display: grid; gap: 4px; margin: 4px 0 8px 22px; }
+.edge-tools { display: grid; gap: 4px; margin: 8px 0; }
+.edge-pick { display: grid; gap: 2px; justify-items: start; }
+.edge-pick .field { width: 100%; }
 .map.pad-hover { cursor: move; }

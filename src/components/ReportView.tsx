@@ -494,7 +494,7 @@ export default function ReportView(props: Props) {
             rows={[
               ['모듈', `${p.moduleLength}×${p.moduleWidth} mm, ${p.moduleWatt} W, ${p.portrait ? '세로' : '가로'} 배치`],
               ['세트 구성', `${p.setCols}열 × ${p.setRows}단 (${props.geometry.modules}장, ${fmt(props.geometry.width, 1)}×${fmt(props.geometry.depth, 1)} m)`],
-              ['간격', `패널 ${p.moduleGap} mm, 세트 ${p.setGap} mm, 열 이격 ${p.rowSpacing} m, 경계 이격 ${p.boundarySetback} m`],
+              ['간격', `패널 ${p.moduleGap} mm, 세트 ${p.setGap} mm, 열 이격 ${p.rowSpacing} m, 경계 이격 ${p.boundarySetback} m${p.edgeSetbacks?.length ? ` (변별 ${p.edgeSetbacks.map((e) => `${e.m} m`).join(', ')})` : ''}`],
               props.suggestedRowSpacing !== null && ['동지 무음영 이격', `${fmt(props.suggestedRowSpacing, 2)} m (9~15시 기준)`],
             ]}
           />

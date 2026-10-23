@@ -5,20 +5,23 @@ import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 // 3D 지도(MapLibre)는 무거워서 처음 3D로 볼 때 따로 읽는다.
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
-const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea'])
+const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea', 'edge'])
 import { getBuildingsInBox, getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SITE_KINDS, siteKindLabel, SQM_PER_PYEONG, type Parcel, type SiteKind } from './lib/parcel'
 import {
   autoLayout,
   DEFAULT_PARAMS,
+  edgeMid,
+  edgeSetbackAt,
   layoutStats,
   newSetId,
   setGeometry,
+  withEdgeSetback,
   type LayoutParams,
   type ModuleSet,
 } from './lib/layout'
 import { dayOfYear, declination, kstToSolar, rowSpacingForNoShade, solarToKst, sunriseSunsetSolar } from './lib/sun'
-import { deg2rad, LocalFrame, pointInRing, rotate, type Vec } from './lib/geo'
+import { deg2rad, LocalFrame, pointInRing, pointSegDist, rotate, type Vec } from './lib/geo'
 import ShadePanel from './components/ShadePanel'
 import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
@@ -560,7 +563,45 @@ export default function App() {
       setDxfError((e as Error).message)
     }
   }
+  // 경계 이격을 따로 줄 부지 변(지도에서 고른 것). 부지가 바뀌면 버린다.
+  const [edgePick, setEdgePick] = useState<{ for: Parcel; a: number[]; b: number[] } | null>(null)
+  const pickedEdge = edgePick && edgePick.for === parcel ? edgePick : null
+  /** 클릭한 자리에서 20 m 안의 가장 가까운 부지 변을 고른다 */
+  const pickEdge = (lon: number, lat: number) => {
+    if (!parcel) return
+    const f = new LocalFrame(lon, lat)
+    let best: { a: number[]; b: number[]; d: number } | null = null
+    for (const ring of parcel.rings)
+      for (let i = 0; i + 1 < ring.length; i++) {
+        const d = pointSegDist([0, 0], f.toLocal(ring[i]), f.toLocal(ring[i + 1]))
+        if (d <= 20 && (!best || d < best.d)) best = { a: ring[i], b: ring[i + 1], d }
+      }
+    if (best) setEdgePick({ for: parcel, a: best.a, b: best.b })
+  }
+  const setEdgeSetback = (m: number | null) => {
+    if (pickedEdge) updateParams(withEdgeSetback(params, edgeMid(pickedEdge.a, pickedEdge.b), m))
+  }
+  // 부지가 바뀌면 그 부지에 없는 변의 이격은 버린다(보고서·저장에 남지 않게).
+  useEffect(() => {
+    if (!parcel) return
+    setParams((p) => {
+      if (!p.edgeSetbacks?.length) return p
+      const mids = parcel.rings.flatMap((ring) => ring.slice(0, -1).map((a, i) => edgeMid(a, ring[i + 1])))
+      const kept = p.edgeSetbacks.filter((e) => mids.some((m) => edgeSetbackAt({ ...p, edgeSetbacks: [e] }, m) !== null))
+      return kept.length === p.edgeSetbacks.length ? p : { ...p, edgeSetbacks: kept }
+    })
+  }, [parcel])
+  // 지금 부지의 변 가운데 따로 이격을 정한 변 수
+  const edgeOwnCount = useMemo(
+    () =>
+      !parcel || !params.edgeSetbacks?.length
+        ? 0
+        : parcel.rings.reduce((n, ring) => n + ring.slice(0, -1).filter((a, i) => edgeSetbackAt(params, edgeMid(a, ring[i + 1])) !== null).length, 0),
+    [parcel, params],
+  )
+
   const onMapClick = (lon: number, lat: number) => {
+    if (tool === 'edge') return pickEdge(lon, lat)
     if (tool === 'rect') return placeRect(lon, lat)
     if (tool === 'place') return applyDxf([lon, lat])
     if (tool === 'pole') {
@@ -1677,13 +1718,27 @@ export default function App() {
   const { pole, poleNo } = siteCheck.grid
   const mapMarks: MapMark[] = useMemo(() => {
     const pad: MapMark[] = equipPad ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '저압반' }] : []
+    if (tab === 'layout' && parcel) {
+      // 이격을 따로 정한 변과 고른 변. 변을 고르는 중에는 모든 변을 보여 준다.
+      const edges = parcel.rings.flatMap((ring) =>
+        ring.slice(0, -1).flatMap((a, i): MapMark[] => {
+          const b = ring[i + 1]
+          const own = params.edgeSetbacks?.length ? edgeSetbackAt(params, edgeMid(a, b)) : null
+          const on = pickedEdge?.a === a && pickedEdge.b === b
+          if (own === null && !on && tool !== 'edge') return []
+          const label = own !== null || on ? `이격 ${fmt(own ?? params.boundarySetback, 1)} m` : ''
+          return [{ kind: 'edge', line: [a, b], label, on }]
+        }),
+      )
+      if (edges.length) return [...pad, ...edges]
+    }
     if (tab !== 'review') return pad.length ? pad : NO_MARKS
     return [
       ...pad,
       ...(roads ?? []).map((r) => ({ kind: 'road' as const, rings: r.rings, label: r.label, on: picked.includes(r.pnu) })),
       ...(pole ? [{ kind: 'pole' as const, at: pole, label: poleNo || '전주' }] : []),
     ]
-  }, [tab, roads, picked, pole, poleNo, equipPad])
+  }, [tab, roads, picked, pole, poleNo, equipPad, parcel, params, pickedEdge, tool])
 
   const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
@@ -1862,6 +1917,25 @@ export default function App() {
               moved: !!padMove,
               onFind: () => void findBestPad(),
               onReset: resetPad,
+            }}
+            edges={{
+              picking: tool === 'edge',
+              onPick: () => {
+                if (tool === 'edge') setEdgePick(null)
+                setTool(tool === 'edge' ? 'none' : 'edge')
+              },
+              selected: pickedEdge
+                ? {
+                    length: Math.hypot(...new LocalFrame(pickedEdge.a[0], pickedEdge.a[1]).toLocal(pickedEdge.b)),
+                    m: edgeSetbackAt(params, edgeMid(pickedEdge.a, pickedEdge.b)),
+                  }
+                : null,
+              onSet: setEdgeSetback,
+              count: edgeOwnCount,
+              onClear: () => {
+                updateParams({ ...params, edgeSetbacks: [] })
+                setEdgePick(null)
+              },
             }}
           />
         )}
