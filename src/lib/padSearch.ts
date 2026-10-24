@@ -11,6 +11,8 @@ export interface PadSearchInput extends Omit<DesignInput, 'sets' | 'switchboard'
   params: LayoutParams
   /** 'grid'면 한 방향 배치, 아니면 구역별 배치 방식 */
   layoutMode: ZoneMode | 'grid'
+  /** 열 시작 위치를 민 거리(m) */
+  rowOffset: number
   mask: BuildMask | null
   /** 사용자 장애물 바닥(전기실 제외) */
   keepOut: number[][][]
@@ -33,7 +35,7 @@ export function scorePad(i: PadSearchInput, pad: EquipPad): PadScore {
   const keepOut = [...i.keepOut, pad.keepOut]
   const p = i.params
   const sets =
-    (i.layoutMode === 'grid' ? null : zonedLayout(i.parcel, p, { mode: i.layoutMode, mask: i.mask, keepOut })) ?? autoLayout(i.parcel, p, 0, i.mask, keepOut)
+    (i.layoutMode === 'grid' ? null : zonedLayout(i.parcel, p, { mode: i.layoutMode, rowOffset: i.rowOffset, mask: i.mask, keepOut })) ?? autoLayout(i.parcel, p, i.rowOffset, i.mask, keepOut)
   const r = evaluateDesign(
     {
       ...i,

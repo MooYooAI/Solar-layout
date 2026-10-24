@@ -204,6 +204,9 @@ export default function App() {
   const [tempOn, setTempOn] = useState(true)
   const [tempCoeff, setTempCoeff] = useState(DEFAULT_TEMP_COEFF)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('grid')
+  // 열 시작 위치를 민 거리(m). AI 안은 열을 밀어 더 많이 들어가는 자리를 찾으므로, 적용한 안의 값을 다시 배치에도 쓴다.
+  // 필지가 바뀌면 0으로 돌아간다.
+  const [offsetAt, setOffsetAt] = useState<{ parcel: Parcel; v: number } | null>(null)
   // 'auto'면 필지에서 가장 가까운 권역
   const [stationId, setStationId] = useState('auto')
   const [withShade, setWithShade] = useState(true)
@@ -723,6 +726,7 @@ export default function App() {
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
   const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' | 'ai' } | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
+  const layoutOffset = offsetAt && offsetAt.parcel === parcel ? offsetAt.v : 0
   // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
   const planKW = sets.length ? (sets.length * setGeometry(params).watt) / 1000 : estimateKW(area)
   const padKind = padKindFor(planKW)
@@ -780,7 +784,7 @@ export default function App() {
     { busy: true; done: number; total: number } | { busy: false; best: PadScore; current: PadScore | null; count: number } | { busy: false; error: string } | null
   >(null)
   const padSearchInput = (p: LayoutParams, m: BuildMask | null): PadSearchInput | null =>
-    parcel ? { parcel, params: p, obstacles, keepOut: obstacles.map((o) => o.ring), layoutMode, mask: m, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon } : null
+    parcel ? { parcel, params: p, obstacles, keepOut: obstacles.map((o) => o.ring), layoutMode, rowOffset: layoutOffset, mask: m, performanceRatio, temperature, elec, costs, econ, grid: elevGrid, horizon } : null
   /** 경계 둘레 후보와 지금 자리를 견줘 NPV가 가장 큰 자리를 고른다. */
   const searchPad = async (p: LayoutParams, m: BuildMask | null, onProgress?: (done: number, total: number) => void) => {
     const input = padSearchInput(p, m)
@@ -1052,13 +1056,14 @@ export default function App() {
     setOptRun(null)
   }
 
-  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[], mode?: LayoutMode) => {
+  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[], mode?: LayoutMode, rowOffset = 0) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     if (!unlock()) return
     mark('AI 설계 적용')
     setParams(nextParams)
     // 나중에 다시 배치해도 이 안의 배치 방식(한 방향·구역별·빈자리 채우기)을 그대로 쓴다.
     if (mode) setLayoutMode(mode)
+    if (parcel) setOffsetAt({ parcel, v: rowOffset })
     setLayoutBasis(nextParams)
     editSets(nextSets)
     // 배치와 함께 인버터까지 잡아 두어 기본설계에서 자동 설계를 다시 돌리지 않아도 되게 한다.
@@ -1109,7 +1114,7 @@ export default function App() {
 
   /** 자동 배치. 확정 상태를 풀고 새 배치를 넣으면 그 배치를 돌려준다(취소하면 null). */
   const layoutWith = (p: LayoutParams) =>
-    parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, mask, keepOut })) ?? autoLayout(parcel, p, 0, mask, keepOut)) : []
+    parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, rowOffset: layoutOffset, mask, keepOut })) ?? autoLayout(parcel, p, layoutOffset, mask, keepOut)) : []
   const placeSets = (label: string, p: LayoutParams = params): ModuleSet[] | null => {
     if (!parcel) return null
     if (sets.length && !window.confirm('현재 배치를 지우고 바꾼 값으로 다시 배치할까요?')) return null
@@ -1149,7 +1154,7 @@ export default function App() {
       return { key, label, basis, spacing, shadeAngle: shadeAngle({ ...params, rowSpacing: spacing }), sets: n, kWp: (n * geometry.watt) / 1000 }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, parcel, optResults, params, geometry, mask, layoutMode, keepOut])
+  }, [tab, parcel, optResults, params, geometry, mask, layoutMode, layoutOffset, keepOut])
 
   /**
    * 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
@@ -1387,7 +1392,7 @@ export default function App() {
     if (!design) return
     const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
     if (name === null) return
-    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics, layoutMode }])
+    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics, layoutMode, rowOffset: layoutOffset }])
   }
 
   // ── 프로젝트 저장·불러오기: 지금은 이 브라우저에, 로그인이 생기면 projectStore만 바꾼다. ──
@@ -1399,6 +1404,7 @@ export default function App() {
           sets,
           obstacles,
           layoutMode,
+          layoutOffset,
           elec,
           costs,
           econ,
@@ -1450,6 +1456,7 @@ export default function App() {
     setSets([...d.sets])
     setObstacles([...d.obstacles])
     if (d.layoutMode) setLayoutMode(d.layoutMode as LayoutMode)
+    setOffsetAt({ parcel: d.parcel, v: d.layoutOffset ?? 0 })
     if (d.elec) setElec({ ...DEFAULT_ELEC, ...d.elec })
     if (d.costs) setCosts({ ...DEFAULT_COSTS, ...d.costs, racking: { ...DEFAULT_COSTS.racking, ...d.costs.racking } })
     if (d.econ) setEcon({ ...DEFAULT_ECON, ...d.econ })
@@ -1510,7 +1517,7 @@ export default function App() {
     return () => clearTimeout(id)
     // 저장할 값이 바뀔 때만 저장한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parcel, params, sets, obstacles, layoutMode, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, plant, siteCheck, projectId])
+  }, [parcel, params, sets, obstacles, layoutMode, layoutOffset, elec, costs, econ, econHours, performanceRatio, tempOn, tempCoeff, stationId, withShade, buildOptions, useMask, gradingMode, maxDesignSlope, scenarios, versions, confirmedId, permits, plant, siteCheck, projectId])
 
   // ── 설계 확정 ──
   const confirmDesign = () => {
