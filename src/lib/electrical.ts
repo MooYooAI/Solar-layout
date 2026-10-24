@@ -31,13 +31,13 @@ export interface ElecParams {
   dcCableMm2: number
 }
 
-/** 모듈 전기 값은 기본 모듈(한화큐셀 Q.TRON XL-G2.3/BFG 640) 데이터시트 STC 값 */
+/** 모듈 전기 값은 기본 모듈(한화큐셀 Q.TRON XL-G2R.9/BFG HJ 650) STC 값. 같은 시리즈 데이터시트로 어림한 값이다(catalog.ts). */
 export const DEFAULT_ELEC: ElecParams = {
-  voc: 57.79,
-  vmp: 48.28,
-  isc: 13.99,
-  imp: 13.26,
-  betaVoc: -0.24,
+  voc: 56.98,
+  vmp: 48.97,
+  isc: 13.87,
+  imp: 13.28,
+  betaVoc: -0.25,
   gammaPmax: -0.29,
   inverterId: 'i50',
   inverterKW: 50,
