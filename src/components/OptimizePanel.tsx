@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { STRATEGIES, type Candidate, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
-import { RACKING } from '../lib/catalog'
+import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
 import { azimuthMix, type ZoneMode } from '../lib/zones'
 
 /** 비교 목록에 저장한 배치안 */
@@ -33,6 +33,8 @@ interface Props {
   onRemoveScenario: (id: string) => void
   maskActive: boolean
   hasGrid: boolean
+  /** 인버터를 고를 때 쓰는 목표 DC/AC 비율 */
+  dcAcRatio: number
   /** 수배전반·전기실 자리를 어떻게 잡는지. 자리를 비우지 않으면 null */
   padNote: string | null
   /** 후보 아래에 덧붙이는 참고 카드(표준·권장 설계용량) */
@@ -42,6 +44,9 @@ interface Props {
 const fmt = (n: number, d = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d })
 const eok = (manwon: number) => fmt(manwon / 10000, 2)
 const pct = (v: number | null) => (v === null ? '-' : `${fmt(v * 100, 1)}%`)
+/** 카드에 적는 모듈 이름: 제조사 모델명, 없으면 일반 규격 */
+const moduleLabel = (p: LayoutParams) => moduleName(findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)) ?? `일반 규격 ${p.moduleLength}×${p.moduleWidth} mm`
+const inverterLabel = (id: string) => INVERTERS.find((i) => i.id === id)?.label ?? id
 const az = (a: number) => (a === 0 ? '정남' : `${a > 0 ? '서' : '동'} ${Math.abs(a)}°`)
 /** 추천 배치안: 효율을 지키면서 발전량이 가장 많은 균형 안 */
 const RECOMMENDED: Strategy = 'balanced'
@@ -84,6 +89,7 @@ export default function OptimizePanel(props: Props) {
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
           <li>{props.hasGrid ? '배치마다 세트 자리 토공량을 계산합니다.' : '지형을 불러오지 않아 토공량은 빠집니다.'}</li>
+          <li>모듈은 기본설계에서 고른 모듈로 계산하고, 인버터는 안마다 용량에 맞춰 고릅니다(목표 DC/AC {fmt(props.dcAcRatio, 2)}).</li>
           {props.padNote && <li>{props.padNote}</li>}
         </ul>
         {props.running ? (
@@ -129,6 +135,14 @@ export default function OptimizePanel(props: Props) {
             <dt>설비용량</dt>
             <dd>
               DC {fmt(c.metrics.kWp, 1)} kWp · AC {fmt(c.metrics.kWac)} kW ({fmt(c.metrics.modules)}장)
+            </dd>
+            <dt>모듈</dt>
+            <dd>
+              {moduleLabel(c.params)} · {fmt(c.params.moduleWatt)} W × {fmt(c.metrics.modules)}장
+            </dd>
+            <dt>인버터</dt>
+            <dd>
+              {inverterLabel(c.inverterId)} × {fmt(c.metrics.inverters)}대
             </dd>
             <dt>세트 구성</dt>
             <dd>
