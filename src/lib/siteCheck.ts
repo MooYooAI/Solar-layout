@@ -353,6 +353,41 @@ export function nearbyRoads(
     .slice(0, limit)
 }
 
+/** 수배전반 기준으로 삼을 도로까지의 거리 한도(m). 사이에 구거·좁은 땅이 낀 정도까지 본다. */
+const ROAD_ANCHOR_REACH = 20
+
+/**
+ * 전주 위치를 모를 때 수배전반을 붙일 기준점. 배전선로는 대개 도로를 따라가고 한전 계량·유지보수도 도로에서 드나들므로
+ * 고른 도로(없으면 가까운 도로 중 접면이 가장 긴 것, 접면이 없으면 가장 가까운 것)에서 부지 가운데에 가장 가까운 점을 쓴다.
+ * 가까운 도로가 없으면 null.
+ */
+export function roadAnchor(site: number[][][], cands: RoadCandidate[], picked: string[]): Vec | null {
+  const chosen = cands.filter((c) => picked.includes(c.pnu))
+  const near = cands.filter((c) => c.kind === '도로' && c.distance <= ROAD_ANCHOR_REACH)
+  const pool = chosen.length ? chosen : near
+  if (!pool.length) return null
+  const road = pool.reduce((b, c) => (c.frontage > b.frontage || (c.frontage === b.frontage && c.distance < b.distance) ? c : b))
+  const frame = LocalFrame.around(site)
+  const pts = site.flatMap((ring) => ring.slice(0, -1)).map((p) => frame.toLocal(p))
+  const center: Vec = [pts.reduce((t, p) => t + p[0], 0) / pts.length, pts.reduce((t, p) => t + p[1], 0) / pts.length]
+  let best: Vec | null = null
+  let bestD = Infinity
+  for (const ring of road.rings) {
+    const r = ring.map((p) => frame.toLocal(p))
+    for (let i = 0; i < r.length - 1; i++) {
+      const [a, b] = [r[i], r[i + 1]]
+      const dx = b[0] - a[0]
+      const dy = b[1] - a[1]
+      const len2 = dx * dx + dy * dy
+      const t = len2 ? Math.max(0, Math.min(1, ((center[0] - a[0]) * dx + (center[1] - a[1]) * dy) / len2)) : 0
+      const q: Vec = [a[0] + dx * t, a[1] + dy * t]
+      const d = Math.hypot(q[0] - center[0], q[1] - center[1])
+      if (d < bestD) [best, bestD] = [q, d]
+    }
+  }
+  return best && frame.toLonLat(best)
+}
+
 /** 고른 도로들로 진입로 값을 채운다: 거리는 가장 가까운 것, 폭은 그중 가장 넓은 것, 접면 길이는 합 */
 export function roadFromPicked(cands: RoadCandidate[], picked: string[]): Pick<RoadCheck, 'gap' | 'width' | 'frontage'> | null {
   const sel = cands.filter((c) => picked.includes(c.pnu))
