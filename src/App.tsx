@@ -169,6 +169,8 @@ const SITE_NEXT: Partial<Record<Tab, Tab>> = { parcel: 'review', terrain: 'revie
 /** 수배전반 자리를 지도에 그리지 않는 현장정보 탭 */
 const SITE_INFO_TABS = new Set<Tab>(['parcel', 'terrain', 'review'])
 const PAD_NAME: Record<PadKind, string> = { LV: '수배전반', MV: '전기실' }
+/** 옮긴 수배전반 자리: 직접 끌어 옮김, 최적 자리 찾기, AI 가설계 */
+type PadAt = { parcel: Parcel; at: Vec; how: 'manual' | 'optimal' | 'ai' }
 
 export default function App() {
   const vworldKey = VWORLD_KEY
@@ -214,6 +216,9 @@ export default function App() {
   const [energyBusy, setEnergyBusy] = useState(false)
   const [optRun, setOptRun] = useState<{ cancel: () => void } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
+  // AI 안·저장한 안을 계산할 때 둔 수배전반 자리(배치 → 자리). 적용할 때 그 자리로 되돌린다.
+  const padForSets = useRef(new WeakMap<ModuleSet[], PadAt | null>())
+  const [optPad, setOptPad] = useState<PadAt | null>(null)
   const [optError, setOptError] = useState<string | null>(null)
   // 분석 화면용: 시작 시각과 실제 계산이 끝났는지
   const [optStartedAt, setOptStartedAt] = useState(0)
@@ -724,7 +729,7 @@ export default function App() {
   )
   const padAnchor = gridPole ?? padRoad
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
-  const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' | 'ai' } | null>(null)
+  const [padAt, setPadAt] = useState<PadAt | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
   const layoutOffset = offsetAt && offsetAt.parcel === parcel ? offsetAt.v : 0
   // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
@@ -1007,13 +1012,15 @@ export default function App() {
     }
     // 전기실을 손으로 옮기지 않았으면 먼저 지금 설정에서 가장 좋은 전기실 자리를 고른다.
     let site = { obstacles: siteObstacles, keepOut, switchboard: switchboardAt }
+    let usedPad = padMove
     if (reservePad && padMove?.how !== 'manual') {
       const r = await searchPad(params, useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
       if (activeRun.current !== pending) return
       if (r) {
         site = padSite(r.best.pad)
         setPadSearch({ busy: false, ...r })
-        setPadAt({ parcel, at: r.best.pad.center, how: 'ai' })
+        usedPad = { parcel, at: r.best.pad.center, how: 'ai' }
+        setPadAt(usedPad)
       }
     }
     const input: OptimizeInput = {
@@ -1045,7 +1052,12 @@ export default function App() {
       }, Math.max(0, minMs - (performance.now() - started)))
     }
     run.promise.then(
-      (results) => finish(() => setOptResults(results)),
+      (results) =>
+        finish(() => {
+          for (const c of results) padForSets.current.set(c.sets, usedPad)
+          setOptPad(usedPad)
+          setOptResults(results)
+        }),
       (e: Error) => finish(() => setOptError(e.message)),
     )
   }
@@ -1060,6 +1072,15 @@ export default function App() {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     if (!unlock()) return
     mark('AI 설계 적용')
+    // 이 안을 계산할 때 둔 수배전반 자리로 되돌린다. 그 뒤에 옮겼으면 옮긴 자리가 모듈과 겹친다.
+    if (padForSets.current.has(nextSets)) {
+      const pad = padForSets.current.get(nextSets)!
+      if (pad !== padMove) {
+        relayoutForPad.current = false
+        setPadAt(pad)
+        if (pad?.how !== 'ai') setPadSearch(null)
+      }
+    }
     setParams(nextParams)
     // 나중에 다시 배치해도 이 안의 배치 방식(한 방향·구역별·빈자리 채우기)을 그대로 쓴다.
     if (mode) setLayoutMode(mode)
@@ -1388,6 +1409,7 @@ export default function App() {
     if (!design) return
     const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
     if (name === null) return
+    padForSets.current.set(sets, padMove)
     setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics, layoutMode, rowOffset: layoutOffset }])
   }
 
@@ -2205,7 +2227,9 @@ export default function App() {
             padNote={
               !reservePad
                 ? null
-                : padMove?.how === 'manual'
+                : optResults?.length && optPad !== padMove
+                  ? `AI 안은 ${PAD_NAME[padKind]}을 옮기기 전 자리에 둔 기준입니다. 안을 적용하면 ${PAD_NAME[padKind]}도 그 자리로 돌아갑니다. 옮긴 자리로 계산하려면 배치안 생성을 다시 누르세요.`
+                  : padMove?.how === 'manual'
                   ? `${PAD_NAME[padKind]}은 직접 옮긴 자리를 그대로 씁니다.`
                   : `${PAD_NAME[padKind]} 자리도 후보 자리를 비교해 가장 좋은 곳에 같이 넣습니다.`
             }
