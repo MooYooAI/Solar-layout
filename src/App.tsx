@@ -17,6 +17,7 @@ import {
   newSetId,
   setGeometry,
   setQuadLonLat,
+  shadeAngle,
   withEdgeSetback,
   type LayoutParams,
   type ModuleSet,
@@ -1134,7 +1135,7 @@ export default function App() {
     const rows = opts.map(([key, label, basis, from, to]) => {
       const spacing = Math.ceil(rowSpacingForNoShade(lat0, h, params.azimuth, from, to) * 10) / 10
       const n = layoutWith({ ...params, rowSpacing: spacing }).length
-      return { key, label, basis, spacing, sets: n, kWp: (n * geometry.watt) / 1000 }
+      return { key, label, basis, spacing, shadeAngle: shadeAngle({ ...params, rowSpacing: spacing }), sets: n, kWp: (n * geometry.watt) / 1000 }
     })
     setCapCompare({ key: capKey, rows })
   }
@@ -2579,7 +2580,7 @@ export default function App() {
                       <>
                         <dt>열 이격</dt>
                         <dd>
-                          {fmt(params.rowSpacing, 2)} m{' '}
+                          {fmt(params.rowSpacing, 2)} m · 음영각 {fmt(shadeAngle(params), 1)}°{' '}
                           {params.rowSpacing + 0.005 >= suggestedRowSpacing ? (
                             <span className="rv-badge ok">동지 무음영</span>
                           ) : (

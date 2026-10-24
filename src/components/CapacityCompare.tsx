@@ -4,6 +4,8 @@ export interface CapacityOption {
   basis: string
   /** 열 이격(m) */
   spacing: number
+  /** 그 열 이격의 음영각(°) */
+  shadeAngle: number
   sets: number
   kWp: number
 }
@@ -38,7 +40,7 @@ export default function CapacityCompare({ rows, current, onCompare, onApply }: P
               </div>
               <small>
                 {r.basis}
-                <br />열 이격 {fmt(r.spacing, 1)} m · {fmt(r.sets, 0)}세트
+                <br />열 이격 {fmt(r.spacing, 1)} m(음영각 {fmt(r.shadeAngle, 1)}°) · {fmt(r.sets, 0)}세트
               </small>
               <button
                 type="button"
