@@ -1063,21 +1063,22 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .card.confirm { background: var(--surface); }
 .stage-foot { position: sticky; bottom: 0; margin-top: auto; display: flex; gap: 6px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--paper); z-index: 3; }
 .stage-foot button:last-child { margin-left: auto; }
-.stage-foot .nudge-arrow { display: inline-block; margin-left: 0.3em; }
-/* 필지를 고른 뒤 다음 단계(입지검토)로 눈길을 끈다: 바깥으로 번지는 고리와 화살표 밀기 */
-.stage-foot button.nudge { animation: nudge-ring 1.8s ease-out infinite; }
-.stage-foot button.nudge .nudge-arrow { animation: nudge-arrow 1.8s ease-in-out infinite; }
-@keyframes nudge-ring {
+.stage-foot button:last-child:not(.ghost) { height: 38px; padding: 0 18px; font-size: 15px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center; gap: 0.4em; }
+.stage-foot .go-next-arrow { display: inline-block; }
+/* 필지를 고른 뒤 다음 작업(입지검토, 가설계)으로 눈길을 끈다: 바깥으로 번지는 고리와 화살표 밀기 */
+.stage-foot button.go-next { animation: go-next-ring 1.8s ease-out infinite; }
+.stage-foot button.go-next .go-next-arrow { animation: go-next-arrow 1.8s ease-in-out infinite; }
+@keyframes go-next-ring {
   0% { box-shadow: 0 0 0 0 oklch(66% 0.18 46 / 0.55); }
   70%, 100% { box-shadow: 0 0 0 10px oklch(66% 0.18 46 / 0); }
 }
-@keyframes nudge-arrow {
+@keyframes go-next-arrow {
   0%, 40%, 100% { translate: 0 0; }
   20% { translate: 4px 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-foot button.nudge, .stage-foot button.nudge .nudge-arrow { animation: none; }
-  .stage-foot button.nudge { box-shadow: 0 0 0 3px oklch(66% 0.18 46 / 0.35); }
+  .stage-foot button.go-next, .stage-foot button.go-next .go-next-arrow { animation: none; }
+  .stage-foot button.go-next { box-shadow: 0 0 0 3px oklch(66% 0.18 46 / 0.35); }
 }
 .versions, .permits { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; font-size: 13px; }
 .versions li, .permits li { display: flex; gap: 10px; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 8px; }

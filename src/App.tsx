@@ -2642,11 +2642,11 @@ export default function App() {
           {SITE_NEXT[tab] ? (
             <button
               type="button"
-              className={parcel && SITE_NEXT[tab] === 'review' ? 'nudge' : undefined}
+              className={parcel ? 'go-next' : undefined}
               disabled={!parcel}
               onClick={() => switchTab(SITE_NEXT[tab]!)}
             >
-              {TABS[SITE_NEXT[tab]!].label}<span className="nudge-arrow">→</span>
+              {TABS[SITE_NEXT[tab]!].label}<span className="go-next-arrow">→</span>
             </button>
           ) : (
             <button
