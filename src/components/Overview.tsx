@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import type { Parcel } from '../lib/parcel'
 import { SQM_PER_PYEONG } from '../lib/parcel'
-import type { LayoutParams, LayoutStats } from '../lib/layout'
+import { isContinuous, shadeAngle, setGeometry, type LayoutParams, type LayoutStats } from '../lib/layout'
 import type { EnergyResult } from '../lib/energy'
-import type { ElecResult } from '../lib/electrical'
+import type { ElecParams, ElecResult } from '../lib/electrical'
+import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
 import { evaluate } from '../lib/economics'
 import type { EconSettings } from './EconomicsPanel'
 
@@ -22,6 +23,9 @@ interface Props {
   stats: LayoutStats
   energy: EnergyResult | null
   elec: ElecResult | null
+  elecParams: ElecParams
+  /** 비워 둔 수배전반·전기실 자리 이름. 자리를 비우지 않으면 null */
+  padLabel: string | null
   econ: EconSettings
   econHours: number
   steps: OverviewStep[]
@@ -42,6 +46,8 @@ export default function Overview(props: Props) {
     [props.econ, stats.kWp, annualKWh],
   )
   const done = props.steps.filter((s) => s.done).length
+  const modName = moduleName(findModule(p.moduleLength, p.moduleWidth, p.moduleWatt))
+  const inverter = INVERTERS.find((i) => i.id === props.elecParams.inverterId)
 
   if (!parcel)
     return <p className="empty overview-empty">필지를 고르거나 영역을 그리면 여기에 프로젝트 개요가 나옵니다.</p>
@@ -103,14 +109,28 @@ export default function Overview(props: Props) {
           <dl className="facts wide">
             <dt>모듈</dt>
             <dd>
-              {fmt(p.moduleWatt)} W × {fmt(stats.modules)}장
+              {modName ?? `일반 규격 ${fmt(p.moduleLength)}×${fmt(p.moduleWidth)} mm`}
+              <br />
+              {fmt(p.moduleWatt)} W × {fmt(stats.modules)}장 = {fmt(stats.kWp, 1)} kWp
             </dd>
+            <dt>세트</dt>
+            <dd>{isContinuous(p) ? `연속 배열 (${p.setCols}열 × ${p.setRows}단 단위)` : `${p.setCols}열 × ${p.setRows}단 × ${fmt(stats.sets)}세트`}</dd>
+            <dt>구조물</dt>
+            <dd>{RACKING[p.racking].label}</dd>
             <dt>경사·방위</dt>
             <dd>
               {fmt(p.tilt, 1)}° · {az(p.azimuth)}
             </dd>
             <dt>열 이격</dt>
-            <dd>{fmt(p.rowSpacing, 2)} m</dd>
+            <dd>
+              {fmt(p.rowSpacing, 2)} m · 음영각 {fmt(shadeAngle(p), 1)}° (피치 {fmt(p.rowSpacing + setGeometry(p).depth, 2)} m)
+            </dd>
+            {props.padLabel && (
+              <>
+                <dt>수배전반</dt>
+                <dd>{props.padLabel}</dd>
+              </>
+            )}
           </dl>
         ) : (
           <p className="hint">아직 세트가 없습니다. {go('layout', '배치하기')}</p>
@@ -123,7 +143,12 @@ export default function Overview(props: Props) {
           <dl className="facts wide">
             <dt>인버터</dt>
             <dd>
-              {fmt(elec.inverters.length)}대 · 스트링 {fmt(elec.strings.length)}개
+              {inverter ? inverter.label : `${fmt(props.elecParams.inverterKW)}kW`} × {fmt(elec.inverters.length)}대
+            </dd>
+            <dt>스트링</dt>
+            <dd>
+              {fmt(elec.stringLen)}직렬 × {fmt(elec.strings.length)}개
+              {elec.unusedModules > 0 && <small> (남는 모듈 {fmt(elec.unusedModules)}장)</small>}
             </dd>
             <dt>DC / AC</dt>
             <dd>
@@ -147,7 +172,9 @@ export default function Overview(props: Props) {
               {!energy && <small> (추정)</small>}
             </dd>
             <dt>발전시간</dt>
-            <dd>{fmt(annualKWh / Math.max(1e-9, stats.kWp) / 365, 2)} h/일</dd>
+            <dd>
+              {fmt(annualKWh / Math.max(1e-9, stats.kWp) / 365, 2)} h/일 ({fmt(annualKWh / Math.max(1e-9, stats.kWp))} kWh/kWp)
+            </dd>
             {energy && (
               <>
                 <dt>음영 손실</dt>
