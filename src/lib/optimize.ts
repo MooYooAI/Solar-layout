@@ -14,7 +14,7 @@ import type { CostParams } from './costs'
 import { evaluateDesign, type DesignMetrics } from './design'
 import type { Horizon } from './horizon'
 import type { EconSettings } from './economics'
-import type { ElecParams } from './electrical'
+import { fitInverter, type ElecParams } from './electrical'
 import type { ElevGrid } from './elevation'
 import { autoLayout, continuousParams, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import type { Parcel } from './parcel'
@@ -61,6 +61,8 @@ export interface Candidate {
   zone?: ZoneMode
   /** 열 이격거리 ÷ 동지 9~15시 무음영 이격거리. 1 이상이면 무음영 간격을 지킨다. */
   spacingRatio: number
+  /** 이 안을 계산한 인버터(용량에 맞춰 고른 것) */
+  inverterId: string
   metrics: DesignMetrics
 }
 
@@ -192,6 +194,8 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
     ? zonedLayout(o.parcel, t.params, { mode: t.zone, rowOffset: t.rowOffset, mask: o.mask, keepOut: o.keepOut })
     : autoLayout(o.parcel, t.params, t.rowOffset, o.mask, o.keepOut)
   if (!sets?.length) return null
+  // 안을 적용할 때 고르는 인버터와 같은 것으로 계산해야 적용 뒤 수치가 카드와 맞는다.
+  const { elec } = fitInverter(o.elec, (sets.length * setGeometry(t.params).watt) / 1000)
   const { metrics } = evaluateDesign(
     {
       parcel: o.parcel,
@@ -200,7 +204,7 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
       obstacles: o.obstacles,
       performanceRatio: o.performanceRatio,
       temperature: o.temperature,
-      elec: o.elec,
+      elec,
       costs: o.costs,
       econ: o.econ,
       grid: o.grid,
@@ -209,7 +213,7 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
     },
     quick ? { shade: 'quick', maxShadeSets: COARSE_SHADE_SETS } : { shade: 'medium', maxShadeSets: FINE_SHADE_SETS },
   )
-  return { params: t.params, sets, rowOffset: t.rowOffset, zone: t.zone, spacingRatio: t.spacingRatio, metrics }
+  return { params: t.params, sets, rowOffset: t.rowOffset, zone: t.zone, spacingRatio: t.spacingRatio, inverterId: elec.inverterId, metrics }
 }
 
 /** 1차: 빠른 근사로 넓게 훑을 후보(경사각 × 방위각 × 열 이격거리) */

@@ -5,6 +5,7 @@
 import { deg2rad, LocalFrame, rotate, type Vec } from './geo'
 import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
 import type { Parcel } from './parcel'
+import { INVERTERS, type InverterSpec } from './catalog'
 
 export interface ElecParams {
   /** 모듈 전기 사양 */
@@ -375,4 +376,18 @@ function nearestBoundaryPoint(rings: Vec[][], p: Vec): Vec {
       }
     }
   return best
+}
+
+/**
+ * 용량에 맞는 인버터를 고른다. 목표 AC 용량(DC ÷ DC/AC 비율)을 두 대 이상으로 나눌 수 있는 가장 큰 인버터를 고르고,
+ * 작은 부지는 가장 작은 것을 쓴다. AI 가설계 계산과 안 적용, 자동 설계가 같은 규칙을 쓴다.
+ */
+export function fitInverter(e: ElecParams, kWp: number): { elec: ElecParams; inverter: InverterSpec; count: number } {
+  const targetAc = kWp / e.dcAcRatio
+  const inv = [...INVERTERS].reverse().find((i) => i.kw * 2 <= targetAc) ?? INVERTERS[0]
+  return {
+    elec: { ...e, inverterId: inv.id, inverterKW: inv.kw, maxDcV: inv.maxDcV, mpptMinV: inv.mpptMinV, mpptMaxV: inv.mpptMaxV, acV: inv.acV },
+    inverter: inv,
+    count: Math.max(1, Math.round(targetAc / inv.kw)),
+  }
 }

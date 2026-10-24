@@ -53,11 +53,11 @@ import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
 import { computeBuildable, DEFAULT_BUILDABLE, type BuildableOptions, type BuildableResult, type BuildMask } from './lib/buildable'
 import { sampleElevGrid, type ElevGrid } from './lib/elevation'
-import { DEFAULT_ELEC, type ElecParams } from './lib/electrical'
+import { DEFAULT_ELEC, fitInverter as fitElec, type ElecParams } from './lib/electrical'
 import { DEFAULT_COSTS, type CostParams } from './lib/costs'
 import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
-import { INVERTERS, RACKING, ROOF_EDGE_SETBACK, type ModuleSpec } from './lib/catalog'
+import { RACKING, ROOF_EDGE_SETBACK, type ModuleSpec } from './lib/catalog'
 import { buildingsAround, buildingsOnParcel, FLOOR_HEIGHT, growBox, ringsBox, type Building } from './lib/buildings'
 import { DXF_CRS, guessCrs, parseDxf, shapeToLonLat, type DxfCrs, type DxfShape } from './lib/dxfImport'
 import {
@@ -1156,15 +1156,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, parcel, optResults, params, geometry, mask, layoutMode, layoutOffset, keepOut])
 
-  /**
-   * 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
-   * 목표 AC 용량(DC ÷ DC/AC 비율)을 두 대 이상으로 나눌 수 있는 가장 큰 인버터를 고르고, 작은 부지는 가장 작은 것을 쓴다.
-   */
+  /** 용량에 맞는 인버터를 고른다(AI 가설계와 같은 규칙). 스트링 결선·케이블은 설계 계산이 이어서 잡는다. */
   const fitInverter = (kWp: number, label: string) => {
-    const targetAc = kWp / elec.dcAcRatio
-    const inv = [...INVERTERS].reverse().find((i) => i.kw * 2 <= targetAc) ?? INVERTERS[0]
-    setElec({ ...elec, inverterId: inv.id, inverterKW: inv.kw, maxDcV: inv.maxDcV, mpptMinV: inv.mpptMinV, mpptMaxV: inv.mpptMaxV, acV: inv.acV })
-    setNotice(`${label}: ${fmt(kWp, 1)} kWp, ${inv.kw}kW 인버터 약 ${Math.max(1, Math.round(targetAc / inv.kw))}대`)
+    const fit = fitElec(elec, kWp)
+    setElec(fit.elec)
+    setNotice(`${label}: ${fmt(kWp, 1)} kWp, ${fit.inverter.kw}kW 인버터 약 ${fit.count}대`)
   }
   /** 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. */
   const runAutoDesign = () => {
@@ -2205,6 +2201,7 @@ export default function App() {
             onRemoveScenario={(id) => setScenarios((prev) => prev.filter((x) => x.id !== id))}
             maskActive={!!mask}
             hasGrid={!!elevGrid}
+            dcAcRatio={elec.dcAcRatio}
             padNote={
               !reservePad
                 ? null
