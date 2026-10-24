@@ -297,7 +297,7 @@ export default function PlanEditor(props: Props) {
               <title>{props.onPadMove && !props.readOnly ? `${o.name} · 끌어서 옮기기` : o.name}</title>
               <polygon points={pts(o.ring, dx, dy)} />
               <text x={cx} y={-cy} className="plan-pad-label">
-                {o.name.includes('변압기') ? '전기실' : '저압반'}
+                {o.name.includes('전기실') ? '전기실' : '수배전반'}
               </text>
             </g>
           )

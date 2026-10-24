@@ -16,6 +16,7 @@ import {
   layoutStats,
   newSetId,
   setGeometry,
+  setQuadLonLat,
   withEdgeSetback,
   type LayoutParams,
   type ModuleSet,
@@ -27,7 +28,7 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { padCandidates, padKindFor, padNear, placeEquipPad, type EquipPad } from './lib/equipment'
+import { ELEC_ROOM_KW, estimateKW, padCandidates, padKindFor, padNear, placeEquipPad, type EquipPad } from './lib/equipment'
 import { runPadSearch, type PadScore, type PadSearchInput } from './lib/padSearch'
 import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
@@ -633,7 +634,7 @@ export default function App() {
   }
 
   const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
-  // 전기실(저압반·변압기) 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
+  // 수배전반 함체·전기실 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
   const [reservePad, setReservePad] = useState(true)
   const [siteKind, setSiteKind] = useState<SiteKind>('land')
   // 필지 안 건물(불러온 뒤에만). 지붕 배치로 바꾸면 원래 필지를 기억해 되돌릴 수 있게 한다.
@@ -712,15 +713,32 @@ export default function App() {
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
   const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' } | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
+  // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
+  const planKW = sets.length ? (sets.length * setGeometry(params).watt) / 1000 : estimateKW(area)
+  const padKind = padKindFor(planKW)
   const equipPad = useMemo(
     () =>
       parcel && reservePad
         ? padMove
-          ? padNear(parcel, padKindFor(area), padMove.at)
-          : placeEquipPad(parcel, padKindFor(area), gridPole ?? null)
+          ? padNear(parcel, padKind, padMove.at)
+          : placeEquipPad(parcel, padKind, gridPole ?? null)
         : null,
-    [parcel, reservePad, area, gridPole, padMove],
+    [parcel, reservePad, padKind, gridPole, padMove],
   )
+  // 배치 뒤 용량이 500 kW를 넘나들어 함체 크기가 바뀌면 이미 놓인 모듈과 겹칠 수 있다. 그때는 다시 배치하라고 알린다.
+  const padOverlaps = useMemo(() => {
+    if (!equipPad || !sets.length) return false
+    // 자동 배치는 점검 공간 경계에 딱 맞닿는 세트를 허용하므로, 경계에서 조금 안쪽으로 줄여 겹침만 본다.
+    const ring = equipPad.keepOut.slice(0, -1)
+    const cx = ring.reduce((t, c) => t + c[0], 0) / ring.length
+    const cy = ring.reduce((t, c) => t + c[1], 0) / ring.length
+    const keep = equipPad.keepOut.map((c) => [cx + (c[0] - cx) * 0.95, cy + (c[1] - cy) * 0.95] as Vec)
+    const g = setGeometry(params)
+    return sets.some((s) => {
+      const q = setQuadLonLat(s, g) as Vec[]
+      return q.some((c) => pointInRing(c, keep)) || keep.some((c) => pointInRing(c, q))
+    })
+  }, [equipPad, sets, params])
   /** 사용자가 그린 장애물에 전기실 함체를 더한 것(그림자·3D·도면용) */
   const siteObstacles = useMemo<Obstacle[]>(
     () => (equipPad ? [...obstacles, { id: 'equip-pad', name: equipPad.label, ring: equipPad.ring, height: equipPad.height }] : obstacles),
@@ -757,9 +775,8 @@ export default function App() {
   const searchPad = async (p: LayoutParams, m: BuildMask | null, onProgress?: (done: number, total: number) => void) => {
     const input = padSearchInput(p, m)
     if (!input || !parcel) return null
-    const kind = padKindFor(area)
     const current = equipPad
-    const pads = [...(current ? [current] : []), ...padCandidates(parcel, kind, 16)]
+    const pads = [...(current ? [current] : []), ...padCandidates(parcel, padKind, 16)]
     if (!pads.length) return null
     const scores = await runPadSearch(input, pads, onProgress)
     const same = (a: EquipPad, b: EquipPad | null) => !!b && a.center[0] === b.center[0] && a.center[1] === b.center[1]
@@ -1754,7 +1771,7 @@ export default function App() {
   const { picked } = siteCheck.road
   const { pole, poleNo } = siteCheck.grid
   const mapMarks: MapMark[] = useMemo(() => {
-    const pad: MapMark[] = equipPad ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '저압반' }] : []
+    const pad: MapMark[] = equipPad ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '수배전반' }] : []
     if (tab === 'layout' && parcel) {
       // 이격을 따로 정한 변과 고른 변. 변을 고르는 중에는 모든 변을 보여 준다.
       const edges = parcel.rings.flatMap((ring) =>
@@ -1945,6 +1962,11 @@ export default function App() {
             onLayoutMode={setLayoutMode}
             pad={{
               on: reservePad,
+              rule:
+                (padKind === 'MV'
+                  ? `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}가 ${ELEC_ROOM_KW} kW를 넘어 전기실(수배전반·변압기)을 둡니다.`
+                  : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이하라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
+                (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 자동 배치를 다시 하세요.' : ''),
               label: equipPad
                 ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
                 : null,

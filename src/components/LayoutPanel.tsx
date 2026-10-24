@@ -18,6 +18,8 @@ interface Props {
   pad: {
     on: boolean
     label: string | null
+    /** 전기실을 둘지 고른 근거(용량 기준) 한 줄 */
+    rule: string
     onToggle: (on: boolean) => void
     /** 최적 자리 찾기 진행·결과 한 줄 */
     status: string | null
@@ -238,7 +240,7 @@ export default function LayoutPanel(props: Props) {
           합니다.
         </p>
         <label className="row" style={{ marginTop: 6 }}>
-          <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 전기실 자리 비워 두기
+          <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 수배전반·전기실 자리 비워 두기
           {props.pad.on && <small className="hint"> {props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</small>}
         </label>
         {props.pad.on && (
@@ -254,7 +256,8 @@ export default function LayoutPanel(props: Props) {
               )}
             </div>
             {props.pad.status && <p className="hint">{props.pad.status}</p>}
-            <p className="hint">지도에서 전기실을 끌어 옮길 수도 있습니다. 옮기면 그 자리를 비워 다시 배치합니다.</p>
+            <p className="hint">{props.pad.rule}</p>
+            <p className="hint">지도나 배치 편집에서 함체를 끌어 옮길 수도 있습니다. 옮기면 그 자리를 비워 다시 배치합니다.</p>
           </div>
         )}
         <label className="field">

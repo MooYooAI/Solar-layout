@@ -1,8 +1,7 @@
-// 전기실(저압반·변압기) 자리. 모듈을 놓기 전에 부지 경계 안쪽에 먼저 비워 두고, 수배전반 위치와 그림자 계산에 쓴다.
+// 수배전반 함체·전기실 자리. 모듈을 놓기 전에 부지 경계 안쪽에 먼저 비워 두고, 수배전반 위치와 그림자 계산에 쓴다.
 // 전주를 찍어 두었으면 그 쪽 경계에, 아니면 부지 가운데에서 가까운 북쪽 경계에 둔다(높이 2.5m 함체가 모듈에 그늘을 덜 드리운다).
 
 import { LocalFrame, pointInRing, quadFitsInRing, type Vec } from './geo'
-import { LV_LIMIT_KW } from './electrical'
 import type { Parcel } from './parcel'
 
 export type PadKind = 'LV' | 'MV'
@@ -21,17 +20,22 @@ export interface EquipPad {
 
 /** 경계 방향 × 안쪽 깊이(m) */
 const PAD_SIZE: Record<PadKind, [number, number]> = { LV: [3, 2.5], MV: [5, 4] }
-const PAD_LABEL: Record<PadKind, string> = { LV: '저압반(ACB)', MV: '전기실(저압반·변압기)' }
+const PAD_LABEL: Record<PadKind, string> = { LV: '수배전반(옥외 함체)', MV: '전기실(수배전반·변압기)' }
 /** 함체 둘레 점검·출입 공간(m) */
 const SERVICE = 1
 /** 경계에서 함체까지(m) */
 const EDGE_GAP = 0.5
-/** 필지 1㎡당 대략 설비용량(kW). 배치 전에 전기실 크기를 고를 때만 쓴다. */
+/** 필지 1㎡당 대략 설비용량(kW). 배치 전에 전기실이 필요한지 가늠할 때만 쓴다. */
 const KW_PER_M2 = 0.11
+/** 이 용량(kW)을 넘으면 전기실을 따로 둔다. 그 아래는 옥외 수배전반 함체(변압기는 주상·옥외형)로 충분하다. */
+export const ELEC_ROOM_KW = 500
 
-/** 배치 전 부지 면적으로 고른 전기실 종류. 100kW 이상이면 특고압 연계라 변압기까지 둔다. */
-export function padKindFor(areaM2: number): PadKind {
-  return areaM2 * KW_PER_M2 >= LV_LIMIT_KW ? 'MV' : 'LV'
+/** 배치 전 부지 면적으로 어림한 설비용량(kW) */
+export const estimateKW = (areaM2: number) => areaM2 * KW_PER_M2
+
+/** 설비용량(kW)으로 고른 함체 종류: 500 kW 이하는 옥외 수배전반 함체, 넘으면 전기실 */
+export function padKindFor(kW: number): PadKind {
+  return kW > ELEC_ROOM_KW ? 'MV' : 'LV'
 }
 
 /** 경계 안쪽에 함체가 들어가는 자리 하나(부지 평면 좌표) */
