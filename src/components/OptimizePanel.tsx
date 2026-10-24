@@ -36,6 +36,8 @@ const pct = (v: number | null) => (v === null ? '-' : `${fmt(v * 100, 1)}%`)
 const az = (a: number) => (a === 0 ? '정남' : `${a > 0 ? '서' : '동'} ${Math.abs(a)}°`)
 /** 추천 배치안: 효율을 지키면서 발전량이 가장 많은 균형 안 */
 const RECOMMENDED: Strategy = 'balanced'
+/** 보여 주는 순서: 추천(균형) 다음에 발전량 최대 */
+const ORDER: Strategy[] = ['balanced', 'energy', 'capacity', 'lcoe', 'yield']
 const ZONE_LABEL: Record<ZoneMode, string> = {
   edge: '구역별 방위(경계 방향)',
   half: '구역별 방위(절충)',
@@ -44,8 +46,7 @@ const ZONE_LABEL: Record<ZoneMode, string> = {
 
 export default function OptimizePanel(props: Props) {
   const { results } = props
-  // 추천 안을 맨 위에, 나머지는 기준 순서대로
-  const ordered = results ? [...results].sort((a, b) => Number(b.strategy === RECOMMENDED) - Number(a.strategy === RECOMMENDED)) : null
+  const ordered = results ? [...results].sort((a, b) => ORDER.indexOf(a.strategy) - ORDER.indexOf(b.strategy)) : null
   type Row = { key: string; name: string; m: DesignMetrics; apply?: () => void; remove?: () => void }
   const rows: Row[] = [
     ...(props.current ? [{ key: 'current', name: '현재 배치', m: props.current }] : []),
