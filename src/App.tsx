@@ -1050,6 +1050,8 @@ export default function App() {
     setParams(nextParams)
     setLayoutBasis(nextParams)
     editSets(nextSets)
+    // 배치와 함께 인버터까지 잡아 두어 기본설계에서 자동 설계를 다시 돌리지 않아도 되게 한다.
+    fitInverter((nextSets.length * setGeometry(nextParams).watt) / 1000, 'AI 설계 적용')
     setSelected(new Set())
     setEnergy(null)
     switchTab('layout')
@@ -1141,17 +1143,19 @@ export default function App() {
   }
 
   /**
-   * 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
+   * 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
    * 목표 AC 용량(DC ÷ DC/AC 비율)을 두 대 이상으로 나눌 수 있는 가장 큰 인버터를 고르고, 작은 부지는 가장 작은 것을 쓴다.
    */
-  const runAutoDesign = () => {
-    const next = placeSets('자동 설계')
-    if (!next) return
-    const kWp = (next.length * geometry.watt) / 1000
+  const fitInverter = (kWp: number, label: string) => {
     const targetAc = kWp / elec.dcAcRatio
     const inv = [...INVERTERS].reverse().find((i) => i.kw * 2 <= targetAc) ?? INVERTERS[0]
     setElec({ ...elec, inverterId: inv.id, inverterKW: inv.kw, maxDcV: inv.maxDcV, mpptMinV: inv.mpptMinV, mpptMaxV: inv.mpptMaxV, acV: inv.acV })
-    setNotice(`자동 설계: ${fmt(kWp, 1)} kWp, ${inv.kw}kW 인버터 약 ${Math.max(1, Math.round(targetAc / inv.kw))}대`)
+    setNotice(`${label}: ${fmt(kWp, 1)} kWp, ${inv.kw}kW 인버터 약 ${Math.max(1, Math.round(targetAc / inv.kw))}대`)
+  }
+  /** 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. */
+  const runAutoDesign = () => {
+    const next = placeSets('자동 설계')
+    if (next) fitInverter((next.length * geometry.watt) / 1000, '자동 설계')
   }
 
   // 세트별 동지 그늘. 잰 뒤 배치·장애물이 바뀌면 다시 재야 한다.
@@ -1924,21 +1928,24 @@ export default function App() {
           )
         )}
 
-        {tab === 'layout' && (
+        {/* 배치가 없을 때만 한 번에 설계하는 카드를 보인다. AI 가설계를 적용했으면 배치·인버터가 이미 잡혀 있다. */}
+        {tab === 'layout' && !sets.length && (
           <section className="card auto-design">
             <h2>자동 설계</h2>
             <p>지금 설정으로 배치하고, 용량에 맞는 인버터를 골라 스트링 결선과 케이블까지 한 번에 잡습니다. 결과는 아래에서 고치거나 배치 편집에서 손볼 수 있습니다.</p>
             <button type="button" className="block" disabled={!parcel} onClick={runAutoDesign}>
               배치 → 인버터 → 결선 자동 설계
             </button>
-            {layoutOutdated && (
-              <p className="warn-line">
-                배치한 뒤에 설정이 바뀌었습니다. 지금 배치는 이전 설정 그대로입니다.{' '}
-                <button type="button" className="link" onClick={runAutoLayout}>
-                  다시 배치
-                </button>
-              </p>
-            )}
+          </section>
+        )}
+        {tab === 'layout' && layoutOutdated && (
+          <section className="card">
+            <p className="warn-line" style={{ marginTop: 0 }}>
+              배치한 뒤에 설정이 바뀌었습니다. 지금 배치는 이전 설정 그대로입니다.{' '}
+              <button type="button" className="link" onClick={runAutoLayout}>
+                다시 배치
+              </button>
+            </p>
           </section>
         )}
         {tab === 'layout' && parcel && (
