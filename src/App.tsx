@@ -166,6 +166,8 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 
 /** 현장정보 단계 안에서 아래 '다음' 버튼이 가는 작업. 지형은 필지를 고르면 저절로 분석하므로 부지에서 바로 입지검토로 간다. */
 const SITE_NEXT: Partial<Record<Tab, Tab>> = { parcel: 'review', terrain: 'review', review: 'ai' }
+/** 수배전반 자리를 지도에 그리지 않는 현장정보 탭 */
+const SITE_INFO_TABS = new Set<Tab>(['parcel', 'terrain', 'review'])
 
 export default function App() {
   const vworldKey = VWORLD_KEY
@@ -1775,8 +1777,11 @@ export default function App() {
   const roads = roadResult && roadResult.parcel === parcel ? roadResult.list : null
   const { picked } = siteCheck.road
   const { pole, poleNo } = siteCheck.grid
+  // 수배전반 자리는 배치 계산에는 늘 쓰지만, 지도에는 가설계부터 그린다. 필지·지형·입지검토에서는 이르다.
+  const padOnMap = !SITE_INFO_TABS.has(tab)
+  const mapObstacles = padOnMap ? siteObstacles : obstacles
   const mapMarks: MapMark[] = useMemo(() => {
-    const pad: MapMark[] = equipPad ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '수배전반' }] : []
+    const pad: MapMark[] = equipPad && padOnMap ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '수배전반' }] : []
     if (tab === 'layout' && parcel) {
       // 이격을 따로 정한 변과 고른 변. 변을 고르는 중에는 모든 변을 보여 준다.
       const edges = parcel.rings.flatMap((ring) =>
@@ -1797,7 +1802,7 @@ export default function App() {
       ...(roads ?? []).map((r) => ({ kind: 'road' as const, rings: r.rings, label: r.label, on: picked.includes(r.pnu) })),
       ...(pole ? [{ kind: 'pole' as const, at: pole, label: poleNo || '전주' }] : []),
     ]
-  }, [tab, roads, picked, pole, poleNo, equipPad, parcel, params, pickedEdge, tool])
+  }, [tab, roads, picked, pole, poleNo, equipPad, padOnMap, parcel, params, pickedEdge, tool])
 
   const stageDone: Partial<Record<Stage, boolean>> = { site: !!parcel, design: !!confirmed, econ: !!econResult }
 
@@ -2717,7 +2722,7 @@ export default function App() {
               onMapClick={onMapClick}
               onSelect={onSelect}
               onAddSet={onAddSet}
-              obstacles={siteObstacles}
+              obstacles={mapObstacles}
               shadows={shadeView?.shadows ?? NO_SHADOWS}
               setShade={shadeView?.perSet ?? null}
               panelShade={shadeView?.panel ?? null}
@@ -2750,7 +2755,7 @@ export default function App() {
             onSelect={onSelect}
             onMoveSets={onMoveSets}
             onAddSet={onAddSet}
-            obstacles={siteObstacles}
+            obstacles={mapObstacles}
             shadows={shadeView?.shadows ?? NO_SHADOWS}
             setShade={shadeView?.perSet ?? null}
             onObstacleDrawn={onObstacleDrawn}
