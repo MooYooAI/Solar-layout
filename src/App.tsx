@@ -84,7 +84,7 @@ import SiteReviewPanel from './components/SiteReviewPanel'
 import DesignBar from './components/DesignBar'
 import SideElevation from './components/SideElevation'
 import CapacityCompare, { type CapacityOption } from './components/CapacityCompare'
-import { SITE_KIND, forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
+import { SITE_KIND, forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadAnchor, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
 import { isForest, pctToDeg } from './lib/siteReview'
 import type { MapMark } from './components/MapView'
 import ShadeCleanup from './components/ShadeCleanup'
@@ -713,6 +713,12 @@ export default function App() {
   }
   const nearby = nearbyStatus?.for === parcel ? nearbyStatus : null
   const gridPole = siteCheck.grid.pole
+  // 전주를 찍지 않았으면 맞닿은 도로 쪽에 둔다(필지를 고르면 주변 도로를 저절로 찾는다).
+  const padRoad = useMemo(
+    () => (parcel && roadResult?.parcel === parcel ? roadAnchor(parcel.rings, roadResult.list, siteCheck.road.picked) : null),
+    [parcel, roadResult, siteCheck.road.picked],
+  )
+  const padAnchor = gridPole ?? padRoad
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
   const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' } | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
@@ -724,9 +730,9 @@ export default function App() {
       parcel && reservePad
         ? padMove
           ? padNear(parcel, padKind, padMove.at)
-          : placeEquipPad(parcel, padKind, gridPole ?? null)
+          : placeEquipPad(parcel, padKind, padAnchor)
         : null,
-    [parcel, reservePad, padKind, gridPole, padMove],
+    [parcel, reservePad, padKind, padAnchor, padMove],
   )
   // 배치 뒤 용량이 500 kW를 넘나들어 함체 크기가 바뀌면 이미 놓인 모듈과 겹칠 수 있다. 그때는 다시 배치하라고 알린다.
   const padOverlaps = useMemo(() => {
@@ -1774,6 +1780,11 @@ export default function App() {
       setRoadBusy(false)
     }
   }
+  // 필지를 고르면 주변 도로를 바로 찾아 둔다. 진입로 판정과 수배전반 자리에 함께 쓴다.
+  useEffect(() => {
+    if (parcel && vworldKey && roadResult?.parcel !== parcel) void findRoads()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, vworldKey])
   const roads = roadResult && roadResult.parcel === parcel ? roadResult.list : null
   const { picked } = siteCheck.road
   const { pole, poleNo } = siteCheck.grid
@@ -1981,7 +1992,7 @@ export default function App() {
                   : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이하라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
                 (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 자동 배치를 다시 하세요.' : ''),
               label: equipPad
-                ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
+                ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : padRoad ? '도로에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
                 : null,
               onToggle: setReservePad,
               busy: !!padSearch?.busy,
