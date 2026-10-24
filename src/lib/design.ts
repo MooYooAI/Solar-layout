@@ -13,7 +13,7 @@ import { KOREA_GHI, simulateEnergy, type EnergyResult, type MonthlyEnergy } from
 import { layoutStats, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import { parcelArea, type Parcel } from './parcel'
 import type { Obstacle } from './shading'
-import type { Horizon } from './horizon'
+import { skyLoss, type Horizon } from './horizon'
 
 export interface DesignInput {
   parcel: Parcel
@@ -125,6 +125,7 @@ export function layoutEnergy(i: LayoutEnergyInput): EnergyResult {
       albedo: 0.2,
       ghi: KOREA_GHI,
       shade: scene && i.shade ? shadeTable(scene, i.shade) : undefined,
+      skyLoss: i.shade ? skyLoss(i.horizon) : 0,
       acLimitKW: i.acLimitKW === undefined ? undefined : i.acLimitKW * share,
     })
   })

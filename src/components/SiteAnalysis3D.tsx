@@ -10,6 +10,7 @@ import { LocalFrame } from '../lib/geo'
 import { panelShadeCells, snapshot, type Scene } from '../lib/analysis'
 import { dayOfYear, declination, kstToSolar } from '../lib/sun'
 import type { CameraView } from './Map3D'
+import type { TerrainShader } from '../lib/terrainShadow'
 
 const Map3D = lazy(() => import('./Map3D'))
 
@@ -25,6 +26,8 @@ interface Props {
   scene: Scene | null
   elec: ElecResult | null
   terrain: TerrainResult | null
+  /** 산·언덕 그림자 지도를 그린다. 표고가 없거나 지형 그늘을 끄면 null */
+  terrainShader: TerrainShader | null
   area: number
   kWp: number
   onClose: () => void
@@ -123,12 +126,27 @@ export default function SiteAnalysis3D(p: Props) {
     const snap = snapshot(p.scene, declination(n), kstToSolar(hour, p.scene.frame.lon0, n))
     return { ...snap, panel: showSets && p.sets.length ? panelShadeCells(p.scene, p.sets, p.params, p.geometry, snap.sun) : null }
   }, [p.scene, p.sets, p.params, p.geometry, date, hour, showSets])
+  // 산·언덕 그림자: 날짜·시각이 바뀔 때만 다시 그린다.
+  const sunAz = shade?.sun.azimuth
+  const sunAlt = shade?.sun.altitude
+  const terrainShade = useMemo(
+    () => (shadowOn && p.terrainShader && sunAz !== undefined && sunAlt !== undefined ? p.terrainShader.render({ azimuth: sunAz, altitude: sunAlt }) : null),
+    [shadowOn, p.terrainShader, sunAz, sunAlt],
+  )
   const shadows = shadowOn && shade ? (showSets ? shade.shadows : shade.shadows.filter((s) => !s.fromSet)) : NO_SHADOWS
 
   const modules = p.sets.length * p.geometry.modules
   const bearing = 180 + p.params.azimuth
   const sunUp = !!shade && shade.sun.altitude > 0
   const sunBearing = shade ? (((180 + deg(shade.sun.azimuth)) % 360) + 360) % 360 : 180
+  // 산 그늘: 부지 중심이 가리거나 모든 세트가 가리면 전부, 몇 세트만 가리면 일부
+  const terrainState: 'lit' | 'part' | 'all' = !shade
+    ? 'lit'
+    : shade.terrainBlocked && (!shade.perSet.size || shade.terrainSets >= shade.perSet.size)
+      ? 'all'
+      : shade.terrainSets > 0 || shade.terrainBlocked
+        ? 'part'
+        : 'lit'
   const toggle = (k: Layer) => setLayers((l) => ({ ...l, [k]: !l[k] }))
 
   const fact = (label: string, value: ReactNode, cls = '') => (
@@ -204,10 +222,12 @@ export default function SiteAnalysis3D(p: Props) {
               shadows={shadows}
               setShade={shadowOn && showSets ? (shade?.perSet ?? null) : null}
               panelShade={shadowOn ? (shade?.panel ?? null) : null}
+              terrainShade={terrainShade}
+              sunLight={shadowOn && sunUp ? { bearing: sunBearing, altitude: deg(shade!.sun.altitude) } : null}
               terrainCells={layers.slope ? (p.terrain?.cells ?? null) : null}
               terrainView={layers.slope ? 'slope' : 'none'}
               buildable={null}
-              elec={layers.elec && showSets ? p.elec : null}
+              elec={layers.elec && showSets && mode !== 'shade' ? p.elec : null}
               exaggeration={1}
               camera={camera}
               onMapClick={NOOP}
@@ -218,7 +238,8 @@ export default function SiteAnalysis3D(p: Props) {
           {shadowOn && shade && (
             <div className="s3d-sun-badge">
               {date.month}월 {date.day}일 {hhmm(hour)} ·{' '}
-              {!sunUp ? '해가 진 시각' : shade.terrainBlocked ? '해가 산 뒤에 있음' : `태양 고도 ${fmt(deg(shade.sun.altitude), 1)}°`}
+              {!sunUp ? '해가 진 시각' : `태양 고도 ${fmt(deg(shade.sun.altitude), 1)}°`}
+              {sunUp && terrainState !== 'lit' && ` · ${terrainState === 'all' ? '해가 산 뒤에 있음' : '일부가 산 그늘'}`}
               {sunUp && showSets && p.sets.length > 0 && ` · 모듈 그늘 ${fmt(shade.overall * 100, 1)}%`}
             </div>
           )}
@@ -290,11 +311,15 @@ export default function SiteAnalysis3D(p: Props) {
               <div className="s3d-facts three">
                 {fact('태양 고도', sunUp && shade ? `${fmt(deg(shade.sun.altitude), 1)}°` : '해 진 뒤')}
                 {fact('태양 방위', sunUp ? `${fmt(sunBearing)}° ${compass(sunBearing)}` : '-')}
-                {fact('지형 가림', !sunUp ? '-' : shade?.terrainBlocked ? '가림' : '직사', sunUp ? (shade?.terrainBlocked ? 'bad' : 'ok') : '')}
+                {fact(
+                  '지형 가림',
+                  !sunUp ? '-' : terrainState === 'all' ? '가림' : terrainState === 'part' ? `일부 가림 (${fmt(shade!.terrainSets)}세트)` : '직사',
+                  sunUp ? (terrainState === 'lit' ? 'ok' : 'bad') : '',
+                )}
               </div>
               <p className="hint">
-                슬라이더를 움직이면 그 시각의 해 위치로 모듈·장애물 그림자와 모듈 위 그늘을 다시 그립니다. 해가 낮은 아침·저녁에 그림자가 길고,
-                주변 산이 해를 가리면 지형 가림으로 표시합니다. 해 쪽 보기는 해가 있는 방향을 낮게 바라봐 무엇이 해를 가리는지 보여 줍니다.
+                슬라이더를 움직이면 그 시각의 해 위치로 산·언덕 그림자, 모듈·장애물 그림자, 모듈 위 그늘을 다시 그립니다. 해가 낮은 아침·저녁에
+                그림자가 길고, 산 그림자에 든 모듈은 어둡게 칠합니다. 해 쪽 보기는 해가 있는 방향을 낮게 바라봐 무엇이 해를 가리는지 보여 줍니다.
               </p>
             </section>
           ) : (

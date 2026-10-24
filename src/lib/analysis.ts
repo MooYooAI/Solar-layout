@@ -2,17 +2,21 @@
 
 import { LocalFrame, type Vec } from './geo'
 import { moduleQuads3D, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
-import { buildCasters, project, sampleAll, shadedFractions, ShadowIndex, shadowPolygons, shadowVector, type Obstacle, type Vec3 } from './shading'
+import { buildCasters, sampleAll, shadedFractions, ShadowIndex, shadowPolygons, shadowVector, type Ground, type Obstacle, type Vec3 } from './shading'
 import { declination, sunPosition, sunriseSunsetSolar, type SunPos } from './sun'
 import { REP_DAY } from './energy'
-import { sunBehindTerrain, type Horizon } from './horizon'
+import { anglesNear, groundOffset, sunBehindTerrain, type Horizon } from './horizon'
 
 export interface Scene {
   frame: LocalFrame
   casters: ReturnType<typeof buildCasters>
   samples: ReturnType<typeof sampleAll>
-  /** 주변 지형 지평선. 해가 그 아래면 부지 전체가 그늘이다. */
+  /** 주변 지형 지평선. 해가 그 아래면 그 자리가 그늘이다. */
   horizon: Horizon | null
+  /** 그늘 비율을 재는 세트마다 그 자리의 지평선(부지 안 위치마다 산이 가리는 시각이 다르다) */
+  setAngles: Map<string, number[]>
+  /** 부지 중심 기준 지반고 차(m). 지붕 설치거나 표고가 없으면 평지 */
+  ground: Ground
 }
 
 export function buildScene(
@@ -36,7 +40,22 @@ export function buildScene(
       return centers.some(([cx, cy]) => Math.abs(cx - x) <= reach && Math.abs(cy - y) <= reach)
     })
   }
-  return { frame, casters: buildCasters(casterSets, obstacles, p, g, frame), samples: sampleAll(sampleSets, p, g, frame), horizon }
+  // 지붕은 지형을 따르지 않는다. 땅 위 세트는 지반 높낮이대로 놓아 비탈에서 앞뒤 열이 가리는 정도를 맞춘다.
+  const ground: Ground = horizon?.grid && p.racking !== 'roof' ? (x, y) => groundOffset(horizon, x, y) : () => 0
+  const setAngles = new Map<string, number[]>()
+  if (horizon)
+    for (const s of sampleSets) {
+      const [x, y] = frame.toLocal([s.lon, s.lat])
+      setAngles.set(s.id, anglesNear(horizon, x, y))
+    }
+  return {
+    frame,
+    casters: buildCasters(casterSets, obstacles, p, g, frame, ground),
+    samples: sampleAll(sampleSets, p, g, frame, ground),
+    horizon,
+    setAngles,
+    ground,
+  }
 }
 
 /**
@@ -58,32 +77,51 @@ export interface ShadeSnapshot {
   perSet: Map<string, number>
   /** 전체 모듈 중 그늘진 비율 */
   overall: number
-  /** 해가 주변 산 뒤에 있어 부지 전체가 그늘인지 */
+  /** 해가 주변 산 뒤에 있어 부지 중심이 그늘인지 */
   terrainBlocked: boolean
+  /** 산에 가린 세트 수(그늘 비율을 잰 세트 가운데) */
+  terrainSets: number
 }
 
-/** 이 해 위치에서 모듈 평균 그늘 비율(지형에 가리면 1) */
+/** 세트 자리에서 해가 산 뒤에 있는지 */
+const setBehindTerrain = (scene: Scene, id: string, sun: SunPos) => sunBehindTerrain(scene.horizon, sun, scene.setAngles.get(id))
+
+/** 세트별 그늘 비율. 산에 가린 세트는 1. 모두 가리면 그림자 계산을 건너뛴다. */
+function fractionsAt(scene: Scene, sun: SunPos, v: [number, number]): { perSet: Map<string, number>; blocked: number } {
+  const ids = [...scene.samples.keys()]
+  const hidden = new Set(ids.filter((id) => setBehindTerrain(scene, id, sun)))
+  if (ids.length && hidden.size === ids.length) return { perSet: new Map(ids.map((id) => [id, 1])), blocked: hidden.size }
+  const perSet = shadedFractions(scene.samples, scene.casters, v)
+  for (const id of hidden) perSet.set(id, 1)
+  return { perSet, blocked: hidden.size }
+}
+
+/** 이 해 위치에서 모듈 평균 그늘 비율(산에 가린 세트는 1) */
 function shadeAt(scene: Scene, sun: SunPos): number {
   const v = shadowVector(sun)
   if (!v) return 0
-  if (sunBehindTerrain(scene.horizon, sun)) return 1
-  return mean(shadedFractions(scene.samples, scene.casters, v))
+  if (!scene.samples.size) return sunBehindTerrain(scene.horizon, sun) ? 1 : 0
+  return mean(fractionsAt(scene, sun, v).perSet)
 }
 
 export function snapshot(scene: Scene, declDeg: number, solarHour: number): ShadeSnapshot {
   const sun = sunPosition(scene.frame.lat0, declDeg, solarHour)
   const v = shadowVector(sun)
-  if (!v) return { sun, shadows: [], perSet: new Map(), overall: 0, terrainBlocked: false }
-  if (sunBehindTerrain(scene.horizon, sun)) {
-    const perSet = new Map([...scene.samples.keys()].map((id) => [id, 1]))
-    return { sun, shadows: [], perSet, overall: perSet.size ? 1 : 0, terrainBlocked: true }
+  if (!v) return { sun, shadows: [], perSet: new Map(), overall: 0, terrainBlocked: false, terrainSets: 0 }
+  const { perSet, blocked } = fractionsAt(scene, sun, v)
+  // 땅 위 그림자: 그 물체 자리에 해가 드는 것만 그린다(산 그늘 속에서는 그림자가 따로 지지 않는다).
+  const lit = (sp: { setId?: string; caster: { points: Vec3[] } }) => {
+    const [x, y] = sp.caster.points[0]
+    const angles = sp.setId !== undefined ? scene.setAngles.get(sp.setId) : undefined
+    return !sunBehindTerrain(scene.horizon, sun, angles ?? (scene.horizon ? anglesNear(scene.horizon, x, y) : undefined))
   }
-  const shadows = shadowPolygons(scene.casters, v).map((sp) => ({
-    ring: sp.ring.map((q) => scene.frame.toLonLat(q)),
-    fromSet: sp.setId !== undefined,
-  }))
-  const perSet = shadedFractions(scene.samples, scene.casters, v)
-  return { sun, shadows, perSet, overall: mean(perSet), terrainBlocked: false }
+  const shadows = shadowPolygons(scene.casters, v, true)
+    .filter(lit)
+    .map((sp) => ({
+      ring: sp.ring.map((q) => scene.frame.toLonLat(q)),
+      fromSet: sp.setId !== undefined,
+    }))
+  return { sun, shadows, perSet, overall: mean(perSet), terrainBlocked: sunBehindTerrain(scene.horizon, sun), terrainSets: blocked }
 }
 
 /** 모듈 표면의 그늘 칸. 모듈마다 nu(가로) × nv(경사 방향) 칸, moduleQuads3D 순서대로 1이면 그늘. */
@@ -106,15 +144,16 @@ export function panelShadeCells(scene: Scene, sets: ModuleSet[], p: LayoutParams
   const dense = sets.length * g.modules * 12 <= MAX_PANEL_CELLS
   const nu = dense ? 3 : 1
   const nv = dense ? 4 : 2
-  const blocked = sunBehindTerrain(scene.horizon, sun)
-  const index = blocked ? null : new ShadowIndex(shadowPolygons(scene.casters, v))
+  const index = new ShadowIndex(shadowPolygons(scene.casters, v))
   const cells = new Map<string, Uint8Array>()
   for (const s of sets) {
     const quads = moduleQuads3D(s, p, g)
     const out = new Uint8Array(quads.length * nu * nv)
-    if (blocked) out.fill(1)
+    const [cx, cy] = scene.frame.toLocal([s.lon, s.lat])
+    const angles = scene.setAngles.get(s.id) ?? (scene.horizon ? anglesNear(scene.horizon, cx, cy) : undefined)
+    if (sunBehindTerrain(scene.horizon, sun, angles)) out.fill(1)
     else {
-      const [cx, cy] = scene.frame.toLocal([s.lon, s.lat])
+      const cz = scene.ground(cx, cy)
       let k = 0
       for (const q of quads)
         for (let j = 0; j < nv; j++)
@@ -124,8 +163,8 @@ export function panelShadeCells(scene: Scene, sets: ModuleSet[], p: LayoutParams
             const pt = [0, 1, 2].map(
               (d) => (1 - u) * (1 - w) * q[0][d] + u * (1 - w) * q[1][d] + u * w * q[2][d] + (1 - u) * w * q[3][d],
             )
-            const world: Vec3 = [pt[0] + cx, pt[1] + cy, pt[2]]
-            out[k++] = index!.shaded(project(world, v), s.id) ? 1 : 0
+            const world: Vec3 = [pt[0] + cx, pt[1] + cy, pt[2] + cz]
+            out[k++] = index.shaded(world, v, s.id) ? 1 : 0
           }
     }
     cells.set(s.id, out)
@@ -161,8 +200,8 @@ export function dailyShadeLoss(scene: Scene, declDeg: number): number {
 
 /**
  * 세트별로 정한 시간(기본: 동지 무음영 기준인 태양시 9~15시) 동안 그늘진 비율의 평균. 해의 고도로 가중해
- * 그 시간 직달 일사 손실에 가깝게 본다. 해가 주변 산 뒤에 있는 시각은 모든 세트가 똑같이 그늘이라
- * 세트를 가려내는 데 쓸모가 없어 뺀다.
+ * 그 시간 직달 일사 손실에 가깝게 본다. 모든 세트가 산에 가린 시각은 세트를 가려내는 데 쓸모가 없어 빼고,
+ * 일부 세트만 산에 가린 시각은 그 세트를 그늘로 센다.
  */
 export function perSetShade(scene: Scene, declDeg: number, from = 9, to = 15): Map<string, number> {
   const out = new Map<string, number>([...scene.samples.keys()].map((id) => [id, 0]))
@@ -170,10 +209,12 @@ export function perSetShade(scene: Scene, declDeg: number, from = 9, to = 15): M
   for (let t = from; t <= to + 1e-9; t += 1 / 6) {
     const sun = sunPosition(scene.frame.lat0, declDeg, t)
     const v = shadowVector(sun)
-    if (!v || sunBehindTerrain(scene.horizon, sun)) continue
+    if (!v) continue
+    const { perSet, blocked } = fractionsAt(scene, sun, v)
+    if (blocked && blocked === perSet.size) continue
     const weight = Math.sin(sun.altitude)
     w += weight
-    for (const [id, f] of shadedFractions(scene.samples, scene.casters, v)) out.set(id, out.get(id)! + weight * f)
+    for (const [id, f] of perSet) out.set(id, out.get(id)! + weight * f)
   }
   if (w) for (const [id, x] of out) out.set(id, x / w)
   return out

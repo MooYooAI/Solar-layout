@@ -22,6 +22,7 @@ import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
 import type { ElecResult } from '../lib/electrical'
 import type { PanelShade } from '../lib/analysis'
+import type { TerrainShadeImage } from '../lib/terrainShadow'
 import { GROUP_COLORS } from '../lib/palette'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 import { shared } from '../lib/viewState'
@@ -58,6 +59,10 @@ interface Props {
   terrainView: 'slope' | 'cutfill' | 'buildable' | 'none'
   buildable: BuildableResult | null
   elec: ElecResult | null
+  /** 산·언덕이 땅에 드리운 그림자 그림. 있으면 지형 위에 덮는다. */
+  terrainShade?: TerrainShadeImage | null
+  /** 음영을 볼 때의 해 위치(도: 북 0 시계 방향 방위, 고도). 있으면 지형 음영을 그 해에 맞춰 칠한다. */
+  sunLight?: { bearing: number; altitude: number } | null
   /** 지형 높이 과장 배율 */
   exaggeration: number
   /** 시점 바꾸기 요청. seq가 바뀔 때마다 그 시점으로 돌린다. bearing이 있으면 그 방향을 낮게 바라본다. */
@@ -118,7 +123,8 @@ const PANEL = hexRgb('#1c408c')
 const PANEL_SELECTED = hexRgb('#1971c2')
 const SELECT_EDGE = hexRgb('#ffd43b')
 const POST = hexRgb('#adb5bd')
-const PANEL_SHADOW = hexRgb('#141821')
+// 그늘진 모듈: 검정이 아니라 모듈 색을 어둡게(지형 그림자와 같은 톤)
+const PANEL_SHADOW = hexRgb('#0e1a36')
 const FRAME = hexRgb('#ced4da')
 const GROUP_RGB = GROUP_COLORS.map(hexRgb)
 const shadeRgb = (k: number): [number, number, number] => [
@@ -416,7 +422,7 @@ function initialStyle(p: Props): StyleSpecification {
         id: 'shadows',
         type: 'fill',
         source: 'shadows',
-        paint: { 'fill-color': ['case', ['get', 'fromSet'], 'rgba(20, 20, 30, 0.22)', 'rgba(20, 20, 30, 0.35)'] },
+        paint: { 'fill-color': ['case', ['get', 'fromSet'], 'rgba(12, 18, 38, 0.5)', 'rgba(12, 18, 38, 0.55)'] },
       },
       {
         id: 'elec-cable',
@@ -598,9 +604,55 @@ export default function Map3D(props: Props) {
       ;(map.getSource('base') as maplibregl.RasterTileSource).setTiles(t.base)
       if (t.label) (map.getSource('label') as maplibregl.RasterTileSource).setTiles(t.label)
       map.setLayoutProperty('label', 'visibility', t.label ? 'visible' : 'none')
-      map.setLayoutProperty('hillshade', 'visibility', baseMap === 'Base' || !vworldKey ? 'visible' : 'none')
     })
   }, [vworldKey, baseMap])
+
+  // 음영을 볼 때는 지형 음영을 고른 시각의 해 쪽에서 비추고 위성 위에도 깐다.
+  const { sunLight, terrainShade } = props
+  useEffect(() => {
+    whenReady(() => {
+      const map = mapRef.current!
+      const base = baseMap === 'Base' || !vworldKey
+      map.setLayoutProperty('hillshade', 'visibility', base || sunLight ? 'visible' : 'none')
+      map.setPaintProperty('hillshade', 'hillshade-illumination-anchor', sunLight ? 'map' : 'viewport')
+      map.setPaintProperty('hillshade', 'hillshade-illumination-direction', sunLight ? sunLight.bearing : 335)
+      map.setPaintProperty('hillshade', 'hillshade-illumination-altitude', sunLight ? Math.max(1, sunLight.altitude) : 45)
+      map.setPaintProperty('hillshade', 'hillshade-exaggeration', sunLight ? 0.5 : 0.35)
+      map.setPaintProperty('hillshade', 'hillshade-shadow-color', sunLight ? '#0c1226' : '#2b2b2b')
+      map.setPaintProperty('hillshade', 'hillshade-highlight-color', sunLight ? 'rgba(255, 244, 214, 0.25)' : '#ffffff')
+    })
+  }, [sunLight, baseMap, vworldKey])
+
+  // 산 그림자 그림은 이 지도의 캔버스에 옮겨 그리고 캔버스 소스로 띄운다(그림 파일로 바꾸는 시간을 아낀다).
+  const shadeCanvas = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    whenReady(() => {
+      const map = mapRef.current!
+      const src = map.getSource('terrain-shade') as maplibregl.CanvasSource | undefined
+      if (!terrainShade) {
+        if (map.getLayer('terrain-shade')) map.removeLayer('terrain-shade')
+        if (src) map.removeSource('terrain-shade')
+        return
+      }
+      const canvas = (shadeCanvas.current ??= document.createElement('canvas'))
+      canvas.width = terrainShade.canvas.width
+      canvas.height = terrainShade.canvas.height
+      canvas.getContext('2d')!.drawImage(terrainShade.canvas, 0, 0)
+      if (src) {
+        src.setCoordinates(terrainShade.coordinates)
+        // 정지 캔버스는 다시 올리지 않으므로 한 장면만 재생해 새 그림을 올린다.
+        src.play()
+        map.once('render', () => src.pause())
+        map.triggerRepaint()
+        return
+      }
+      map.addSource('terrain-shade', { type: 'canvas', canvas, coordinates: terrainShade.coordinates, animate: false })
+      map.addLayer(
+        { id: 'terrain-shade', type: 'raster', source: 'terrain-shade', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
+        'terrain-fill',
+      )
+    })
+  }, [terrainShade])
 
   useEffect(() => {
     whenReady(() =>

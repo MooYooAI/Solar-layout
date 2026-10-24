@@ -25,6 +25,8 @@ interface Props {
   hasSets: boolean
   obstacles: Obstacle[]
   onObstacles: (o: Obstacle[]) => void
+  /** 이웃 건물 불러오기(VWorld 건물 윤곽). can이 false면 인증키나 부지가 없다. */
+  nearby: { can: boolean; busy: boolean; status: string | null; onLoad: () => void }
   tool: MapTool
   onTool: (t: MapTool) => void
   horizon: Horizon | null
@@ -127,7 +129,10 @@ export default function ShadePanel(props: Props) {
         {props.hasSets ? (
           <dl className="facts">
             <dt>지금</dt>
-            <dd>{props.terrainBlocked ? '해가 주변 산에 가려 부지 전체가 그늘' : `모듈의 ${pct(props.currentShade)}가 그늘`}</dd>
+            <dd>
+              {props.terrainBlocked && props.currentShade >= 0.999 ? '해가 주변 산에 가려 부지 전체가 그늘' : `모듈의 ${pct(props.currentShade)}가 그늘`}
+              {props.terrainBlocked && props.currentShade < 0.999 ? ' (부지 일부가 산 그늘)' : ''}
+            </dd>
             <dt>이 날 하루</dt>
             <dd>{props.dailyLoss === null ? '계산 중…' : `직달 일사 약 ${pct(props.dailyLoss)} 손실`}</dd>
           </dl>
@@ -135,7 +140,7 @@ export default function ShadePanel(props: Props) {
           <p className="hint">AI 설계 단계에서 모듈을 먼저 배치하세요.</p>
         )}
         <p className="hint">
-          그늘진 세트는 빨갛게, 그림자는 어둡게 표시됩니다. 3D 지도에서는 모듈 판 위에 진 그림자를 검게 칠해 정면·측면에서도 보입니다. 하루 손실과 발전량에는 모듈 열끼리의 그림자, 아래에 그린 장애물,
+          그늘진 세트는 빨갛게, 그림자는 어둡게 표시됩니다. 3D 지도에서는 산·언덕 그림자를 지형 위에 덮고, 모듈 판 위에 진 그림자는 어둡게 칠해 정면·측면에서도 보입니다. 하루 손실과 발전량에는 모듈 열끼리의 그림자, 아래에 그린 장애물,
           {props.horizonOn && props.horizon ? ' 주변 산(지형)' : ''} 그늘이 들어갑니다.
         </p>
       </section>
@@ -155,8 +160,9 @@ export default function ShadePanel(props: Props) {
           <p className="hint">필지를 고르면 주변 지형을 불러옵니다.</p>
         )}
         <p className="hint">
-          부지 중심에서 방위마다 5 km까지 가장 높이 솟은 지형의 각도입니다(약 30 m 해상도 표고, 지구 곡률 보정). 해가 이 선보다 낮으면
-          부지 전체를 그늘로 봅니다. 건물 높이 자료는 없으므로 가까운 건물·나무는 아래에서 직접 그려 넣으세요.
+          부지 중심에서 방위마다 5 km까지 가장 높이 솟은 지형의 각도입니다(약 30 m 해상도 표고, 지구 곡률 보정). 계산은 부지 안 여러 자리의
+          지평선을 따로 구해, 산에 가까운 쪽 세트만 먼저 그늘에 드는 것까지 반영합니다. 비탈에서는 세트를 지반 높이대로 놓고 앞뒤 열 그림자를 잽니다.
+          이웃 건물은 아래에서 불러오거나, 나무처럼 자료가 없는 것은 직접 그려 넣으세요.
         </p>
       </section>
 
@@ -169,7 +175,12 @@ export default function ShadePanel(props: Props) {
         >
           {props.tool === 'obstacle' ? '그리기 취소' : '건물·나무 그리기'}
         </button>
+        <button type="button" className="secondary" disabled={!props.nearby.can || props.nearby.busy} onClick={props.nearby.onLoad} style={{ marginLeft: 6 }}>
+          {props.nearby.busy ? '찾는 중…' : '이웃 건물 불러오기'}
+        </button>
         {props.tool === 'obstacle' && <p className="hint">지도에서 바닥 윤곽을 찍고 첫 점을 다시 클릭하면 끝납니다.</p>}
+        {!props.nearby.can && <p className="hint">이웃 건물 불러오기는 VWorld 인증키가 있어야 합니다.</p>}
+        {props.nearby.status && <p className="hint">{props.nearby.status}</p>}
         {obstacles.length > 0 && (
           <ul className="obstacles">
             {obstacles.map((o) => (

@@ -33,6 +33,8 @@ export interface EnergyOptions {
   temperature?: TempModel
   /** 인버터 AC 정격 합계(kW). 있으면 DC 출력이 이를 넘는 만큼 잘리는 클리핑 손실을 뺀다. */
   acLimitKW?: number
+  /** 주변 산이 가려 잃는 하늘 산란광 비율(0~1). 음영 손실에 넣는다. */
+  skyLoss?: number
 }
 
 // 월평균 하루로는 맑은 날 한낮의 출력 봉우리가 뭉개져 클리핑이 과소평가된다.
@@ -134,7 +136,8 @@ export function simulateEnergy(o: EnergyOptions): EnergyResult {
       const shade = o.shade ? o.shade(m, t) : 0
       const poa = beamT + diffT + reflT
       // 그림자가 진 모듈은 직달분을 잃고, 산란은 하늘이 일부 가려지는 만큼 약간 줄어든다(근사 5%).
-      const poaShaded = beamT * (1 - shade) + diffT * (1 - 0.05 * shade) + reflT
+      // 주변 산이 가린 하늘만큼의 산란광은 그늘과 상관없이 늘 잃는다.
+      const poaShaded = beamT * (1 - shade) + diffT * (1 - (o.skyLoss ?? 0)) * (1 - 0.05 * shade) + reflT
       poaDay += poa
       poaShadedDay += poaShaded
       // dt시간 동안의 kWh/㎡ → 평균 W/㎡
