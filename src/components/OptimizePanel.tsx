@@ -29,6 +29,8 @@ interface Props {
   onRemoveScenario: (id: string) => void
   maskActive: boolean
   hasGrid: boolean
+  /** 수배전반·전기실 자리를 어떻게 잡는지. 자리를 비우지 않으면 null */
+  padNote: string | null
   /** 후보 아래에 덧붙이는 참고 카드(표준·권장 설계용량) */
   extra?: ReactNode
 }
@@ -78,6 +80,7 @@ export default function OptimizePanel(props: Props) {
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
           <li>{props.hasGrid ? '배치마다 세트 자리 토공량을 계산합니다.' : '지형을 불러오지 않아 토공량은 빠집니다.'}</li>
+          {props.padNote && <li>{props.padNote}</li>}
         </ul>
         {props.running ? (
           <>

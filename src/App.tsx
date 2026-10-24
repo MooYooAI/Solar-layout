@@ -29,7 +29,7 @@ import TerrainPanel, { type TerrainView } from './components/TerrainPanel'
 import { analyzeTerrain, loadDem, type Dem, type GradingMode, type TerrainResult } from './lib/terrain'
 import EnergyPanel from './components/EnergyPanel'
 import type { Obstacle } from './lib/shading'
-import { ELEC_ROOM_KW, estimateKW, padCandidates, padKindFor, padNear, placeEquipPad, type EquipPad } from './lib/equipment'
+import { ELEC_ROOM_KW, estimateKW, padCandidates, padKindFor, padNear, placeEquipPad, type EquipPad, type PadKind } from './lib/equipment'
 import { runPadSearch, type PadScore, type PadSearchInput } from './lib/padSearch'
 import { buildScene, dailyShadeLoss, perSetShade, panelShadeCells, snapshot, terrainSunWindow } from './lib/analysis'
 import type { EnergyResult } from './lib/energy'
@@ -168,6 +168,7 @@ const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFracti
 const SITE_NEXT: Partial<Record<Tab, Tab>> = { parcel: 'review', terrain: 'review', review: 'ai' }
 /** 수배전반 자리를 지도에 그리지 않는 현장정보 탭 */
 const SITE_INFO_TABS = new Set<Tab>(['parcel', 'terrain', 'review'])
+const PAD_NAME: Record<PadKind, string> = { LV: '수배전반', MV: '전기실' }
 
 export default function App() {
   const vworldKey = VWORLD_KEY
@@ -720,7 +721,7 @@ export default function App() {
   )
   const padAnchor = gridPole ?? padRoad
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
-  const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' } | null>(null)
+  const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' | 'ai' } | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
   // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
   const planKW = sets.length ? (sets.length * setGeometry(params).watt) / 1000 : estimateKW(area)
@@ -1008,7 +1009,7 @@ export default function App() {
       if (r) {
         site = padSite(r.best.pad)
         setPadSearch({ busy: false, ...r })
-        setPadAt({ parcel, at: r.best.pad.center, how: 'optimal' })
+        setPadAt({ parcel, at: r.best.pad.center, how: 'ai' })
       }
     }
     const input: OptimizeInput = {
@@ -1786,8 +1787,9 @@ export default function App() {
   const roads = roadResult && roadResult.parcel === parcel ? roadResult.list : null
   const { picked } = siteCheck.road
   const { pole, poleNo } = siteCheck.grid
-  // 수배전반 자리는 배치 계산에는 늘 쓰지만, 지도에는 가설계부터 그린다. 필지·지형·입지검토에서는 이르다.
-  const padOnMap = !SITE_INFO_TABS.has(tab)
+  // 수배전반 자리는 배치 계산에는 늘 쓰지만, 지도에는 AI 가설계가 최적 자리를 잡은 뒤(또는 배치가 있을 때)부터 그린다.
+  // 필지·지형·입지검토와 AI 가설계를 돌리기 전에는 이르다.
+  const padOnMap = !SITE_INFO_TABS.has(tab) && (tab !== 'ai' || sets.length > 0 || !!optResults?.length)
   const mapObstacles = padOnMap ? siteObstacles : obstacles
   const mapMarks: MapMark[] = useMemo(() => {
     const pad: MapMark[] = equipPad && padOnMap ? [{ kind: 'pad', rings: [equipPad.ring], label: equipPad.kind === 'MV' ? '전기실' : '수배전반' }] : []
@@ -1982,7 +1984,7 @@ export default function App() {
                   : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이하라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
                 (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 자동 배치를 다시 하세요.' : ''),
               label: equipPad
-                ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : padRoad ? '도로에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
+                ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : padMove.how === 'ai' ? 'AI 가설계에서 고른 최적 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : padRoad ? '도로에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
                 : null,
               onToggle: setReservePad,
               busy: !!padSearch?.busy,
@@ -2194,6 +2196,13 @@ export default function App() {
             onRemoveScenario={(id) => setScenarios((prev) => prev.filter((x) => x.id !== id))}
             maskActive={!!mask}
             hasGrid={!!elevGrid}
+            padNote={
+              !reservePad
+                ? null
+                : padMove?.how === 'manual'
+                  ? `${PAD_NAME[padKind]}은 직접 옮긴 자리를 그대로 씁니다.`
+                  : `${PAD_NAME[padKind]} 자리도 후보 자리를 비교해 가장 좋은 곳에 같이 넣습니다.`
+            }
             extra={
               capRows && (
                 <CapacityCompare
