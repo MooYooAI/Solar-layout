@@ -2531,9 +2531,6 @@ export default function App() {
               </>
             )}
             <div className="row" style={{ marginTop: 10 }}>
-              <button type="button" className="secondary" onClick={() => switchTab('ai')}>
-                {lots && lots.length > 1 ? '이 부지로 가설계' : '이 필지로 가설계'}
-              </button>
               <button type="button" className="secondary" onClick={() => setParcel(null)}>
                 선택 해제
               </button>
