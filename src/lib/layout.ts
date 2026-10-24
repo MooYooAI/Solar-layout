@@ -67,11 +67,11 @@ export function withEdgeSetback(p: LayoutParams, mid: [number, number], m: numbe
 export const ringMargins = (ring: number[][], p: LayoutParams): number[] =>
   ring.slice(0, -1).map((a, i) => (p.edgeSetbacks?.length ? edgeSetbackAt(p, edgeMid(a, ring[i + 1])) : null) ?? p.boundarySetback)
 
-/** 기본 모듈: 한화큐셀 Q.TRON XL-G2R.9/BFG HJ 650 (catalog.ts의 qcells-qtron-g2r9-hj-650) */
+/** 기본 모듈: 한화큐셀 Q.TRON XL-G2.3/BFG 640 (catalog.ts의 qcells-qtron-xl-640) */
 export const DEFAULT_PARAMS: LayoutParams = {
-  moduleLength: 2465,
+  moduleLength: 2462,
   moduleWidth: 1134,
-  moduleWatt: 650,
+  moduleWatt: 640,
   portrait: true,
   setCols: 10,
   setRows: 2,
