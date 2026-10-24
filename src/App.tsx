@@ -44,7 +44,8 @@ import ReportView from './components/ReportView'
 import ElectricalPanel from './components/ElectricalPanel'
 import SidePanel from './components/SidePanel'
 import Resizer from './components/Resizer'
-import { loadHorizon, type Horizon } from './lib/horizon'
+import { loadHorizon, type Horizon, type SiteDem } from './lib/horizon'
+import { TerrainShader } from './lib/terrainShadow'
 import { loadTimeline, MERGE_MS, parcelKey, saveTimeline, TIMELINE_MAX, type TimelineEntry } from './lib/timeline'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
@@ -55,7 +56,7 @@ import { DEFAULT_COSTS, type CostParams } from './lib/costs'
 import { layoutEnergy, type DesignInput, type DesignResult } from './lib/design'
 import type { EconResult } from './lib/economics'
 import { INVERTERS, RACKING, ROOF_EDGE_SETBACK, type ModuleSpec } from './lib/catalog'
-import { buildingsOnParcel, ringsBox, type Building } from './lib/buildings'
+import { buildingsAround, buildingsOnParcel, FLOOR_HEIGHT, growBox, ringsBox, type Building } from './lib/buildings'
 import { DXF_CRS, guessCrs, parseDxf, shapeToLonLat, type DxfCrs, type DxfShape } from './lib/dxfImport'
 import {
   arraysCsv,
@@ -94,6 +95,13 @@ import { projectStore, projectToFile, type ProjectData } from './lib/projectStor
 
 /** 오른쪽 개요의 진행 상황에 보여 줄 화면 */
 const NO_MARKS: MapMark[] = []
+/** 이웃 건물을 찾는 부지 둘레 거리(m). 3~4층 건물이 겨울 아침·저녁에 드리우는 그림자 길이쯤 */
+const NEARBY_M = 80
+/** 해 위치(남 0·서 + 방위, rad) → 북 0 시계 방향 방위·고도(도). 3D 지형 음영 조명에 쓴다. */
+const sunLightOf = (sun: { azimuth: number; altitude: number }) => ({
+  bearing: (((180 + (sun.azimuth * 180) / Math.PI) % 360) + 360) % 360,
+  altitude: (sun.altitude * 180) / Math.PI,
+})
 /** 비동기 작업 중 부지가 바뀌었다는 표시 */
 class StaleParcel extends Error {}
 const OVERVIEW_STEPS: Tab[] = ['parcel', 'terrain', 'layout', 'elec', 'energy', 'econ']
@@ -678,6 +686,28 @@ export default function App() {
         .filter((b) => !prev.some((o) => o.id === b.id))
         .map((b) => ({ id: b.id, name: `${b.name} (${b.floors}층)`, ring: b.rings[0], height: b.height })),
     ])
+  // 이웃 건물을 음영 장애물로: 부지 둘레 NEARBY_M 안 건물(VWorld 건물 윤곽, 높이는 층수로 어림)
+  const [nearbyStatus, setNearbyStatus] = useState<{ for: Parcel; text: string; busy?: boolean } | null>(null)
+  const loadNearbyBuildings = async () => {
+    if (!parcel || !vworldKey) return
+    const at = parcel
+    setNearbyStatus({ for: at, text: '주변 건물을 찾는 중…', busy: true })
+    try {
+      const list = buildingsAround(await getBuildingsInBox(growBox(ringsBox(at.rings), NEARBY_M), vworldKey), at)
+      const fresh = list.filter((b) => !obstacles.some((o) => o.id === b.id))
+      updateObstacles((prev) => [
+        ...prev,
+        ...fresh.filter((b) => !prev.some((o) => o.id === b.id)).map((b) => ({ id: b.id, name: `이웃 ${b.name} (${b.floors}층)`, ring: b.rings[0], height: b.height })),
+      ])
+      setNearbyStatus({
+        for: at,
+        text: list.length ? `부지 둘레 ${NEARBY_M} m 안 건물 ${list.length}동 가운데 ${fresh.length}동을 넣었습니다. 높이는 층수 × ${FLOOR_HEIGHT} m로 어림했으니 맞게 고치세요.` : `부지 둘레 ${NEARBY_M} m 안에 건물이 없습니다.`,
+      })
+    } catch (e) {
+      setNearbyStatus({ for: at, text: (e as Error).message })
+    }
+  }
+  const nearby = nearbyStatus?.for === parcel ? nearbyStatus : null
   const gridPole = siteCheck.grid.pole
   // 전기실 자리를 옮겼으면(끌어 놓기·최적 자리 찾기) 그 자리, 아니면 규칙으로 고른 기본 자리
   const [padAt, setPadAt] = useState<{ parcel: Parcel; at: Vec; how: 'manual' | 'optimal' } | null>(null)
@@ -858,13 +888,13 @@ export default function App() {
   // 음영 분석 장면: 세트·장애물·설정이 바뀔 때만 다시 만든다.
   // 주변 산의 지평선. 부지가 바뀌면 반경 5 km 표고를 받아 다시 만든다(실패하면 지형 그늘 없이 계산).
   const [horizonOn, setHorizonOn] = useState(true)
-  const [horizonState, setHorizonState] = useState<{ parcel: Parcel; horizon: Horizon | null; error: string | null } | null>(null)
+  const [horizonState, setHorizonState] = useState<{ parcel: Parcel; horizon: Horizon | null; dem: SiteDem | null; error: string | null } | null>(null)
   useEffect(() => {
     if (!parcel) return
     let alive = true
     loadHorizon(parcel).then(
-      (h) => alive && setHorizonState({ parcel, horizon: h, error: null }),
-      (e: Error) => alive && setHorizonState({ parcel, horizon: null, error: e.message }),
+      ({ horizon: h, dem }) => alive && setHorizonState({ parcel, horizon: h, dem, error: null }),
+      (e: Error) => alive && setHorizonState({ parcel, horizon: null, dem: null, error: e.message }),
     )
     return () => {
       alive = false
@@ -872,6 +902,9 @@ export default function App() {
   }, [parcel])
   const horizonFresh = horizonState?.parcel === parcel ? horizonState : null
   const horizon = horizonOn ? (horizonFresh?.horizon ?? null) : null
+  // 산·언덕이 땅에 드리우는 그림자 지도(3D 음영). 표고를 받으면 한 번 만들어 둔다.
+  const siteDem = horizonFresh?.dem ?? null
+  const terrainShader = useMemo(() => (siteDem ? new TerrainShader(siteDem) : null), [siteDem])
 
   const scene = useMemo(
     () => (parcel ? buildScene(parcel.rings, sets, siteObstacles, params, geometry, sets, horizon) : null),
@@ -885,8 +918,12 @@ export default function App() {
     const solar = kstToSolar(shadeHour, scene.frame.lon0, n)
     const snap = snapshot(scene, decl, solar)
     // 3D에서 옆·정면으로 봐도 그늘이 보이게 모듈 표면에 떨어진 그림자도 칸별로 구한다.
-    return { ...snap, panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null }
-  }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry])
+    return {
+      ...snap,
+      panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null,
+      terrain: show3d && horizonOn ? (terrainShader?.render(snap.sun) ?? null) : null,
+    }
+  }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry, terrainShader, horizonOn])
   // 고른 날의 일출·일몰과, 주변 산 때문에 실제로 햇빛이 드는 시간(한국 표준시)
   const sunTimes = useMemo(() => {
     if (!parcel || tab !== 'shade') return null
@@ -2063,6 +2100,12 @@ export default function App() {
             hasSets={sets.length > 0}
             obstacles={obstacles}
             onObstacles={updateObstacles}
+            nearby={{
+              can: !!vworldKey && !!parcel,
+              busy: !!nearby?.busy,
+              status: nearby?.text ?? null,
+              onLoad: () => void loadNearbyBuildings(),
+            }}
             tool={tool}
             onTool={setTool}
             horizon={horizonFresh?.horizon ?? null}
@@ -2646,6 +2689,8 @@ export default function App() {
               shadows={shadeView?.shadows ?? NO_SHADOWS}
               setShade={shadeView?.perSet ?? null}
               panelShade={shadeView?.panel ?? null}
+              terrainShade={shadeView?.terrain ?? null}
+              sunLight={shadeView && shadeView.sun.altitude > 0 ? sunLightOf(shadeView.sun) : null}
               terrainCells={terrain?.cells ?? null}
               terrainView={mapTerrainView}
               buildable={buildable}
@@ -2832,6 +2877,7 @@ export default function App() {
             scene={scene}
             elec={design?.elec ?? null}
             terrain={terrain}
+            terrainShader={horizonOn ? terrainShader : null}
             area={area}
             kWp={stats.kWp}
             onClose={() => setShowSite3d(false)}
