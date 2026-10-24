@@ -15,7 +15,7 @@ export const TABS: Record<Tab, { label: string; desc: string; step?: string; not
   terrain: { label: '지형', step: '지형 자동분석', desc: '필지를 고르면 경사·절성토를 저절로 분석합니다. 설계 가능 영역 기준은 고칠 수 있습니다.' },
   review: { label: '입지검토', desc: '토지 정보를 바로잡고, 진입 도로·계통연계·산지 기준을 확인해 입지를 판정합니다.' },
   ai: { label: '가설계', step: 'AI 가설계', desc: 'AI가 여러 배치안을 비교해 추천합니다. 하나를 골라 기본설계로 넘깁니다.' },
-  layout: { label: '배치', desc: '모듈·간격을 정해 자동 배치하고, 배치 편집에서 손봅니다.' },
+  layout: { label: '배치', desc: '모듈·간격을 고쳐 다시 배치하고, 배치 편집에서 손봅니다.' },
   elec: { label: '전기', desc: '스트링과 인버터를 묶고 케이블을 잡습니다.' },
   shade: { label: '음영', desc: '날짜·시각별 그림자와 하루 음영 손실을 봅니다.' },
   energy: { label: '발전량', desc: '음영·온도를 반영해 월별·연간 발전량을 냅니다.' },
