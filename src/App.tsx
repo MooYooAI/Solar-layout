@@ -2960,6 +2960,7 @@ export default function App() {
           designBusy={designBusy}
           hasTimeline={timeline.length > 0}
           siteKind={siteKindLabel(siteKind)}
+          padLabel={equipPad?.label ?? null}
           area={area}
           zoning={parcelZoning}
           energy={energy}

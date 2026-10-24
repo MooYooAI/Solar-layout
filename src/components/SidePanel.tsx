@@ -31,6 +31,8 @@ interface Props {
   zoning: string[]
   /** 설치 장소 이름(토지·건물·복합) */
   siteKind: string
+  /** 비워 둔 수배전반·전기실 자리 이름 */
+  padLabel: string | null
   energy: EnergyResult | null
   econ: EconSettings
   econHours: number
@@ -114,6 +116,8 @@ export default function SidePanel(props: Props) {
           stats={stats}
           energy={props.energy}
           elec={props.elec}
+          elecParams={props.elecParams}
+          padLabel={props.padLabel}
           econ={props.econ}
           econHours={props.econHours}
           steps={props.steps}
