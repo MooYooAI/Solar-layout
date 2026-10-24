@@ -121,7 +121,13 @@ export default function LayoutPanel(props: Props) {
             </option>
           </select>
         </label>
-        {preset?.maker && <p className="hint" style={{ marginTop: 0 }}>{`${preset.maker} ${preset.model}: 데이터시트 STC 값(Voc ${preset.voc} V, Isc ${preset.isc} A)으로 스트링을 짭니다.`}</p>}
+        {preset?.maker && (
+          <p className="hint" style={{ marginTop: 0 }}>
+            {preset.estimated
+              ? `${preset.maker} ${preset.model}: 공개 데이터시트가 없어 같은 시리즈 값으로 어림한 전기 값(Voc ${preset.voc} V, Isc ${preset.isc} A)으로 스트링을 짭니다. 발주 전에 납품 데이터시트로 확인하세요.`
+              : `${preset.maker} ${preset.model}: 데이터시트 STC 값(Voc ${preset.voc} V, Isc ${preset.isc} A)으로 스트링을 짭니다.`}
+          </p>
+        )}
         <div className="grid2">
           <Field label="긴 변" unit="mm" value={p.moduleLength} onChange={set('moduleLength')} />
           <Field label="짧은 변" unit="mm" value={p.moduleWidth} onChange={set('moduleWidth')} />

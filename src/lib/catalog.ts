@@ -22,6 +22,8 @@ export interface ModuleSpec {
   betaVoc: number
   /** 최대출력 온도계수(%/°C) */
   gammaPmax: number
+  /** 전기 값을 데이터시트에서 옮기지 못하고 같은 시리즈 값으로 어림했으면 true */
+  estimated?: boolean
 }
 
 export const MODULES: ModuleSpec[] = [
@@ -31,6 +33,10 @@ export const MODULES: ModuleSpec[] = [
   { id: 'm620', label: '620W급 N형 양면 (2382×1134)', length: 2382, width: 1134, watt: 620, voc: 55.4, vmp: 46.0, isc: 14.2, imp: 13.48, betaVoc: -0.25, gammaPmax: -0.29 },
   { id: 'm700', label: '700W급 대형 (2384×1303)', length: 2384, width: 1303, watt: 700, voc: 48.6, vmp: 40.4, isc: 18.4, imp: 17.33, betaVoc: -0.25, gammaPmax: -0.29 },
   // ── 제조사 제품(데이터시트 STC 값) ──
+  // 한화큐셀 Q.TRON XL-G2R.9/BFG 국내 데이터시트(2025-02 Rev05, 635~640 Wp, 156셀, 30T)
+  { id: 'qcells-qtron-g2r9-635', maker: '한화큐셀', model: 'Q.TRON XL-G2R.9/BFG 635', label: '635W N형 양면 (2465×1134)', length: 2465, width: 1134, watt: 635, voc: 56.68, vmp: 48.37, isc: 13.81, imp: 13.13, betaVoc: -0.25, gammaPmax: -0.29 },
+  // HJ 650은 공개 데이터시트를 찾지 못했다. 크기는 같은 시리즈를 따르고, 전기 값은 635→640 증가분을 650까지 늘려 어림했다.
+  { id: 'qcells-qtron-g2r9-hj-650', maker: '한화큐셀', model: 'Q.TRON XL-G2R.9/BFG HJ 650', label: '650W N형 양면 (2465×1134)', length: 2465, width: 1134, watt: 650, voc: 56.98, vmp: 48.97, isc: 13.87, imp: 13.28, betaVoc: -0.25, gammaPmax: -0.29, estimated: true },
   // 한화큐셀 Q.TRON XL-G2.3/BFG 데이터시트(2026-02 Rev10)
   { id: 'qcells-qtron-xl-630', maker: '한화큐셀', model: 'Q.TRON XL-G2.3/BFG 630', label: '630W N형 양면 (2462×1134)', length: 2462, width: 1134, watt: 630, voc: 57.23, vmp: 47.89, isc: 13.88, imp: 13.15, betaVoc: -0.24, gammaPmax: -0.29 },
   { id: 'qcells-qtron-xl-640', maker: '한화큐셀', model: 'Q.TRON XL-G2.3/BFG 640', label: '640W N형 양면 (2462×1134)', length: 2462, width: 1134, watt: 640, voc: 57.79, vmp: 48.28, isc: 13.99, imp: 13.26, betaVoc: -0.24, gammaPmax: -0.29 },
