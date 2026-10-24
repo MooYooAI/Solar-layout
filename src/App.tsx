@@ -2640,8 +2640,13 @@ export default function App() {
             들어올 때로
           </button>
           {SITE_NEXT[tab] ? (
-            <button type="button" disabled={!parcel} onClick={() => switchTab(SITE_NEXT[tab]!)}>
-              {TABS[SITE_NEXT[tab]!].label} →
+            <button
+              type="button"
+              className={parcel && SITE_NEXT[tab] === 'review' ? 'nudge' : undefined}
+              disabled={!parcel}
+              onClick={() => switchTab(SITE_NEXT[tab]!)}
+            >
+              {TABS[SITE_NEXT[tab]!].label}<span className="nudge-arrow">→</span>
             </button>
           ) : (
             <button
