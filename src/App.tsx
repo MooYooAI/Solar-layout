@@ -1131,24 +1131,22 @@ export default function App() {
   }, [equipPad])
 
   // 표준·권장 설계용량: 동지 9~15시 무음영 이격(표준)과 10~14시 무음영 이격(권장, 용량 우선)으로 각각 배치해 본다.
-  const [capCompare, setCapCompare] = useState<{ key: unknown[]; rows: CapacityOption[] } | null>(null)
-  const capKey = [parcel, params, mask, layoutMode]
-  const capRows = capCompare && capCompare.key.every((v, i) => v === capKey[i]) ? capCompare.rows : null
-  const compareCapacity = () => {
-    if (!parcel) return
+  // AI 가설계 후보가 나오면 그 아래에 참고로 보인다. AI가 전기실 자리를 옮기므로 옮긴 뒤의 자리로 계산한다.
+  const capRows = useMemo((): CapacityOption[] | null => {
+    if (tab !== 'ai' || !parcel || !optResults?.length) return null
     const { lat0 } = LocalFrame.around(parcel.rings)
     const h = geometry.height - params.groundClearance
     const opts: Array<[CapacityOption['key'], string, string, number, number]> = [
       ['standard', '표준', '동지 9~15시 앞 열 그림자 없음', 9, 15],
       ['recommended', '권장', '동지 10~14시 앞 열 그림자 없음(용량 우선)', 10, 14],
     ]
-    const rows = opts.map(([key, label, basis, from, to]) => {
+    return opts.map(([key, label, basis, from, to]) => {
       const spacing = Math.ceil(rowSpacingForNoShade(lat0, h, params.azimuth, from, to) * 10) / 10
       const n = layoutWith({ ...params, rowSpacing: spacing }).length
       return { key, label, basis, spacing, shadeAngle: shadeAngle({ ...params, rowSpacing: spacing }), sets: n, kWp: (n * geometry.watt) / 1000 }
     })
-    setCapCompare({ key: capKey, rows })
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, parcel, optResults, params, geometry, mask, layoutMode, keepOut])
 
   /**
    * 용량에 맞는 인버터를 고른다. 스트링 결선·케이블은 설계 계산이 이어서 잡는다.
@@ -1964,14 +1962,6 @@ export default function App() {
             </p>
           </section>
         )}
-        {tab === 'layout' && parcel && (
-          <CapacityCompare
-            rows={capRows}
-            current={{ spacing: params.rowSpacing, kWp: stats.kWp }}
-            onCompare={compareCapacity}
-            onApply={(r) => void placeSets(`${r.label} 설계용량으로 배치`, { ...params, rowSpacing: r.spacing })}
-          />
-        )}
         {tab === 'layout' && (
           <LayoutPanel
             params={params}
@@ -2204,6 +2194,19 @@ export default function App() {
             onRemoveScenario={(id) => setScenarios((prev) => prev.filter((x) => x.id !== id))}
             maskActive={!!mask}
             hasGrid={!!elevGrid}
+            extra={
+              capRows && (
+                <CapacityCompare
+                  rows={capRows}
+                  onApply={(r) => {
+                    const next = placeSets(`${r.label} 설계용량으로 배치`, { ...params, rowSpacing: r.spacing })
+                    if (!next) return
+                    fitInverter((next.length * geometry.watt) / 1000, `${r.label} 설계용량으로 배치`)
+                    switchTab('layout')
+                  }}
+                />
+              )
+            }
           />
         )}
 
