@@ -1,4 +1,4 @@
-import { convexHull, deg2rad, LocalFrame, quadFitsInRing, rotate, type Vec } from './geo'
+import { convexHull, deg2rad, LocalFrame, quadFitsInRing, rad2deg, rotate, type Vec } from './geo'
 import type { Parcel } from './parcel'
 import { blockedAt, type BuildMask } from './buildable'
 import type { RackingType } from './catalog'
@@ -124,6 +124,18 @@ export function setGeometry(p: LayoutParams): SetGeometry {
     watt: modules * p.moduleWatt,
   }
 }
+
+/** 세트 위끝과 아래끝의 높이 차(m) */
+const setRise = (p: LayoutParams) => setGeometry(p).slope * Math.sin(deg2rad(p.tilt))
+
+/**
+ * 음영각(°): 해가 이 높이보다 높이 떠 있으면 앞 열 그림자가 뒷 열에 닿지 않는다.
+ * 실무 관례대로 해가 세트 정면에 있다고 보고 열 이격거리에서 거꾸로 구한다.
+ */
+export const shadeAngle = (p: LayoutParams): number => (p.rowSpacing > 0 ? rad2deg(Math.atan2(setRise(p), p.rowSpacing)) : 90)
+
+/** 음영각(°)에 맞는 열 이격거리(m, 1 cm 단위 올림) */
+export const rowSpacingForShadeAngle = (p: LayoutParams, deg: number): number => Math.ceil((setRise(p) / Math.tan(deg2rad(deg))) * 100) / 100
 
 // 세트 로컬 좌표: +x 동쪽, +y 북쪽(뒤). 남쪽을 보던 세트가 서쪽(+)으로 돌면
 // 지도에서는 시계 방향 회전이므로 반시계 기준 회전각은 −azimuth.

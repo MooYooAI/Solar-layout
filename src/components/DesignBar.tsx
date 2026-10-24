@@ -1,4 +1,4 @@
-import type { LayoutParams } from '../lib/layout'
+import { rowSpacingForShadeAngle, shadeAngle, type LayoutParams } from '../lib/layout'
 
 interface Props {
   params: LayoutParams
@@ -34,6 +34,21 @@ export default function DesignBar({ params: p, onParams, noShadeSpacing, canPlac
       {num('tilt', '경사', '°', 1, 0, 60)}
       {num('azimuth', '방위', '°', 1, -90, 90)}
       {num('rowSpacing', '열 이격', 'm', 0.1, 0, 30)}
+      <label className="db-field">
+        <span>음영각</span>
+        <input
+          type="number"
+          step={0.5}
+          min={5}
+          max={60}
+          value={Math.round(shadeAngle(p) * 10) / 10}
+          onChange={(e) => {
+            const v = e.target.valueAsNumber
+            if (v > 0 && v < 90) onParams({ ...p, rowSpacing: Math.min(30, rowSpacingForShadeAngle(p, v)) })
+          }}
+        />
+        <em>°</em>
+      </label>
       {num('boundarySetback', '경계 이격', 'm', 0.5, 0, 50)}
       {num('setRows', '단수', '단', 1, 1, 8)}
       <label className="db-field">

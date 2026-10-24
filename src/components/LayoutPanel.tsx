@@ -1,4 +1,4 @@
-import { continuousParams, isContinuous, type LayoutParams, type SetGeometry } from '../lib/layout'
+import { continuousParams, isContinuous, rowSpacingForShadeAngle, shadeAngle, type LayoutParams, type SetGeometry } from '../lib/layout'
 import { MODULES, RACKING, findModule, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { ZoneMode } from '../lib/zones'
 
@@ -179,6 +179,14 @@ export default function LayoutPanel(props: Props) {
           <Field label="패널 간격" unit="mm" value={p.moduleGap} step={5} onChange={set('moduleGap')} />
           <Field label="세트 간격" unit="mm" value={p.setGap} step={50} onChange={set('setGap')} />
           <Field label="열 이격거리" unit="m" value={p.rowSpacing} step={0.1} onChange={set('rowSpacing')} />
+          <Field
+            label="음영각"
+            unit="°"
+            value={Math.round(shadeAngle(p) * 10) / 10}
+            step={0.5}
+            min={1}
+            onChange={(v) => v > 0 && v < 90 && set('rowSpacing')(rowSpacingForShadeAngle(p, v))}
+          />
           <Field label="경계 이격" unit="m" value={p.boundarySetback} step={0.1} onChange={set('boundarySetback')} />
           <Field
             label="피치(열 중심 간격)"
@@ -195,13 +203,17 @@ export default function LayoutPanel(props: Props) {
         </div>
         {props.suggestedRowSpacing !== null && (
           <p className="hint">
-            동지 9~15시에 앞 열 그림자가 닿지 않으려면 열 이격거리 {fmt(props.suggestedRowSpacing, 2)} m 이상이 필요합니다.{' '}
+            동지 9~15시에 앞 열 그림자가 닿지 않으려면 열 이격거리 {fmt(props.suggestedRowSpacing, 2)} m(음영각{' '}
+            {fmt(shadeAngle({ ...p, rowSpacing: props.suggestedRowSpacing }), 1)}°) 이상이 필요합니다.{' '}
             <button type="button" className="link" onClick={() => set('rowSpacing')(Math.ceil(props.suggestedRowSpacing! * 10) / 10)}>
               적용
             </button>
           </p>
         )}
-        <p className="hint">세트 간격은 같은 열에서 옆 세트와의 거리, 열 이격거리는 앞 세트 뒤끝부터 뒷 세트 앞끝까지입니다.</p>
+        <p className="hint">
+          세트 간격은 같은 열에서 옆 세트와의 거리, 열 이격거리는 앞 세트 뒤끝부터 뒷 세트 앞끝까지입니다. 음영각은 해가 이 높이보다 높이 떠
+          있을 때 앞 열 그림자가 뒷 열에 닿지 않는 각도로, 낮출수록 열 이격이 넓어집니다.
+        </p>
         <div className="edge-tools">
           <div className="row">
             <button type="button" className={props.edges.picking ? '' : 'secondary'} disabled={!props.canLayout} onClick={props.edges.onPick}>
