@@ -1052,11 +1052,13 @@ export default function App() {
     setOptRun(null)
   }
 
-  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
+  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[], mode?: LayoutMode) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     if (!unlock()) return
     mark('AI 설계 적용')
     setParams(nextParams)
+    // 나중에 다시 배치해도 이 안의 배치 방식(한 방향·구역별·빈자리 채우기)을 그대로 쓴다.
+    if (mode) setLayoutMode(mode)
     setLayoutBasis(nextParams)
     editSets(nextSets)
     // 배치와 함께 인버터까지 잡아 두어 기본설계에서 자동 설계를 다시 돌리지 않아도 되게 한다.
@@ -1385,7 +1387,7 @@ export default function App() {
     if (!design) return
     const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
     if (name === null) return
-    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics }])
+    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics, layoutMode }])
   }
 
   // ── 프로젝트 저장·불러오기: 지금은 이 브라우저에, 로그인이 생기면 projectStore만 바꾼다. ──
