@@ -242,7 +242,7 @@ function BuildableCard(props: Props) {
             <dd>{fmt(b.drainArea)} ㎡</dd>
           </dl>
           <label className="row" style={{ marginTop: 10 }}>
-            <input type="checkbox" checked={props.useMask} onChange={(e) => props.onUseMask(e.target.checked)} /> 자동 배치와 AI 설계에
+            <input type="checkbox" checked={props.useMask} onChange={(e) => props.onUseMask(e.target.checked)} /> 배치와 AI 가설계에
             반영
           </label>
           <ul className="legend compact">

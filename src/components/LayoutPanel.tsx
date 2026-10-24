@@ -7,13 +7,15 @@ interface Props {
   onParams: (p: LayoutParams) => void
   suggestedRowSpacing: number | null
   canLayout: boolean
+  /** 배치가 있으면 버튼이 '바꾼 값으로 다시 배치'가 된다 */
+  hasSets: boolean
   onAutoLayout: () => void
   geometry: SetGeometry
   onModule: (m: ModuleSpec) => void
   /** 설계 가능 영역을 자동 배치에 반영 중인지 */
   maskActive: boolean
+  /** 자동 배치 방식. AI 가설계에서 고른 안을 적용하면 그 안의 방식이 된다. */
   layoutMode: LayoutMode
-  onLayoutMode: (m: LayoutMode) => void
   /** 전기실 자리 비워 두기. label은 자리를 찾았을 때 그 이름 */
   pad: {
     on: boolean
@@ -46,12 +48,12 @@ interface Props {
 /** 자동 배치 방식: 한 방향 격자, 또는 구역별 방위각(zones.ts) */
 export type LayoutMode = 'grid' | ZoneMode
 
-const LAYOUT_MODES: Array<[LayoutMode, string]> = [
-  ['grid', '한 방향'],
-  ['fill', '한 방향 + 빈자리 채우기'],
-  ['edge', '구역별 방위(경계 방향)'],
-  ['half', '구역별 방위(절충)'],
-]
+const LAYOUT_MODE_LABEL: Record<LayoutMode, string> = {
+  grid: '한 방향',
+  fill: '한 방향 + 빈자리 채우기',
+  edge: '구역별 방위(경계 방향)',
+  half: '구역별 방위(절충)',
+}
 
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 
@@ -272,16 +274,9 @@ export default function LayoutPanel(props: Props) {
             <p className="hint">지도나 배치 편집에서 함체를 끌어 옮길 수도 있습니다. 옮기면 그 자리를 비워 다시 배치합니다.</p>
           </div>
         )}
-        <label className="field">
-          <span>배치 방식</span>
-          <select value={props.layoutMode} onChange={(e) => props.onLayoutMode(e.target.value as LayoutMode)}>
-            {LAYOUT_MODES.map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="hint">
+          배치 방식: <strong>{LAYOUT_MODE_LABEL[props.layoutMode]}</strong>. AI 가설계에서 고른 안의 방식을 그대로 씁니다.
+        </p>
         {props.layoutMode !== 'grid' && (
           <p className="hint">
             {props.layoutMode === 'fill'
@@ -291,8 +286,9 @@ export default function LayoutPanel(props: Props) {
           </p>
         )}
         <button type="button" className="block" disabled={!props.canLayout} onClick={props.onAutoLayout}>
-          자동 배치
+          {props.hasSets ? '수정값 반영 다시 배치' : '이 설정으로 배치'}
         </button>
+        {props.hasSets && <p className="hint">위에서 바꾼 모듈·경사·이격 값으로, 지금 배치 방식대로 세트를 다시 깝니다. 손으로 고친 세트는 지워집니다.</p>}
         {!props.canLayout && <p className="hint">먼저 필지 탭에서 필지를 선택하세요.</p>}
         {props.maskActive && <p className="hint">지형 탭의 설계 가능 영역(경사·배수 제외 구역)을 피해서 배치합니다.</p>}
         <p className="hint">배치한 세트는 오른쪽 가배치 도면이나 지도에서 옮기고, 더하고, 지울 수 있습니다.</p>

@@ -136,7 +136,7 @@ export default function LayoutEditor(props: Props) {
         </div>
 
         <button type="button" className="editor-auto" onClick={props.onAutoLayout}>
-          자동 배치
+          {sets.length ? '수정값 반영 다시 배치' : '이 설정으로 배치'}
         </button>
       </div>
 

@@ -1052,11 +1052,13 @@ export default function App() {
     setOptRun(null)
   }
 
-  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[]) => {
+  const applyCandidate = (nextParams: LayoutParams, nextSets: ModuleSet[], mode?: LayoutMode) => {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     if (!unlock()) return
     mark('AI 설계 적용')
     setParams(nextParams)
+    // 나중에 다시 배치해도 이 안의 배치 방식(한 방향·구역별·빈자리 채우기)을 그대로 쓴다.
+    if (mode) setLayoutMode(mode)
     setLayoutBasis(nextParams)
     editSets(nextSets)
     // 배치와 함께 인버터까지 잡아 두어 기본설계에서 자동 설계를 다시 돌리지 않아도 되게 한다.
@@ -1110,7 +1112,7 @@ export default function App() {
     parcel ? ((layoutMode === 'grid' ? null : zonedLayout(parcel, p, { mode: layoutMode, mask, keepOut })) ?? autoLayout(parcel, p, 0, mask, keepOut)) : []
   const placeSets = (label: string, p: LayoutParams = params): ModuleSet[] | null => {
     if (!parcel) return null
-    if (sets.length && !window.confirm('현재 배치를 지우고 다시 자동 배치할까요?')) return null
+    if (sets.length && !window.confirm('현재 배치를 지우고 바꾼 값으로 다시 배치할까요?')) return null
     if (!unlock()) return null
     mark(label)
     const next = layoutWith(p)
@@ -1120,7 +1122,7 @@ export default function App() {
     setSelected(new Set())
     return next
   }
-  const runAutoLayout = () => void placeSets('자동 배치')
+  const runAutoLayout = () => void placeSets('수정값 반영 다시 배치')
   useEffect(() => {
     if (!relayoutForPad.current) return
     relayoutForPad.current = false
@@ -1385,7 +1387,7 @@ export default function App() {
     if (!design) return
     const name = window.prompt('배치안 이름', `배치안 ${scenarios.length + 1}`)
     if (name === null) return
-    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics }])
+    setScenarios((prev) => [...prev, { id: newSetId(), name: name || `배치안 ${prev.length + 1}`, params, sets, metrics: design.metrics, layoutMode }])
   }
 
   // ── 프로젝트 저장·불러오기: 지금은 이 브라우저에, 로그인이 생기면 projectStore만 바꾼다. ──
@@ -1970,19 +1972,19 @@ export default function App() {
             onParams={updateParams}
             suggestedRowSpacing={suggestedRowSpacing}
             canLayout={!!parcel}
+            hasSets={sets.length > 0}
             onAutoLayout={runAutoLayout}
             geometry={geometry}
             onModule={onModule}
             maskActive={!!mask}
             layoutMode={layoutMode}
-            onLayoutMode={setLayoutMode}
             pad={{
               on: reservePad,
               rule:
                 (padKind === 'MV'
                   ? `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}가 ${ELEC_ROOM_KW} kW를 넘어 전기실(수배전반·변압기)을 둡니다.`
                   : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이하라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
-                (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 자동 배치를 다시 하세요.' : ''),
+                (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 수정값 반영 다시 배치를 누르세요.' : ''),
               label: equipPad
                 ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : padMove.how === 'ai' ? 'AI 가설계에서 고른 최적 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : padRoad ? '도로에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
                 : null,
