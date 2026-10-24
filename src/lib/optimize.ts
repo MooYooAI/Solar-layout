@@ -25,11 +25,11 @@ import { zonedLayout, type ZoneMode } from './zones'
 export type Strategy = 'capacity' | 'energy' | 'lcoe' | 'balanced' | 'yield'
 
 export const STRATEGIES: Record<Strategy, { label: string; detail: string }> = {
-  capacity: { label: '용량 최대', detail: '동지 9~15시에 앞 열 그림자가 뒷 열에 닿지 않는 간격을 지키면서 설비용량이 가장 큰 안' },
-  energy: { label: '발전량 최대', detail: '필지에서 나오는 연간 발전량이 가장 많은 안' },
-  lcoe: { label: 'LCOE 최저', detail: '설치비·운영비를 발전량으로 나눈 발전원가가 가장 낮은 안' },
-  balanced: { label: '균형', detail: '효율(kWh/kWp)을 최고치의 97% 이상 지키면서 발전량이 가장 많은 안' },
-  yield: { label: '효율 최대', detail: '모듈 1kW당 발전량이 가장 높은 안 (모듈 수 대비 수익성)' },
+  capacity: { label: '무음영 용량 최대', detail: '동지 9~15시에 앞 열 그림자가 뒷 열에 닿지 않는 간격을 지키면서 설비용량이 가장 큰 안' },
+  energy: { label: '발전량 최대', detail: '필지에서 나오는 연간 발전량이 가장 많은 안. 그림자를 조금 감수하고 열 간격을 좁혀 세트를 가장 많이 넣는 경우가 많다' },
+  lcoe: { label: '발전원가 최저', detail: '설치비·운영비를 사업 기간 발전량으로 나눈 1kWh당 발전원가(LCOE)가 가장 낮은 안' },
+  balanced: { label: '균형', detail: '1kW당 발전량을 가장 높은 안의 97% 이상으로 지키면서(그림자 손실이 적은 간격) 연간 발전량이 가장 많은 안' },
+  yield: { label: 'kW당 발전량 최대', detail: '모듈 1kW당 연간 발전량이 가장 높은 안. 간격을 넓게 둬 그림자가 거의 없는 대신 세트 수는 적다' },
 }
 
 export interface OptimizeInput {
@@ -240,7 +240,7 @@ export function planCoarse(o: OptimizeInput): Task[] {
 /**
  * 2차: 기준마다 상위 2개 주변(경사각 ±2.5°, 첫 열 시작 위치)을 정밀 계산할 후보.
  * 경사각을 바꾸면 그림자 길이가 달라지므로 무음영 간격 대비 배율을 유지하도록 열 이격거리도 다시 잡는다.
- * 용량 최대 후보는 첫 열 위치를 더 잘게 나눠 한 열이라도 더 들어가는 자리를 찾는다.
+ * 무음영 용량 최대 후보는 첫 열 위치를 더 잘게 나눠 한 열이라도 더 들어가는 자리를 찾는다.
  */
 export function planRefine(o: OptimizeInput, coarse: Evaluated[]): Task[] {
   const { lat0 } = LocalFrame.around(o.parcel.rings)

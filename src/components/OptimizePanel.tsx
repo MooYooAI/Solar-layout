@@ -48,7 +48,7 @@ const pct = (v: number | null) => (v === null ? '-' : `${fmt(v * 100, 1)}%`)
 const moduleLabel = (p: LayoutParams) => moduleName(findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)) ?? `일반 규격 ${p.moduleLength}×${p.moduleWidth} mm`
 const inverterLabel = (id: string) => INVERTERS.find((i) => i.id === id)?.label ?? id
 const az = (a: number) => (a === 0 ? '정남' : `${a > 0 ? '서' : '동'} ${Math.abs(a)}°`)
-/** 추천 배치안: 효율을 지키면서 발전량이 가장 많은 균형 안 */
+/** 추천 배치안: kW당 발전량을 지키면서 발전량이 가장 많은 균형 안 */
 const RECOMMENDED: Strategy = 'balanced'
 /** 보여 주는 순서: 추천(균형) 다음에 발전량 최대 */
 const ORDER: Strategy[] = ['balanced', 'energy', 'capacity', 'lcoe', 'yield']
@@ -127,7 +127,7 @@ export default function OptimizePanel(props: Props) {
               </>
             ) : (
               <>
-                <strong>{fmt(c.metrics.annualKWh / 1000, 1)}</strong> MWh/년 · LCOE {fmt(c.metrics.lcoe, 1)}원/kWh
+                <strong>{fmt(c.metrics.annualKWh / 1000, 1)}</strong> MWh/년 · 발전원가 {fmt(c.metrics.lcoe, 1)}원/kWh
               </>
             )}
           </div>
@@ -150,9 +150,9 @@ export default function OptimizePanel(props: Props) {
                 ? `연속 배열: 줄을 경계 끝까지 잇기 (기둥 한 칸 ${c.params.setCols}열 × ${c.params.setRows}단 단위)`
                 : `${c.params.setCols}열 × ${c.params.setRows}단 세트 ${fmt(c.sets.length)}개`}
             </dd>
-            <dt>효율</dt>
+            <dt>kW당 발전량</dt>
             <dd>
-              {fmt(c.metrics.specificYield)} kWh/kWp (음영 {fmt(c.metrics.shadeLoss * 100, 1)}%, 클리핑 {fmt(c.metrics.clipLoss * 100, 1)}%)
+              {fmt(c.metrics.specificYield)} kWh/kWp (음영 {fmt(c.metrics.shadeLoss * 100, 1)}%, 인버터 초과 {fmt(c.metrics.clipLoss * 100, 1)}%)
             </dd>
             <dt>경사·방위</dt>
             <dd>
@@ -212,7 +212,7 @@ export default function OptimizePanel(props: Props) {
                   <th>kWh/kWp</th>
                   <th>절·성토 ㎥</th>
                   <th>CAPEX 억</th>
-                  <th>LCOE 원/kWh</th>
+                  <th>발전원가 원/kWh</th>
                   <th>사업 IRR</th>
                   <th>회수(년)</th>
                   <th />
@@ -258,7 +258,7 @@ export default function OptimizePanel(props: Props) {
           현재 배치를 비교 목록에 저장
         </button>
         <p className="hint">
-          LCOE는 설치비와 분석 기간의 운영비 현재가치를 발전량 현재가치로 나눈 값입니다. 설치비 단가와 판매·융자 조건은 경제성 탭에서
+          발전원가(LCOE)는 설치비와 분석 기간의 운영비 현재가치를 발전량 현재가치로 나눈 값입니다. 설치비 단가와 판매·융자 조건은 경제성 탭에서
           바꿉니다. 굵은 글씨가 가장 좋은 값입니다.
         </p>
       </section>
