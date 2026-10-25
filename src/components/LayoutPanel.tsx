@@ -257,6 +257,7 @@ export default function LayoutPanel(props: Props) {
           <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 수배전반·전기실 자리 비워 두기
           {props.pad.on && <small className="hint"> {props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</small>}
         </label>
+        {!props.pad.on && <p className="hint">{props.pad.rule}</p>}
         {props.pad.on && (
           <div className="pad-tools">
             <div className="row">

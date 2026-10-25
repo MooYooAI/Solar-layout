@@ -27,15 +27,18 @@ const SERVICE = 1
 const EDGE_GAP = 0.5
 /** 필지 1㎡당 대략 설비용량(kW). 배치 전에 전기실이 필요한지 가늠할 때만 쓴다. */
 const KW_PER_M2 = 0.11
-/** 이 용량(kW)을 넘으면 전기실을 따로 둔다. 그 아래는 옥외 수배전반 함체(변압기는 주상·옥외형)로 충분하다. */
+/**
+ * 이 용량(kW) 이상이면 수배전반 설치가 의무라 전기실(수배전반·변압기)을 둔다.
+ * 그 아래는 의무가 아니어서 기본으로 두지 않고, 필요하면 옥외 수배전반 함체 자리를 직접 비운다.
+ */
 export const ELEC_ROOM_KW = 500
 
 /** 배치 전 부지 면적으로 어림한 설비용량(kW) */
 export const estimateKW = (areaM2: number) => areaM2 * KW_PER_M2
 
-/** 설비용량(kW)으로 고른 함체 종류: 500 kW 이하는 옥외 수배전반 함체, 넘으면 전기실 */
+/** 설비용량(kW)으로 고른 함체 종류: 500 kW 미만은 옥외 수배전반 함체, 이상이면 전기실 */
 export function padKindFor(kW: number): PadKind {
-  return kW > ELEC_ROOM_KW ? 'MV' : 'LV'
+  return kW >= ELEC_ROOM_KW ? 'MV' : 'LV'
 }
 
 /** 경계 안쪽에 함체가 들어가는 자리 하나(부지 평면 좌표) */

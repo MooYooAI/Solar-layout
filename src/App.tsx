@@ -647,7 +647,8 @@ export default function App() {
 
   const area = useMemo(() => (parcel ? parcelArea(parcel) : 0), [parcel])
   // 수배전반 함체·전기실 자리: 모듈보다 먼저 비워 두고 수배전반 위치와 그림자 계산에 쓴다. 전주를 찍었으면 그 쪽에 둔다.
-  const [reservePad, setReservePad] = useState(true)
+  // 'auto'는 500 kW 이상(설치 의무)일 때만 둔다. 배치 패널에서 켜고 끄면 그 선택을 따른다.
+  const [padChoice, setPadChoice] = useState<'auto' | 'on' | 'off'>('auto')
   const [siteKind, setSiteKind] = useState<SiteKind>('land')
   // 필지 안 건물(불러온 뒤에만). 지붕 배치로 바꾸면 원래 필지를 기억해 되돌릴 수 있게 한다.
   const [buildings, setBuildings] = useState<{ for: Parcel; list: Building[] } | { for: Parcel; error: string } | null>(null)
@@ -661,12 +662,12 @@ export default function App() {
     if (k === 'building') {
       if (params.racking !== 'roof')
         updateParams({ ...params, racking: 'roof', groundClearance: RACKING.roof.groundClearance, boundarySetback: ROOF_EDGE_SETBACK })
-      setReservePad(false)
+      setPadChoice('off')
       setUseMask(false)
     } else {
       if (params.racking === 'roof')
         updateParams({ ...params, racking: 'pile', groundClearance: RACKING.pile.groundClearance, boundarySetback: DEFAULT_PARAMS.boundarySetback })
-      setReservePad(true)
+      setPadChoice('auto')
       setUseMask(true)
     }
   }
@@ -735,6 +736,11 @@ export default function App() {
   // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
   const planKW = sets.length ? (sets.length * setGeometry(params).watt) / 1000 : estimateKW(area)
   const padKind = padKindFor(planKW)
+  // 자동이면 부지 면적으로 어림한 용량으로 정한다. 배치 용량으로 정하면 AI 안을 적용하는 순간 자리가 생기거나 사라져 모듈과 어긋난다.
+  const padRequired = estimateKW(area) >= ELEC_ROOM_KW
+  const reservePad = padChoice === 'auto' ? padRequired : padChoice === 'on'
+  // 배치 용량이 500 kW 이상인데 자리를 비우지 않았으면 알린다.
+  const padMissing = !reservePad && sets.length > 0 && planKW >= ELEC_ROOM_KW
   const equipPad = useMemo(
     () =>
       parcel && reservePad
@@ -2006,14 +2012,22 @@ export default function App() {
             pad={{
               on: reservePad,
               rule:
-                (padKind === 'MV'
-                  ? `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}가 ${ELEC_ROOM_KW} kW를 넘어 전기실(수배전반·변압기)을 둡니다.`
-                  : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이하라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
+                (padMissing
+                  ? `설비용량 ${fmt(planKW)} kW로 ${ELEC_ROOM_KW} kW 이상이라 수배전반(전기실) 설치가 의무입니다. 위 칸을 켜서 자리를 비우세요.`
+                  : !reservePad
+                    ? `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 미만이라 수배전반 설치가 의무가 아니어서 기본으로 두지 않습니다. 필요하면 위 칸을 켜서 직접 자리를 잡으세요.`
+                    : padKind === 'MV'
+                      ? `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 이상이라 전기실(수배전반·변압기)을 둡니다. AI 가설계가 자리를 같이 잡습니다.`
+                      : `설비용량 ${fmt(planKW)} kW${sets.length ? '' : '(부지 면적으로 어림)'}로 ${ELEC_ROOM_KW} kW 미만이라 전기실 없이 옥외 수배전반 함체만 둡니다.`) +
                 (padOverlaps ? ' 함체 자리가 모듈과 겹칩니다. 수정값 반영 다시 배치를 누르세요.' : ''),
               label: equipPad
                 ? `${equipPad.label} 자리를 ${padMove ? (padMove.how === 'manual' ? '직접 옮긴 자리에' : padMove.how === 'ai' ? 'AI 가설계에서 고른 최적 자리에' : '최적 자리 찾기로 고른 자리에') : `${gridPole ? '전주에 가까운' : padRoad ? '도로에 가까운' : '부지 가운데에 가까운'} 경계 안쪽에`} 비워 둡니다.`
                 : null,
-              onToggle: setReservePad,
+              onToggle: (on: boolean) => {
+                // 자리를 비우거나 거두면 모듈을 그에 맞게 다시 깐다.
+                relayoutForPad.current = sets.length > 0
+                setPadChoice(on ? 'on' : 'off')
+              },
               busy: !!padSearch?.busy,
               status: padStatus,
               moved: !!padMove,
@@ -2226,7 +2240,9 @@ export default function App() {
             dcAcRatio={elec.dcAcRatio}
             padNote={
               !reservePad
-                ? null
+                ? padChoice === 'off'
+                  ? `${PAD_NAME[padKind]} 자리는 기본설계 배치에서 꺼 두어 비우지 않습니다.`
+                  : `부지 면적으로 어림한 용량이 ${ELEC_ROOM_KW} kW 미만이라 수배전반 자리는 비우지 않습니다(설치 의무 아님). 필요하면 기본설계 배치에서 켤 수 있습니다.`
                 : optResults?.length && optPad !== padMove
                   ? `AI 안은 ${PAD_NAME[padKind]}을 옮기기 전 자리에 둔 기준입니다. 안을 적용하면 ${PAD_NAME[padKind]}도 그 자리로 돌아갑니다. 옮긴 자리로 계산하려면 배치안 생성을 다시 누르세요.`
                   : padMove?.how === 'manual'
