@@ -93,6 +93,7 @@ import { stageOf, STAGES, TABS, type DesignVersion, type PermitProgress, type Pl
 import type { Annot, SheetId } from './lib/sheets'
 import ProjectDialog from './components/ProjectDialog'
 import { projectStore, projectToFile, type ProjectData } from './lib/projectStore'
+import NumberInput from './components/NumberInput'
 
 /** 오른쪽 개요의 진행 상황에 보여 줄 화면 */
 const NO_MARKS: MapMark[] = []
@@ -2378,13 +2379,12 @@ export default function App() {
                 ).map(([k, label, unit]) => (
                   <label key={k} className="field">
                     <span>{label}</span>
-                    <input
-                      type="number"
+                    <NumberInput
                       step={k === 'rotation' ? 1 : 0.5}
                       min={k === 'rotation' ? -90 : 1}
                       max={k === 'rotation' ? 90 : undefined}
                       value={rect[k]}
-                      onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && setRect({ ...rect, [k]: e.target.valueAsNumber })}
+                      onValue={(v) => setRect({ ...rect, [k]: v })}
                     />
                     <em>{unit}</em>
                   </label>

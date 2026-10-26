@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { compareSales, evaluate, solveTargets, suggestRecWeight, type EconInput, type EconResult, type EconSettings } from '../lib/economics'
 import type { Capex, CostParams } from '../lib/costs'
 import { RACKING, type RackingType } from '../lib/catalog'
+import NumberInput from './NumberInput'
 
 export type { EconSettings }
 
@@ -40,12 +41,11 @@ export default function EconomicsPanel(props: Props) {
   const num = (k: keyof EconSettings, label: string, unit: string, step = 1, min = 0) => (
     <label className="field">
       <span>{label}</span>
-      <input
-        type="number"
+      <NumberInput
         min={min}
         step={step}
         value={s[k] as number}
-        onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set(k, e.target.valueAsNumber as never)}
+        onValue={(v) => set(k, v as never)}
       />
       <em>{unit}</em>
     </label>
@@ -76,13 +76,12 @@ export default function EconomicsPanel(props: Props) {
           <>
             <label className="field" style={{ marginTop: 10 }}>
               <span>하루 발전시간</span>
-              <input
-                type="number"
+              <NumberInput
                 min={1}
                 max={6}
                 step={0.1}
                 value={props.hours}
-                onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && props.onHours(e.target.valueAsNumber)}
+                onValue={(v) => props.onHours(v)}
               />
               <em>시간</em>
             </label>
@@ -134,12 +133,11 @@ export default function EconomicsPanel(props: Props) {
               {num('recPrice', 'REC 가격', '원/REC', 100)}
               <label className="field">
                 <span>REC 가중치</span>
-                <input
-                  type="number"
+                <NumberInput
                   min={0}
                   step={0.1}
                   value={s.recWeight}
-                  onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set('recWeight', e.target.valueAsNumber)}
+                  onValue={(v) => set('recWeight', v)}
                 />
               </label>
               <label className="field">
@@ -215,7 +213,7 @@ function CapexCard(props: {
   const field = (label: string, unit: string, value: number, onChange: (v: number) => void, step = 1) => (
     <label className="field">
       <span>{label}</span>
-      <input type="number" min={0} step={step} value={value} onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && onChange(e.target.valueAsNumber)} />
+      <NumberInput min={0} step={step} value={value} onValue={(v) => onChange(v)} />
       <em>{unit}</em>
     </label>
   )
@@ -461,7 +459,7 @@ function TargetCard(props: { input: EconInput; result: EconResult; settings: Eco
       <div className="grid2" style={{ marginTop: 10 }}>
         <label className="field">
           <span>목표 IRR</span>
-          <input type="number" min={0} step={0.5} value={s.targetIrr} onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set('targetIrr', e.target.valueAsNumber)} />
+          <NumberInput min={0} step={0.5} value={s.targetIrr} onValue={(v) => set('targetIrr', v)} />
           <em>%</em>
         </label>
         <label className="field">
@@ -473,7 +471,7 @@ function TargetCard(props: { input: EconInput; result: EconResult; settings: Eco
         </label>
         <label className="field">
           <span>최소 DSCR</span>
-          <input type="number" min={1} step={0.05} value={s.minDscr} onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set('minDscr', e.target.valueAsNumber)} />
+          <NumberInput min={1} step={0.05} value={s.minDscr} onValue={(v) => set('minDscr', v)} />
         </label>
       </div>
       <p className="hint">
