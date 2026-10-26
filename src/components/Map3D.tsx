@@ -576,7 +576,7 @@ export default function Map3D(props: Props) {
       const { lng: lon, lat } = e.lngLat
       if (p.tool === 'add') return p.onAddSet(lon, lat)
       if (p.tool === 'select') {
-        const additive = e.originalEvent.shiftKey
+        const additive = e.originalEvent.ctrlKey || e.originalEvent.metaKey
         const hit = p.sets.find((s) => pointInRing([lon, lat], setQuadLonLat(s, p.geometry) as Vec[]))
         if (hit) p.onSelect([hit.id], additive)
         else if (!additive) p.onSelect([], false)

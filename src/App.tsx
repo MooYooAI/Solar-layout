@@ -16,6 +16,7 @@ import {
   newSetId,
   setGeometry,
   totalWatt,
+  forSet,
   setQuadLonLat,
   shadeAngle,
   withEdgeSetback,
@@ -1281,22 +1282,52 @@ export default function App() {
    * 선택한 세트를 한 행(앞뒤 위치) 또는 한 열(좌우 위치)로 맞춘다. 세트 방향 기준으로 재고, 가운데 값(중앙값)에 맞춰 옮긴다.
    * 방향이 섞였으면 직접 설정 방위각 기준으로 잰다.
    */
+  /**
+   * 선택한 세트의 행(앞뒤 위치) 또는 열(좌우 위치)을 맞춘다.
+   * 맞추는 방향으로 겹치는 세트끼리만 한 묶음으로 보고 묶음마다 가운데 값에 맞춰,
+   * 같은 줄에 나란히 선 세트가 한 자리로 포개지지 않게 한다.
+   */
   const alignSelected = (axis: 'row' | 'col') => {
     const picked = sets.filter((s) => selected.has(s.id))
     if (picked.length < 2) return
     const az = picked.every((s) => s.azimuth === picked[0].azimuth) ? picked[0].azimuth : params.azimuth
     const f = new LocalFrame(picked[0].lon, picked[0].lat)
     const r = deg2rad(az)
-    const loc = new Map(picked.map((s) => [s.id, rotate(f.toLocal([s.lon, s.lat]), r)]))
     const k = axis === 'row' ? 1 : 0
-    const vals = [...loc.values()].map((v) => v[k]).sort((a, b) => a - b)
-    const target = vals[Math.floor((vals.length - 1) / 2)]
+    // 세트 중심과 반폭(열 맞추기는 좌우 폭, 행 맞추기는 앞뒤 깊이)
+    const items = picked.map((s) => {
+      const g = forSet(geometry, s)
+      return { id: s.id, v: rotate(f.toLocal([s.lon, s.lat]), r), half: [g.width / 2, g.depth / 2] }
+    })
+    const overlaps = (a: (typeof items)[number], b: (typeof items)[number], i: number) => Math.abs(a.v[i] - b.v[i]) < a.half[i] + b.half[i] - 0.01
+    // 맞추는 축에서 서로 겹치는 세트끼리 묶는다.
+    const groups: (typeof items)[] = []
+    for (const it of [...items].sort((a, b) => a.v[k] - b.v[k])) {
+      const g = groups.find((grp) => grp.some((o) => overlaps(o, it, k)))
+      if (g) g.push(it)
+      else groups.push([it])
+    }
+    // 겹치는 세트가 하나도 없으면, 서로 다른 줄에 있을 때만(포개질 일이 없을 때만) 전부 한 줄로 맞춘다.
+    const sameLine = items.some((a, i) => items.some((b, j) => i < j && overlaps(a, b, 1 - k)))
+    const plan = groups.some((g) => g.length > 1) ? groups.filter((g) => g.length > 1) : sameLine ? [] : [items]
+    if (!plan.length) {
+      setNotice(axis === 'row' ? '앞뒤로 겹치는 세트가 없어 맞출 행이 없습니다' : '같은 행에 나란히 있는 세트라 열을 맞추면 포개집니다. 다른 행의 세트를 함께 고르세요')
+      return
+    }
+    const target = new Map<string, number>()
+    for (const g of plan) {
+      const vals = g.map((it) => it.v[k]).sort((a, b) => a - b)
+      const t = vals[Math.floor((vals.length - 1) / 2)]
+      for (const it of g) target.set(it.id, t)
+    }
+    const loc = new Map(items.map((it) => [it.id, it.v]))
     mark(axis === 'row' ? '행 맞추기' : '열 맞추기')
     editSets((prev) =>
       prev.map((s) => {
         const v = loc.get(s.id)
-        if (!v) return s
-        const moved: Vec = k ? [v[0], target] : [target, v[1]]
+        const t = target.get(s.id)
+        if (!v || t === undefined) return s
+        const moved: Vec = k ? [v[0], t] : [t, v[1]]
         const [lon, lat] = f.toLonLat(rotate(moved, -r))
         return { ...s, lon, lat }
       }),

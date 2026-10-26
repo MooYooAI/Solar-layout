@@ -38,7 +38,7 @@ type Drag =
 
 /**
  * 지도 타일 없이 필지·세트를 미터 단위로 그린 편집용 배치도.
- * 세트를 끌어 옮기고, Shift+클릭·Shift+드래그로 여러 개 고르고, 화살표 키로 미세 이동한다. 휠로 확대, 빈 곳을 끌면 화면 이동.
+ * 세트를 끌어 옮기고, Ctrl+클릭·Ctrl+드래그로 여러 개 고르고, 화살표 키로 미세 이동한다. 휠로 확대, 빈 곳을 끌면 화면 이동.
  */
 export default function PlanEditor(props: Props) {
   const { parcel, sets, geometry, selected } = props
@@ -164,15 +164,15 @@ export default function PlanEditor(props: Props) {
       return
     }
     if (id) {
-      if (e.shiftKey) {
+      if (e.ctrlKey || e.metaKey) {
         props.onSelect([id], true)
         return
       }
       const ids = selected.has(id) ? [...selected] : [id]
       if (!selected.has(id)) props.onSelect([id], false)
       setDrag({ kind: 'move', ids, start: p, d: [0, 0] })
-    } else if (e.shiftKey) {
-      // Shift+빈 곳 끌기: 영역 안 세트를 선택에 더한다.
+    } else if (e.ctrlKey || e.metaKey) {
+      // Ctrl+빈 곳 끌기: 영역 안 세트를 선택에 더한다.
       setDrag({ kind: 'box', start: p, end: p })
     } else {
       setDrag({ kind: 'pan', start: [e.clientX, e.clientY], startCenter: c, moved: false })

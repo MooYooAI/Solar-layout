@@ -214,7 +214,7 @@ export default function LayoutEditor(props: Props) {
               <dd>{pickedAz === null ? '여러 방향' : az(pickedAz)}</dd>
             </dl>
           ) : (
-            <p className="hint">세트를 누르거나 Shift+드래그로 여러 개를 고르세요.</p>
+            <p className="hint">세트를 누르거나 Ctrl+클릭·Ctrl+드래그로 여러 개를 고르세요.</p>
           )}
 
           <h3>미세 이동</h3>
@@ -259,7 +259,7 @@ export default function LayoutEditor(props: Props) {
             <summary>단축키</summary>
             <ul>
               <li><kbd>드래그</kbd> 세트 이동 · 빈 곳은 화면 이동</li>
-              <li><kbd>Shift</kbd>+클릭/드래그 여러 개 선택</li>
+              <li><kbd>Ctrl</kbd>+클릭/드래그 여러 개 선택</li>
               <li><kbd>←↑→↓</kbd> 10 cm, <kbd>Shift</kbd> 1 m 이동</li>
               <li><kbd>Ctrl+A</kbd> 전체 선택 · <kbd>Ctrl+D</kbd> 복제</li>
               <li><kbd>Delete</kbd> 삭제 · <kbd>Ctrl+Z</kbd> 되돌리기</li>
