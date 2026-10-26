@@ -2,8 +2,8 @@
 // 모두 넣은 사업 순현재가치(NPV)가 가장 큰 자리를 고른다.
 
 import { evaluateDesign, type DesignInput } from './design'
-import { autoLayout, type LayoutParams } from './layout'
-import { zonedLayout, type ZoneMode } from './zones'
+import type { LayoutParams } from './layout'
+import { placeLayout, type ZoneMode } from './zones'
 import type { BuildMask } from './buildable'
 import type { EquipPad } from './equipment'
 
@@ -11,8 +11,6 @@ export interface PadSearchInput extends Omit<DesignInput, 'sets' | 'switchboard'
   params: LayoutParams
   /** 'grid'면 한 방향 배치, 아니면 구역별 배치 방식 */
   layoutMode: ZoneMode | 'grid'
-  /** 열 시작 위치를 민 거리(m) */
-  rowOffset: number
   mask: BuildMask | null
   /** 사용자 장애물 바닥(전기실 제외) */
   keepOut: number[][][]
@@ -34,8 +32,7 @@ const SHADE_SETS = 150
 export function scorePad(i: PadSearchInput, pad: EquipPad): PadScore {
   const keepOut = [...i.keepOut, pad.keepOut]
   const p = i.params
-  const sets =
-    (i.layoutMode === 'grid' ? null : zonedLayout(i.parcel, p, { mode: i.layoutMode, rowOffset: i.rowOffset, mask: i.mask, keepOut })) ?? autoLayout(i.parcel, p, i.rowOffset, i.mask, keepOut)
+  const sets = (placeLayout(i.parcel, p, { mode: i.layoutMode, mask: i.mask, keepOut }) ?? placeLayout(i.parcel, p, { mode: 'grid', mask: i.mask, keepOut }))?.sets ?? []
   const r = evaluateDesign(
     {
       ...i,

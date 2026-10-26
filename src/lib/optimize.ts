@@ -1,6 +1,6 @@
 // 최적 배치 탐색(AI 설계).
 // 모듈 종류·래킹·단수·경계 이격·전기 조건(인버터, DC/AC 비율)은 사용자가 정한 대로 두고,
-// 경사각·방위각(정남과 필지 주축 쪽)·열 이격거리(피치)와 첫 열 시작 위치를 바꿔 가며 설계 가능 영역에 채운다.
+// 경사각·방위각(정남과 필지 주축 쪽)·열 이격거리(피치)를 바꿔 가며 설계 가능 영역에 채운다. 첫 열 시작 위치는 배치마다 세트가 가장 많이 들어가는 자리를 찾는다(placeLayout).
 // 세트 구성은 사용자가 정한 고정 길이 세트와, 줄을 경계 끝까지 잇는 연속 배열(continuousParams)을 함께 견준다. 후보마다 전기 설계,
 // 음영·클리핑·케이블 손실을 넣은 발전량, 토공량, 설치비와 LCOE를 계산해 기준별로 고른다.
 // 1차는 빠른 근사(네 계절, 1시간 간격)로 넓게 훑고, 상위 후보만 정밀 계산으로 다시 평가한다.
@@ -16,11 +16,11 @@ import type { Horizon } from './horizon'
 import type { EconSettings } from './economics'
 import { fitInverter, type ElecParams } from './electrical'
 import type { ElevGrid } from './elevation'
-import { autoLayout, continuousParams, setGeometry, type LayoutParams, type ModuleSet } from './layout'
+import { continuousParams, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import type { Parcel } from './parcel'
 import type { Obstacle } from './shading'
 import { rowSpacingForNoShade } from './sun'
-import { zonedLayout, type ZoneMode } from './zones'
+import { placeLayout, type ZoneMode } from './zones'
 
 export type Strategy = 'capacity' | 'energy' | 'lcoe' | 'balanced' | 'yield'
 
@@ -56,7 +56,6 @@ export interface Candidate {
   strategy: Strategy
   params: LayoutParams
   sets: ModuleSet[]
-  rowOffset: number
   /** 구역별 배치로 만든 안이면 그 방식 */
   zone?: ZoneMode
   /** 열 이격거리 ÷ 동지 9~15시 무음영 이격거리. 1 이상이면 무음영 간격을 지킨다. */
@@ -172,7 +171,6 @@ const FINE_SHADE_SETS = 100
 
 export interface Task {
   params: LayoutParams
-  rowOffset: number
   zone?: ZoneMode
   spacingRatio: number
 }
@@ -190,10 +188,9 @@ function spacingFor(lat: number, p: LayoutParams, ratio: number): number {
 }
 
 export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluated | null {
-  const sets = t.zone
-    ? zonedLayout(o.parcel, t.params, { mode: t.zone, rowOffset: t.rowOffset, mask: o.mask, keepOut: o.keepOut })
-    : autoLayout(o.parcel, t.params, t.rowOffset, o.mask, o.keepOut)
-  if (!sets?.length) return null
+  const placed = placeLayout(o.parcel, t.params, { mode: t.zone ?? 'grid', mask: o.mask, keepOut: o.keepOut })
+  if (!placed?.sets.length) return null
+  const { sets } = placed
   // 안을 적용할 때 고르는 인버터와 같은 것으로 계산해야 적용 뒤 수치가 카드와 맞는다.
   const { elec } = fitInverter(o.elec, (sets.length * setGeometry(t.params).watt) / 1000)
   const { metrics } = evaluateDesign(
@@ -213,7 +210,7 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
     },
     quick ? { shade: 'quick', maxShadeSets: COARSE_SHADE_SETS } : { shade: 'medium', maxShadeSets: FINE_SHADE_SETS },
   )
-  return { params: t.params, sets, rowOffset: t.rowOffset, zone: t.zone, spacingRatio: t.spacingRatio, inverterId: elec.inverterId, metrics }
+  return { params: t.params, sets, zone: t.zone, spacingRatio: t.spacingRatio, inverterId: elec.inverterId, metrics }
 }
 
 /** 1차: 빠른 근사로 넓게 훑을 후보(경사각 × 방위각 × 열 이격거리) */
@@ -226,7 +223,7 @@ export function planCoarse(o: OptimizeInput): Task[] {
     const key = `${trial.tilt}|${trial.azimuth}|${rowSpacing}|${trial.setCols}|${trial.setGap}`
     if (queued.has(key)) return
     queued.add(key)
-    tasks.push({ params: { ...trial, rowSpacing }, rowOffset: 0, spacingRatio: rowSpacing / noShadeSpacing(lat0, trial) })
+    tasks.push({ params: { ...trial, rowSpacing }, spacingRatio: rowSpacing / noShadeSpacing(lat0, trial) })
   }
   // 사용자가 정한 세트 구성 그대로와 연속 배열을 함께 훑는다.
   for (const base of [o.base, continuousParams(o.base)])
@@ -238,41 +235,33 @@ export function planCoarse(o: OptimizeInput): Task[] {
 }
 
 /**
- * 2차: 기준마다 상위 2개 주변(경사각 ±2.5°, 첫 열 시작 위치)을 정밀 계산할 후보.
+ * 2차: 기준마다 상위 2개 주변(경사각 ±2.5°)을 정밀 계산할 후보.
  * 경사각을 바꾸면 그림자 길이가 달라지므로 무음영 간격 대비 배율을 유지하도록 열 이격거리도 다시 잡는다.
- * 무음영 용량 최대 후보는 첫 열 위치를 더 잘게 나눠 한 열이라도 더 들어가는 자리를 찾는다.
  */
 export function planRefine(o: OptimizeInput, coarse: Evaluated[]): Task[] {
   const { lat0 } = LocalFrame.around(o.parcel.rings)
-  const seeds = new Map<string, { c: Evaluated; offsets: number[] }>()
+  const seeds = new Map<string, Evaluated>()
   for (const strategy of Object.keys(STRATEGIES) as Strategy[]) {
     const rest = [...coarse]
     for (let k = 0; k < 2; k++) {
       const c = pick(rest, strategy)
       if (!c) break
-      const key = `${c.params.tilt}|${c.params.azimuth}|${c.params.rowSpacing}|${c.params.setCols}|${c.params.setGap}`
-      const offsets = strategy === 'capacity' ? [0, 0.25, 0.5, 0.75] : (seeds.get(key)?.offsets ?? [0, 0.5])
-      seeds.set(key, { c, offsets })
+      seeds.set(`${c.params.tilt}|${c.params.azimuth}|${c.params.rowSpacing}|${c.params.setCols}|${c.params.setGap}`, c)
       rest.splice(rest.indexOf(c), 1)
     }
   }
   const refine: Task[] = []
   const queued = new Set<string>()
-  for (const { c: s, offsets } of seeds.values()) {
+  for (const s of seeds.values()) {
     for (const dt of [-2.5, 0, 2.5]) {
       const tilt = Math.max(MIN_TILT, s.params.tilt + dt)
       const trial = { ...s.params, tilt }
       const rowSpacing = dt ? spacingFor(lat0, trial, s.spacingRatio) : s.params.rowSpacing
       const params = { ...trial, rowSpacing }
-      const spacingRatio = rowSpacing / noShadeSpacing(lat0, params)
-      const pitch = setGeometry(params).depth + rowSpacing
-      for (const f of offsets) {
-        const rowOffset = Math.round(pitch * f * 10) / 10
-        const key = `${params.tilt}|${params.azimuth}|${params.rowSpacing}|${params.setCols}|${params.setGap}|${rowOffset}`
-        if (queued.has(key)) continue
-        queued.add(key)
-        refine.push({ params, rowOffset, spacingRatio })
-      }
+      const key = `${params.tilt}|${params.azimuth}|${params.rowSpacing}|${params.setCols}|${params.setGap}`
+      if (queued.has(key)) continue
+      queued.add(key)
+      refine.push({ params, spacingRatio: rowSpacing / noShadeSpacing(lat0, params) })
     }
   }
   return refine
@@ -283,10 +272,10 @@ export function planZoned(fine: Evaluated[]): Task[] {
   const seeds = new Map<string, Evaluated>()
   for (const strategy of Object.keys(STRATEGIES) as Strategy[]) {
     const c = pick(fine, strategy)
-    if (c) seeds.set(`${c.params.tilt}|${c.params.azimuth}|${c.params.rowSpacing}|${c.params.setCols}|${c.params.setGap}|${c.rowOffset}`, c)
+    if (c) seeds.set(`${c.params.tilt}|${c.params.azimuth}|${c.params.rowSpacing}|${c.params.setCols}|${c.params.setGap}`, c)
   }
   const modes: ZoneMode[] = ['edge', 'half', 'fill']
-  return [...seeds.values()].flatMap((s) => modes.map((zone) => ({ params: s.params, rowOffset: s.rowOffset, zone, spacingRatio: s.spacingRatio })))
+  return [...seeds.values()].flatMap((s) => modes.map((zone) => ({ params: s.params, zone, spacingRatio: s.spacingRatio })))
 }
 
 export function pickCandidates(fine: Evaluated[]): Candidate[] {

@@ -14,7 +14,6 @@ export interface Scenario {
   metrics: DesignMetrics
   /** 저장할 때의 배치 방식 */
   layoutMode?: 'grid' | ZoneMode
-  rowOffset?: number
 }
 
 interface Props {
@@ -25,7 +24,7 @@ interface Props {
   onRun: () => void
   onCancel: () => void
   /** mode는 다시 배치할 때 쓸 배치 방식(AI 안이 고른 방식) */
-  onApply: (params: LayoutParams, sets: ModuleSet[], mode?: 'grid' | ZoneMode, rowOffset?: number) => void
+  onApply: (params: LayoutParams, sets: ModuleSet[], mode?: 'grid' | ZoneMode) => void
   current: DesignMetrics | null
   currentBusy: boolean
   scenarios: Scenario[]
@@ -68,14 +67,14 @@ export default function OptimizePanel(props: Props) {
       key: s.id,
       name: s.name,
       m: s.metrics,
-      apply: () => props.onApply(s.params, s.sets, s.layoutMode, s.rowOffset),
+      apply: () => props.onApply(s.params, s.sets, s.layoutMode),
       remove: () => props.onRemoveScenario(s.id),
     })),
     ...(results ?? []).map((c) => ({
       key: `ai-${c.strategy}`,
       name: `AI ${STRATEGIES[c.strategy].label}`,
       m: c.metrics,
-      apply: () => props.onApply(c.params, c.sets, c.zone ?? 'grid', c.rowOffset),
+      apply: () => props.onApply(c.params, c.sets, c.zone ?? 'grid'),
     })),
   ]
   const finite = rows.filter((r) => Number.isFinite(r.m.lcoe))
@@ -186,7 +185,7 @@ export default function OptimizePanel(props: Props) {
             <dt>사업 IRR</dt>
             <dd>{pct(c.metrics.projectIrr)}</dd>
           </dl>
-          <button type="button" className="block" onClick={() => props.onApply(c.params, c.sets, c.zone ?? 'grid', c.rowOffset)}>
+          <button type="button" className="block" onClick={() => props.onApply(c.params, c.sets, c.zone ?? 'grid')}>
             이 배치 적용
           </button>
         </section>

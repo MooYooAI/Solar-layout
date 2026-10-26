@@ -6,7 +6,7 @@
 
 import type { BuildMask } from './buildable'
 import { LocalFrame, pointInRing, rad2deg, type Vec } from './geo'
-import { fillLayout, Occupancy, setGeometry, type LayoutParams, type ModuleSet } from './layout'
+import { autoLayout, fillLayout, Occupancy, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import type { Parcel } from './parcel'
 
 export type ZoneMode = 'edge' | 'half' | 'fill'
@@ -62,17 +62,39 @@ export function parcelZones(parcel: Parcel, p: LayoutParams): { azimuths: number
   const edges = zoneEdges(parcel, Math.max(12, g.width))
   if (!edges.length) return null
   const azimuths = [...new Set(edges.map((e) => e.azimuth))]
-  const zoneOf = (pt: Vec) => {
-    let best = edges[0]
-    let bestD = Infinity
-    for (const e of edges) {
-      const d = pointSegDist(pt, e.a, e.b)
-      if (d < bestD) {
+  // 세트 자리마다 불려서 빨라야 하므로, 필지를 감싼 사각형을 잘게 나눠 칸마다 가장 가까운 변의 구역을 미리 정해 둔다.
+  // 칸 크기는 0.5 m부터, 큰 필지는 칸이 20만 개를 넘지 않게 키운다. 구역 경계가 칸 크기만큼 어긋나는 것은 배치에 영향이 거의 없다.
+  const pts = edges.flatMap((e) => [e.a, e.b])
+  const frame = LocalFrame.around(parcel.rings)
+  for (const ring of parcel.rings) for (const c of ring) pts.push(frame.toLocal(c))
+  const xs = pts.map((v) => v[0])
+  const ys = pts.map((v) => v[1])
+  const [x0, y0] = [Math.min(...xs), Math.min(...ys)]
+  const [w, h] = [Math.max(...xs) - x0, Math.max(...ys) - y0]
+  const cell = Math.max(0.5, Math.sqrt((w * h) / 200000))
+  const nx = Math.ceil(w / cell) + 1
+  const ny = Math.ceil(h / cell) + 1
+  const nearest = (pt: Vec, hint: number) => {
+    let best = hint
+    let bestD = pointSegDist(pt, edges[hint].a, edges[hint].b)
+    for (let i = 0; i < edges.length; i++) {
+      if (i === hint) continue
+      const d = pointSegDist(pt, edges[i].a, edges[i].b)
+      if (d < bestD || (d === bestD && i < best)) {
         bestD = d
-        best = e
+        best = i
       }
     }
-    return best.azimuth
+    return best
+  }
+  const zoneAt = new Uint16Array(nx * ny)
+  let hint = 0
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) zoneAt[j * nx + i] = hint = nearest([x0 + (i + 0.5) * cell, y0 + (j + 0.5) * cell], hint)
+  const zoneOf = (pt: Vec) => {
+    const i = Math.min(nx - 1, Math.max(0, Math.floor((pt[0] - x0) / cell)))
+    const j = Math.min(ny - 1, Math.max(0, Math.floor((pt[1] - y0) / cell)))
+    return edges[zoneAt[j * nx + i]].azimuth
   }
   return { azimuths, zoneOf }
 }
@@ -91,32 +113,92 @@ export interface ZonedOptions {
  * 어느 방식이든 마지막에 남은 자리를 구역 방위각 세트로 한 번 더 채운다.
  */
 export function zonedLayout(parcel: Parcel, base: LayoutParams, o: ZonedOptions): ModuleSet[] | null {
+  const z = zonedPlanner(parcel, base, o)
+  if (!z) return null
+  const main = z.main(o.rowOffset ?? 0)
+  return z.finish(main)
+}
+
+/** 구역별 배치를 첫 열 위치(main)와 남은 자리 채우기(finish) 두 단계로 나눈 것. 구역이 하나뿐이면 null. */
+function zonedPlanner(parcel: Parcel, base: LayoutParams, o: Omit<ZonedOptions, 'rowOffset'>) {
   const zones = parcelZones(parcel, base)
   if (!zones) return null
   const zoneAz = (az: number) => (o.mode === 'half' ? Math.round((az + base.azimuth) / 2 / AZIMUTH_STEP) * AZIMUTH_STEP : az)
-  const occupied = new Occupancy()
-  const sets: ModuleSet[] = []
-  const place = (azimuth: number, accept?: (q: Vec[]) => boolean, rowOffset = 0) => {
-    // 열 이격거리는 기준과 같게 둔다. 돌린 구역에 생기는 아침·저녁 그늘은 발전량 계산이 잰다.
-    const params = { ...base, azimuth }
-    sets.push(...fillLayout(parcel, params, { rowOffset, mask: o.mask, accept, occupied, keepOut: o.keepOut }))
-  }
-  const centre = (q: Vec[]): Vec => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2]
-
-  if (o.mode === 'fill') place(base.azimuth, undefined, o.rowOffset)
-  else {
+  if (o.mode !== 'fill') {
     const distinct = new Set(zones.azimuths.map(zoneAz))
     if (distinct.size < 2 && distinct.has(base.azimuth)) return null
-    // 큰 구역부터 채워야 작은 구역이 큰 구역 자리를 먼저 차지하지 않는다.
-    const order = zoneOrder(parcel, zones)
-    for (const az of order) place(zoneAz(az), (q) => zones.zoneOf(centre(q)) === az, o.rowOffset)
   }
-  const before = sets.length
-  // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다.
-  for (const az of new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])) place(az)
-  if (!sets.length) return null
-  if (o.mode === 'fill' && sets.length === before) return null
-  return sets
+  // 큰 구역부터 채워야 작은 구역이 큰 구역 자리를 먼저 차지하지 않는다.
+  const order = o.mode === 'fill' ? [] : zoneOrder(parcel, zones)
+  const centre = (q: Vec[]): Vec => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2]
+  type Placed = { sets: ModuleSet[]; occupied: Occupancy }
+  const place = (into: Placed, azimuth: number, accept?: (q: Vec[]) => boolean, rowOffset = 0) => {
+    // 열 이격거리는 기준과 같게 둔다. 돌린 구역에 생기는 아침·저녁 그늘은 발전량 계산이 잰다.
+    const params = { ...base, azimuth }
+    into.sets.push(...fillLayout(parcel, params, { rowOffset, mask: o.mask, accept, occupied: into.occupied, keepOut: o.keepOut }))
+  }
+  const main = (rowOffset: number): Placed => {
+    const r: Placed = { sets: [], occupied: new Occupancy() }
+    if (o.mode === 'fill') place(r, base.azimuth, undefined, rowOffset)
+    else for (const az of order) place(r, zoneAz(az), (q) => zones.zoneOf(centre(q)) === az, rowOffset)
+    return r
+  }
+  const finish = (r: Placed): ModuleSet[] | null => {
+    const before = r.sets.length
+    // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다.
+    for (const az of new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])) place(r, az)
+    if (!r.sets.length) return null
+    if (o.mode === 'fill' && r.sets.length === before) return null
+    return r.sets
+  }
+  return { main, finish }
+}
+
+export interface PlaceOptions {
+  /** 'grid'면 한 방향 배치, 아니면 구역별 배치 방식 */
+  mode: ZoneMode | 'grid'
+  mask?: BuildMask | null
+  keepOut?: number[][][]
+}
+
+/**
+ * 배치 방식대로 채우되, 첫 열 시작 위치를 열 피치 안에서 고르게 훑어 세트가 가장 많이 들어가는 자리를 쓴다.
+ * 작은 필지일수록 시작 위치에 따라 들어가는 열 수가 크게 달라서 촘촘히 훑는다. 입력이 같으면 늘 같은 배치가 나온다.
+ * 구역별 배치는 구역 채우기까지로 시작 위치를 고른 뒤 남은 자리를 한 번 채운다. 구역별 배치가 안 되면 null.
+ */
+export function placeLayout(parcel: Parcel, p: LayoutParams, o: PlaceOptions): { sets: ModuleSet[]; rowOffset: number } | null {
+  const offsets = rowOffsets(parcel, p)
+  if (o.mode === 'grid') {
+    let best = { sets: [] as ModuleSet[], rowOffset: 0 }
+    for (const rowOffset of offsets) {
+      const sets = autoLayout(parcel, p, rowOffset, o.mask, o.keepOut)
+      if (sets.length > best.sets.length) best = { sets, rowOffset }
+    }
+    return best
+  }
+  const z = zonedPlanner(parcel, p, { ...o, mode: o.mode })
+  if (!z) return null
+  let best = { placed: z.main(0), rowOffset: 0 }
+  for (const rowOffset of offsets.slice(1)) {
+    const placed = z.main(rowOffset)
+    if (placed.sets.length > best.placed.sets.length) best = { placed, rowOffset }
+  }
+  const sets = z.finish(best.placed)
+  return sets ? { sets, rowOffset: best.rowOffset } : null
+}
+
+/** 첫 열 시작 위치 후보(m). 열 피치를 필지 크기에 따라 4~16칸으로 나눈다. */
+export function rowOffsets(parcel: Parcel, p: LayoutParams): number[] {
+  const pitch = setGeometry(p).depth + p.rowSpacing
+  const frame = LocalFrame.around(parcel.rings)
+  let area = 0
+  for (const ring of parcel.rings) {
+    const pts = ring.map((c) => frame.toLocal(c))
+    for (let i = 0; i < pts.length - 1; i++) area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1]
+  }
+  const rows = Math.sqrt(Math.abs(area) / 2) / pitch
+  const n = rows <= 8 ? 16 : rows <= 20 ? 8 : 4
+  return Array.from({ length: n }, (_, i) => Math.round(((pitch * i) / n) * 100) / 100)
 }
 
 /** 구역을 넓은 순서로. 필지를 2m 간격으로 찍어 구역마다 점 수를 센다. */
