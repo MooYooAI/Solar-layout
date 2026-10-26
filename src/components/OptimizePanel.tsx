@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { STRATEGIES, groupCandidates, strategiesLabel, type Candidate, type FixedSettings, type Strategy } from '../lib/optimize'
+import { STRATEGIES, groupCandidates, strategiesLabel, withFixed, type Candidate, type FixedSettings, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
-import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
+import { findModule, INVERTERS, moduleName, RACKING, type ModuleSpec } from '../lib/catalog'
+import ModuleSelect from './ModuleSelect'
+import NumberInput from './NumberInput'
 import { azimuthMix, type ZoneMode } from '../lib/zones'
 
 /** 비교 목록에 저장한 배치안 */
@@ -26,6 +28,14 @@ interface Props {
   fixedEdited: boolean
   onFixed: (f: FixedSettings) => void
   onResetFixed: () => void
+  /** 기본설계 값. 설정 배치에서 모듈·지면 높이·패널 간격·경계 이격을 고치면 기본설계도 같이 바뀐다. */
+  params: LayoutParams
+  onParams: (p: LayoutParams) => void
+  onModule: (m: ModuleSpec) => void
+  /** 지금 지도에 미리보기로 띄운 안의 키. 없으면 null */
+  previewKey: string | null
+  /** 안을 지도에 미리보기로 띄운다(null이면 끈다). 적용과 달리 현재 배치는 그대로 둔다. */
+  onPreview: (p: { key: string; name: string; params: LayoutParams; sets: ModuleSet[] } | null) => void
   canRun: boolean
   running: boolean
   results: Candidate[] | null
@@ -96,6 +106,19 @@ export default function OptimizePanel(props: Props) {
   const ordered = results ? groupCandidates([...results].sort((a, b) => ORDER.indexOf(a.strategy) - ORDER.indexOf(b.strategy))) : null
   const f = props.fixed
   const setF = (k: keyof FixedSettings) => (v: number | undefined) => props.onFixed({ ...f, [k]: v })
+  const p = props.params
+  const setP = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => props.onParams({ ...p, [k]: v })
+  // 열 간격은 열 이격거리나 열 중심 간격(피치) 가운데 편한 쪽으로 넣는다. 세트 앞뒤 길이는 경사각·단 수로 정해진다.
+  const [spacingPick, setSpacingBy] = useState<'gap' | 'pitch'>('gap')
+  // 값이 들어 있으면 그 칸을 보여 주고, 둘 다 비었으면(AI가 찾음) 마지막으로 고른 쪽
+  const spacingBy = f.pitch !== undefined ? 'pitch' : f.rowSpacing !== undefined ? 'gap' : spacingPick
+  const depth = setGeometry(withFixed(p, { ...f, rowSpacing: undefined, pitch: undefined })).depth
+  const switchSpacing = (by: 'gap' | 'pitch') => {
+    if (by === spacingBy) return
+    setSpacingBy(by)
+    if (by === 'pitch') props.onFixed({ ...f, rowSpacing: undefined, pitch: f.rowSpacing === undefined ? undefined : Math.round((f.rowSpacing + depth) * 100) / 100 })
+    else props.onFixed({ ...f, pitch: undefined, rowSpacing: f.pitch === undefined ? undefined : Math.max(0, Math.round((f.pitch - depth) * 100) / 100) })
+  }
   type Row = { key: string; name: string; m: DesignMetrics; apply?: () => void; remove?: () => void }
   const rows: Row[] = [
     ...(props.current ? [{ key: 'current', name: '현재 배치', m: props.current }] : []),
@@ -140,23 +163,57 @@ export default function OptimizePanel(props: Props) {
               입력한 값은 AI가 바꾸지 않습니다. 그 조건에서 세트가 가장 많이 들어가도록 첫 열 위치를 맞추고, 용량에 맞는 인버터를 고릅니다. 칸을 비우면 그
               항목만 AI가 찾아 기준별 배치안을 만듭니다.
             </p>
+            <h3 className="sub">AI가 지킬 값 (비우면 AI가 찾음)</h3>
             <div className="grid2">
               <FixField label="방위각" unit="°" value={f.azimuth} min={-90} max={90} onChange={setF('azimuth')} />
               <FixField label="경사각" unit="°" value={f.tilt} min={0} max={60} step={0.5} onChange={setF('tilt')} />
-              <FixField label="열 이격거리" unit="m" value={f.rowSpacing} min={0} step={0.1} onChange={setF('rowSpacing')} />
-              <FixField label="세트 간격" unit="mm" value={f.setGap} min={0} step={10} onChange={setF('setGap')} />
               <FixField label="가로 장수" unit="장" value={f.setCols} min={1} onChange={setF('setCols')} />
               <FixField label="단 수" unit="단" value={f.setRows} min={1} max={6} onChange={setF('setRows')} />
+              <FixField label="세트 간격" unit="mm" value={f.setGap} min={0} step={10} onChange={setF('setGap')} />
+              {spacingBy === 'gap' ? (
+                <FixField label="열 이격거리" unit="m" value={f.rowSpacing} min={0} step={0.1} onChange={(v) => props.onFixed({ ...f, rowSpacing: v, pitch: undefined })} />
+              ) : (
+                <FixField label="열 중심 간격(피치)" unit="m" value={f.pitch} min={1} step={0.1} onChange={(v) => props.onFixed({ ...f, pitch: v, rowSpacing: undefined })} />
+              )}
+            </div>
+            <div className="seg spacing-by" role="tablist" aria-label="열 간격 입력 방식">
+              <button type="button" role="tab" aria-selected={spacingBy === 'gap'} onClick={() => switchSpacing('gap')}>
+                열 이격거리로
+              </button>
+              <button type="button" role="tab" aria-selected={spacingBy === 'pitch'} onClick={() => switchSpacing('pitch')}>
+                열 중심 간격으로
+              </button>
             </div>
             <p className="hint">
-              방위각은 정남 0°, 서쪽 +, 동쪽 −입니다. 방위각을 정하면 구역마다 방향을 바꾸는 배치는 만들지 않습니다. 모듈·래킹·패널 간격·경계 이격은
-              기본설계 값을 씁니다.{' '}
+              열 이격거리는 앞 세트 뒤끝에서 뒷 세트 앞끝까지, 열 중심 간격은 이격거리에 세트 앞뒤 길이(지금 {fmt(depth, 2)} m)를 더한 값입니다.
+              {spacingBy === 'pitch' && f.pitch !== undefined && (f.tilt !== undefined ? ` 이격거리로는 ${fmt(Math.max(0, f.pitch - depth), 2)} m입니다.` : ' 경사각을 AI가 찾으면 경사각마다 이격거리를 다시 맞춥니다.')}{' '}
+              방위각은 정남 0°, 서쪽 +, 동쪽 −이고, 방위각을 정하면 구역마다 방향을 바꾸는 배치는 만들지 않습니다.{' '}
               {props.fixedEdited && (
                 <button type="button" className="link" onClick={props.onResetFixed}>
                   기본설계 값으로 되돌리기
                 </button>
               )}
             </p>
+            <h3 className="sub">모듈과 설치 (기본설계와 같이 바뀜)</h3>
+            <ModuleSelect params={p} onModule={props.onModule} />
+            <div className="grid3">
+              <label className="field">
+                <span>지면 높이</span>
+                <NumberInput value={p.groundClearance} min={0} step={0.1} onValue={setP('groundClearance')} />
+                <em>m</em>
+              </label>
+              <label className="field">
+                <span>패널 간격</span>
+                <NumberInput value={p.moduleGap} min={0} step={5} onValue={setP('moduleGap')} />
+                <em>mm</em>
+              </label>
+              <label className="field">
+                <span>경계 이격</span>
+                <NumberInput value={p.boundarySetback} min={0} step={0.5} onValue={setP('boundarySetback')} />
+                <em>m</em>
+              </label>
+            </div>
+            <p className="hint">이 값들은 AI가 바꾸지 않습니다. 여기서 고치면 기본설계 배치 탭의 값도 같이 바뀝니다.</p>
           </>
         )}
         <ul className="hint checklist">
@@ -265,9 +322,21 @@ export default function OptimizePanel(props: Props) {
             <dt>사업 IRR</dt>
             <dd>{pct(c.metrics.projectIrr)}</dd>
           </dl>
-          <button type="button" className="block" onClick={() => props.onApply(c.params, c.sets, c.zone ?? 'grid')}>
-            이 배치 적용
-          </button>
+          <div className="option-actions">
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={props.previewKey === c.strategy}
+              onClick={() =>
+                props.onPreview(props.previewKey === c.strategy ? null : { key: c.strategy, name: `AI ${strategiesLabel(strategies)}`, params: c.params, sets: c.sets })
+              }
+            >
+              {props.previewKey === c.strategy ? '미리보기 끄기' : '미리보기'}
+            </button>
+            <button type="button" onClick={() => props.onApply(c.params, c.sets, c.zone ?? 'grid')}>
+              이 배치 적용
+            </button>
+          </div>
         </section>
       ))}
       {results && !props.running && props.extra}

@@ -39,6 +39,8 @@ export interface FixedSettings {
   tilt?: number
   /** 열 이격거리(m) */
   rowSpacing?: number
+  /** 열 중심 간격(피치, m). 열 이격거리 대신 정했으면 경사각에 따라 이격거리를 다시 잡는다. */
+  pitch?: number
   setCols?: number
   setRows?: number
   /** 세트 간격(mm) */
@@ -50,7 +52,13 @@ export function withFixed(p: LayoutParams, f: FixedSettings | null | undefined):
   if (!f) return p
   const out = { ...p }
   for (const k of ['azimuth', 'tilt', 'rowSpacing', 'setCols', 'setRows', 'setGap'] as const) if (f[k] !== undefined) out[k] = f[k]
+  if (f.pitch !== undefined) out.rowSpacing = spacingForPitch(out, f.pitch)
   return out
+}
+
+/** 열 중심 간격(피치)을 지키는 열 이격거리(m). 세트 앞뒤 길이는 경사각·단 수에 따라 달라진다. */
+export function spacingForPitch(p: LayoutParams, pitch: number): number {
+  return Math.max(MIN_ROW_SPACING, Math.round((pitch - setGeometry(p).depth) * 100) / 100)
 }
 
 export interface OptimizeInput {
@@ -214,6 +222,8 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
   const placed = placeLayout(o.parcel, t.params, { mode: t.zone ?? 'grid', mask: o.mask, keepOut: o.keepOut })
   if (!placed?.sets.length) return null
   const { sets } = placed
+  // 구역별 배치보다 한 방향 배치가 나아서 한 방향으로 돌아왔으면 그 방위각의 한 방향 안으로 적는다.
+  if (placed.azimuth !== undefined) t = { ...t, params: { ...t.params, azimuth: placed.azimuth }, zone: undefined }
   // 안을 적용할 때 고르는 인버터와 같은 것으로 계산해야 적용 뒤 수치가 카드와 맞는다.
   const { elec } = fitInverter(o.elec, (sets.length * setGeometry(t.params).watt) / 1000)
   const { metrics } = evaluateDesign(
@@ -243,7 +253,7 @@ export function planCoarse(o: OptimizeInput): Task[] {
   const tasks: Task[] = []
   const queued = new Set<string>()
   const push = (trial: LayoutParams, ratio: number) => {
-    const rowSpacing = f.rowSpacing ?? spacingFor(lat0, trial, ratio)
+    const rowSpacing = f.rowSpacing ?? (f.pitch !== undefined ? spacingForPitch(trial, f.pitch) : spacingFor(lat0, trial, ratio))
     const key = `${trial.tilt}|${trial.azimuth}|${rowSpacing}|${trial.setCols}|${trial.setGap}`
     if (queued.has(key)) return
     queued.add(key)
@@ -285,7 +295,7 @@ export function planRefine(o: OptimizeInput, coarse: Evaluated[]): Task[] {
     for (const dt of f.tilt !== undefined ? [0] : [-2.5, 0, 2.5]) {
       const tilt = dt ? Math.max(MIN_TILT, s.params.tilt + dt) : s.params.tilt
       const trial = { ...s.params, tilt }
-      const rowSpacing = dt && f.rowSpacing === undefined ? spacingFor(lat0, trial, s.spacingRatio) : s.params.rowSpacing
+      const rowSpacing = !dt || f.rowSpacing !== undefined ? s.params.rowSpacing : f.pitch !== undefined ? spacingForPitch(trial, f.pitch) : spacingFor(lat0, trial, s.spacingRatio)
       const params = { ...trial, rowSpacing }
       const key = `${params.tilt}|${params.azimuth}|${params.rowSpacing}|${params.setCols}|${params.setGap}`
       if (queued.has(key)) continue

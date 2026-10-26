@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { continuousParams, DEFAULT_PARAMS, isContinuous, rowSpacingForShadeAngle, shadeAngle, type LayoutParams, type SetGeometry } from '../lib/layout'
-import { MODULES, RACKING, findModule, type ModuleSpec, type RackingType } from '../lib/catalog'
+import { RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { ZoneMode } from '../lib/zones'
+import ModuleSelect from './ModuleSelect'
 import NumberInput from './NumberInput'
 
 /** 연속 배열을 켜기 전의 세트 구성. 끌 때 되돌린다. 화면을 떠났다 와도 남도록 모듈 범위에 둔다. */
@@ -85,17 +86,9 @@ function Field(props: {
   )
 }
 
-/** 모듈 목록을 제조사별로 묶는다. 일반 규격이 먼저 */
-const GENERIC = '일반 규격'
-/** 제조사 제품(목록 순서, 국산 먼저)을 위에, 일반 규격을 맨 아래에 */
-const MODULE_GROUPS: Array<[string, ModuleSpec[]]> = [
-  ...new Set([...MODULES.flatMap((m) => (m.maker ? [m.maker] : [])), GENERIC]),
-].map((maker) => [maker, MODULES.filter((m) => (m.maker ?? GENERIC) === maker)])
-
 export default function LayoutPanel(props: Props) {
   const { params: p, onParams } = props
   const set = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => onParams({ ...p, [k]: v })
-  const preset = findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)
   const pitch = props.geometry.depth + p.rowSpacing
   useEffect(() => {
     if (!isContinuous(p)) lastFixedSet = { setCols: p.setCols, setGap: p.setGap }
@@ -105,30 +98,7 @@ export default function LayoutPanel(props: Props) {
     <>
       <section className="card">
         <h2>모듈</h2>
-        <label className="field" style={{ marginBottom: 8 }}>
-          <span>모듈 종류</span>
-          <select
-            value={preset?.id ?? 'custom'}
-            onChange={(e) => {
-              const m = MODULES.find((x) => x.id === e.target.value)
-              if (m) props.onModule(m)
-            }}
-          >
-            {MODULE_GROUPS.map(([maker, list]) => (
-              <optgroup key={maker} label={maker}>
-                {list.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.maker ? `${m.model} · ${m.label}` : m.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-            <option value="custom" disabled>
-              직접 입력
-            </option>
-          </select>
-        </label>
-        {preset?.maker && <p className="hint" style={{ marginTop: 0 }}>{`${preset.maker} ${preset.model}: 데이터시트 STC 값(Voc ${preset.voc} V, Isc ${preset.isc} A)으로 스트링을 짭니다.`}</p>}
+        <ModuleSelect params={p} onModule={props.onModule} />
         <div className="grid2">
           <Field label="긴 변" unit="mm" value={p.moduleLength} onChange={set('moduleLength')} />
           <Field label="짧은 변" unit="mm" value={p.moduleWidth} onChange={set('moduleWidth')} />
