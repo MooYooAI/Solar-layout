@@ -39,7 +39,7 @@ import { DEFAULT_NOCT, DEFAULT_TEMP_COEFF, nearestStation, STATIONS, type TempMo
 import SiteAnalysis3D from './components/SiteAnalysis3D'
 import OptimizePanel from './components/OptimizePanel'
 import { placeLayout } from './lib/zones'
-import { STRATEGIES, type Candidate, type OptimizeInput } from './lib/optimize'
+import { groupCandidates, strategiesLabel, withFixed, type Candidate, type FixedSettings, type OptimizeInput } from './lib/optimize'
 import { runOptimizePool } from './lib/optimizePool'
 import EconomicsPanel, { type EconSettings } from './components/EconomicsPanel'
 import { DEFAULT_ECON } from './lib/economics'
@@ -145,6 +145,19 @@ const AUTOSAVE_DEBOUNCE = 1500
 
 /** AI 설계 분석 화면을 보여 주는 최소 시간(ms). 계산이 일찍 끝나도 결과는 이 시간이 지난 뒤에 낸다. */
 /** AI 분석 화면을 보여 주는 최소 시간(ms). 실행마다 3~5초 사이에서 정한다. */
+/** 설정 배치 입력값을 탐색에 쓸 수 있는 범위로 다듬는다. 비운 칸은 그대로 비워 둔다. */
+const cleanFixed = (f: FixedSettings): FixedSettings => {
+  const num = (v: number | undefined, lo: number, hi: number, int = false) =>
+    v === undefined || !Number.isFinite(v) ? undefined : Math.min(hi, Math.max(lo, int ? Math.round(v) : v))
+  return {
+    azimuth: num(f.azimuth, -90, 90),
+    tilt: num(f.tilt, 0, 60),
+    rowSpacing: num(f.rowSpacing, 0, 50),
+    setCols: num(f.setCols, 1, 60, true),
+    setRows: num(f.setRows, 1, 6, true),
+    setGap: num(f.setGap, 0, 20000),
+  }
+}
 const aiMinMs = () => 3000 + Math.round(Math.random() * 2000)
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
@@ -218,6 +231,18 @@ export default function App() {
   const [energyBusy, setEnergyBusy] = useState(false)
   const [optRun, setOptRun] = useState<{ cancel: () => void } | null>(null)
   const [optResults, setOptResults] = useState<Candidate[] | null>(null)
+  // AI 가설계 방식: 자동 배치는 방위각·경사각·간격을 모두 찾고, 설정 배치는 사용자가 넣은 값을 지킨다.
+  const [optMode, setOptMode] = useState<'auto' | 'manual'>('auto')
+  // 설정 배치 입력값. 손대기 전(null)에는 기본설계 값을 그대로 보여 준다.
+  const [fixedEdit, setFixedEdit] = useState<FixedSettings | null>(null)
+  const fixedShown: FixedSettings = fixedEdit ?? {
+    azimuth: params.azimuth,
+    tilt: params.tilt,
+    rowSpacing: params.rowSpacing,
+    setCols: params.setCols,
+    setRows: params.setRows,
+    setGap: params.setGap,
+  }
   // AI 안·저장한 안을 계산할 때 둔 수배전반 자리(배치 → 자리). 적용할 때 그 자리로 되돌린다.
   const padForSets = useRef(new WeakMap<ModuleSet[], PadAt | null>())
   const [optPad, setOptPad] = useState<PadAt | null>(null)
@@ -999,6 +1024,7 @@ export default function App() {
   // 탐색은 수십 번의 배치·음영 계산이라 화면이 멈추지 않게 워커에서 돌린다.
   const runOptimize = async () => {
     if (!parcel) return
+    const fixed = optMode === 'manual' ? cleanFixed(fixedShown) : null
     optRun?.cancel()
     const pending = { cancel: () => {} }
     activeRun.current = pending
@@ -1020,7 +1046,7 @@ export default function App() {
     let site = { obstacles: siteObstacles, keepOut, switchboard: switchboardAt }
     let usedPad = padMove
     if (reservePad && padMove?.how !== 'manual') {
-      const r = await searchPad(params, useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
+      const r = await searchPad(withFixed(params, fixed), useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
       if (activeRun.current !== pending) return
       if (r) {
         site = padSite(r.best.pad)
@@ -1032,6 +1058,7 @@ export default function App() {
     const input: OptimizeInput = {
       parcel,
       base: params,
+      fixed,
       ...site,
       performanceRatio,
       temperature,
@@ -1712,7 +1739,7 @@ export default function App() {
     return [
       ...(design ? [row('현재 배치', params, design.metrics)] : []),
       ...scenarios.map((sc) => row(sc.name, sc.params, sc.metrics)),
-      ...(optResults ?? []).map((c) => row(`AI ${STRATEGIES[c.strategy].label}`, c.params, c.metrics)),
+      ...groupCandidates(optResults ?? []).map(({ strategies, c }) => row(`AI ${strategiesLabel(strategies)}`, c.params, c.metrics)),
     ]
   }
   const noDesign = !parcel ? '필지를 먼저 고르세요.' : !sets.length ? '배치를 먼저 하세요.' : !design ? '계산 중입니다.' : undefined
@@ -2293,6 +2320,12 @@ export default function App() {
 
         {tab === 'ai' && (
           <OptimizePanel
+            mode={optMode}
+            onMode={setOptMode}
+            fixed={fixedShown}
+            fixedEdited={fixedEdit !== null}
+            onFixed={setFixedEdit}
+            onResetFixed={() => setFixedEdit(null)}
             canRun={!!parcel}
             running={!!optRun}
             results={optResults}

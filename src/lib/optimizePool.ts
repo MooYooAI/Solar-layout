@@ -48,7 +48,7 @@ export function runOptimizePool(
       if (cancelled) return []
       const fine = await runPhase(planRefine(input, coarse), false, '상위 후보 정밀 계산 중')
       if (cancelled) return []
-      const zoned = await runPhase(planZoned(fine), false, '구역별 배치 계산 중')
+      const zoned = await runPhase(planZoned(input, fine), false, '구역별 배치 계산 중')
       return pickCandidates([...fine, ...zoned])
     } finally {
       workers.forEach((w) => w.terminate())

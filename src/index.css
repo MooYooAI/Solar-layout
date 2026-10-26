@@ -320,6 +320,8 @@ details.chart summary { cursor: pointer; }
 .seg button { height: 28px; background: transparent; color: var(--muted); border-radius: 6px; padding: 0 12px; }
 .seg button:hover:not(:disabled) { background: transparent; color: var(--ink); }
 .seg button[aria-selected='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px oklch(24% 0.02 255 / 0.12); }
+.seg.opt-mode { display: flex; margin: 2px 0 10px; }
+.seg.opt-mode button { flex: 1; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-block: 1px solid var(--line); }
 .kpis > div { padding: 8px 0 10px; }
 .kpis > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
