@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { Parcel } from '../lib/parcel'
 import { SQM_PER_PYEONG } from '../lib/parcel'
-import { isContinuous, shadeAngle, setGeometry, type LayoutParams, type LayoutStats } from '../lib/layout'
+import { isContinuous, setMixText, shadeAngle, setGeometry, type LayoutParams, type LayoutStats } from '../lib/layout'
 import type { EnergyResult } from '../lib/energy'
 import type { ElecParams, ElecResult } from '../lib/electrical'
 import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
@@ -114,7 +114,7 @@ export default function Overview(props: Props) {
               {fmt(p.moduleWatt)} W × {fmt(stats.modules)}장 = {fmt(stats.kWp, 1)} kWp
             </dd>
             <dt>세트</dt>
-            <dd>{isContinuous(p) ? `연속 배열 (${p.setCols}열 × ${p.setRows}단 단위)` : `${p.setCols}열 × ${p.setRows}단 × ${fmt(stats.sets)}세트`}</dd>
+            <dd>{isContinuous(p) ? `연속 배열 (${p.setCols}열 × ${p.setRows}단 단위)` : stats.mix.length > 1 ? setMixText(stats, p) : `${p.setCols}열 × ${p.setRows}단 × ${fmt(stats.sets)}세트`}</dd>
             <dt>구조물</dt>
             <dd>{RACKING[p.racking].label}</dd>
             <dt>경사·방위</dt>

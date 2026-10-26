@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Parcel } from '../lib/parcel'
-import type { LayoutParams, ModuleSet, SetGeometry } from '../lib/layout'
+import { totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
 import type { ElecResult } from '../lib/electrical'
 import type { TerrainResult } from '../lib/terrain'
@@ -135,7 +135,7 @@ export default function SiteAnalysis3D(p: Props) {
   )
   const shadows = shadowOn && shade ? (showSets ? shade.shadows : shade.shadows.filter((s) => !s.fromSet)) : NO_SHADOWS
 
-  const modules = p.sets.length * p.geometry.modules
+  const modules = totalModules(p.sets, p.geometry)
   const bearing = 180 + p.params.azimuth
   const sunUp = !!shade && shade.sun.altitude > 0
   const sunBearing = shade ? (((180 + deg(shade.sun.azimuth)) % 360) + 360) % 360 : 180

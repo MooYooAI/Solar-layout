@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LocalFrame, type Vec } from '../lib/geo'
-import { moduleQuadsLonLat, setQuadLocal, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { forSet, moduleQuadsLonLat, setQuadLocal, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecResult } from '../lib/electrical'
@@ -89,9 +89,9 @@ export default function PlanEditor(props: Props) {
   const viewBox = `${c[0] - vw / 2} ${-c[1] - vh / 2} ${vw} ${vh}`
 
   const local = useMemo(() => {
-    const quads = sets.map((s) => ({ id: s.id, center: frame.toLocal([s.lon, s.lat]), azimuth: s.azimuth }))
+    const quads = sets.map((s) => ({ id: s.id, center: frame.toLocal([s.lon, s.lat]), azimuth: s.azimuth, cols: s.cols }))
     const modules =
-      sets.length * geometry.modules <= MAX_MODULE_LINES
+      totalModules(sets, geometry) <= MAX_MODULE_LINES
         ? sets.map((s) => {
             const [x0, y0] = frame.toLocal([s.lon, s.lat])
             return moduleQuadsLonLat(s, props.params, geometry).map((q) =>
@@ -304,7 +304,7 @@ export default function PlanEditor(props: Props) {
         })}
         {local.quads.map((s, i) => {
           const [dx, dy] = moving?.has(s.id) ? md : [0, 0]
-          const q = setQuadLocal(s.center, s.azimuth, geometry)
+          const q = setQuadLocal(s.center, s.azimuth, forSet(geometry, s))
           const inv = props.elec?.setInverter[s.id]
           const fill = inv !== undefined ? GROUP_COLORS[inv % GROUP_COLORS.length] : undefined
           return (

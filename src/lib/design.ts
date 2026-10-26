@@ -10,7 +10,7 @@ import { designElectrical, type ElecParams, type ElecResult } from './electrical
 import type { ElevGrid } from './elevation'
 import { evaluate as evaluateEcon, type EconSettings } from './economics'
 import { KOREA_GHI, simulateEnergy, type EnergyResult, type MonthlyEnergy } from './energy'
-import { layoutStats, setGeometry, type LayoutParams, type ModuleSet } from './layout'
+import { layoutStats, setGeometry, totalModules, type LayoutParams, type ModuleSet } from './layout'
 import { parcelArea, type Parcel } from './parcel'
 import type { Obstacle } from './shading'
 import { skyLoss, type Horizon } from './horizon'
@@ -99,7 +99,7 @@ export interface LayoutEnergyInput {
 /**
  * 배치 전체의 발전량. 세트 방위각이 섞여 있으면(구역별 배치, 손으로 돌린 세트) 방위각마다 따로 계산해 더한다.
  * 그림자는 언제나 모든 세트·장애물이 드리우고, 그늘 비율은 그 방위각 세트에서만 잰다.
- * 설비 용량과 AC 한도는 세트 수 비율로 나눈다.
+ * 설비 용량과 AC 한도는 모듈 수 비율로 나눈다.
  */
 export function layoutEnergy(i: LayoutEnergyInput): EnergyResult {
   const g = setGeometry(i.params)
@@ -112,7 +112,7 @@ export function layoutEnergy(i: LayoutEnergyInput): EnergyResult {
   if (!groups.size) groups.set(i.params.azimuth, [])
   const latDeg = LocalFrame.around(i.rings).lat0
   const parts = [...groups].map(([azimuth, list]) => {
-    const share = i.sets.length ? list.length / i.sets.length : 1
+    const share = i.sets.length ? totalModules(list, g) / totalModules(i.sets, g) : 1
     const max = i.maxShadeSets === undefined ? Infinity : Math.max(10, Math.round(i.maxShadeSets * share))
     const scene = i.shade && list.length ? buildScene(i.rings, i.sets, i.obstacles, i.params, g, spreadSample(list, max), i.horizon) : null
     return simulateEnergy({

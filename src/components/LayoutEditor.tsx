@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import PlanEditor from './PlanEditor'
 import { LocalFrame } from '../lib/geo'
 import type { MapTool } from './MapView'
-import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
+import { forSet, totalModules, totalWatt, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecResult } from '../lib/electrical'
@@ -26,6 +26,13 @@ interface Props {
   onRotateSelected: (deg: number) => void
   onSetAzimuth: (deg: number) => void
   onDuplicate: (dx: number, dy: number) => void
+  /** 선택한 세트를 한 행(앞뒤 위치)이나 한 열(좌우 위치)로 맞춘다 */
+  onAlign: (axis: 'row' | 'col') => void
+  /** 세트 추가 때 넣을 가로 장수 */
+  addCols: number
+  onAddCols: (cols: number) => void
+  /** 선택한 세트의 가로 장수를 바꾼다 */
+  onSetCols: (cols: number) => void
   onClear: () => void
   canUndo: boolean
   canRedo: boolean
@@ -37,6 +44,8 @@ interface Props {
 const fmt = (n: number, digits = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits })
 const az = (a: number) => (Math.abs(a) < 0.05 ? '정남' : `${a > 0 ? '서' : '동'} ${fmt(Math.abs(a), 1)}°`)
 const STEPS = [0.1, 0.5, 1, 5]
+/** 고를 수 있는 가로 장수: 1장부터 지금 설정의 두 배(최소 24장)까지 */
+const colsOptions = (setCols: number) => Array.from({ length: Math.max(24, setCols * 2) }, (_, i) => i + 1)
 
 /** 지도 대신 배치도를 크게 띄워 세트를 고치는 화면. 도구는 위 막대에 모은다. */
 export default function LayoutEditor(props: Props) {
@@ -45,6 +54,8 @@ export default function LayoutEditor(props: Props) {
   const n = selected.size
   const picked = useMemo(() => sets.filter((s) => selected.has(s.id)), [sets, selected])
   const frame = useMemo(() => (parcel ? LocalFrame.around(parcel.rings) : null), [parcel])
+  const pickedCols = picked.length && picked.every((s) => forSet(geometry, s).cols === forSet(geometry, picked[0]).cols) ? forSet(geometry, picked[0]).cols : null
+  const pickedWidth = picked.length ? Math.max(...picked.map((s) => forSet(geometry, s).width)) : geometry.width
   const pickedAz = picked.length && picked.every((s) => s.azimuth === picked[0].azimuth) ? picked[0].azimuth : null
 
   /** 선택한 세트를 동(+x)·북(+y)으로 m만큼 옮긴다. */
@@ -79,6 +90,18 @@ export default function LayoutEditor(props: Props) {
           <button type="button" className={tool === 'add' ? 'toggle on' : 'toggle'} onClick={() => onTool(tool === 'add' ? 'none' : 'add')} title="도면을 누른 자리에 세트를 놓습니다">
             ＋ 세트 추가
           </button>
+          {tool === 'add' && (
+            <label className="tool-select" title="새로 놓을 세트의 가로 장수">
+              가로
+              <select value={props.addCols} onChange={(e) => props.onAddCols(Number(e.target.value))}>
+                {colsOptions(params.setCols).map((c) => (
+                  <option key={c} value={c}>
+                    {c}장{c === params.setCols ? ' (설정)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="tool-group" aria-label="선택">
@@ -110,9 +133,30 @@ export default function LayoutEditor(props: Props) {
           </button>
         </div>
 
+        <div className="tool-group" aria-label="맞추기">
+          <span className="tool-label">맞추기</span>
+          <button type="button" className="ghost" disabled={n < 2} onClick={() => props.onAlign('row')} title="고른 세트를 한 행으로: 앞뒤(남북) 위치를 가운데 세트에 맞춥니다">
+            행 맞추기
+          </button>
+          <button type="button" className="ghost" disabled={n < 2} onClick={() => props.onAlign('col')} title="고른 세트를 한 열로: 좌우(동서) 위치를 가운데 세트에 맞춥니다">
+            열 맞추기
+          </button>
+          <label className="tool-select" title="고른 세트의 가로 장수를 바꿉니다">
+            가로
+            <select disabled={!n} value={pickedCols ?? ''} onChange={(e) => props.onSetCols(Number(e.target.value))}>
+              {pickedCols === null && <option value="">{n ? '섞임' : '-'}</option>}
+              {colsOptions(params.setCols).map((c) => (
+                <option key={c} value={c}>
+                  {c}장
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className="tool-group" aria-label="복제">
           <span className="tool-label">복제</span>
-          <button type="button" className="ghost" disabled={!n} onClick={() => props.onDuplicate(geometry.width + setGapM, 0)} title="옆(동쪽)에 세트 간격만큼 띄워 복제 (Ctrl+D)">
+          <button type="button" className="ghost" disabled={!n} onClick={() => props.onDuplicate(pickedWidth + setGapM, 0)} title="옆(동쪽)에 세트 간격만큼 띄워 복제 (Ctrl+D)">
             옆으로
           </button>
           <button type="button" className="ghost" disabled={!n} onClick={() => props.onDuplicate(0, pitch)} title="뒷열(북쪽)에 열 피치만큼 띄워 복제">
@@ -163,9 +207,9 @@ export default function LayoutEditor(props: Props) {
           {n ? (
             <dl className="facts">
               <dt>모듈</dt>
-              <dd>{fmt(n * geometry.modules)}장</dd>
+              <dd>{fmt(totalModules(picked, geometry))}장</dd>
               <dt>용량</dt>
-              <dd>{fmt((n * geometry.watt) / 1000, 1)} kWp</dd>
+              <dd>{fmt(totalWatt(picked, geometry) / 1000, 1)} kWp</dd>
               <dt>방위</dt>
               <dd>{pickedAz === null ? '여러 방향' : az(pickedAz)}</dd>
             </dl>

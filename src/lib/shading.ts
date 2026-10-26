@@ -1,5 +1,5 @@
 import { convexHull as hullOpen, deg2rad, LocalFrame, pointInRing, rotate, type Vec } from './geo'
-import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
+import { forSet, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
 import type { SunPos } from './sun'
 
 export type Vec3 = [number, number, number]
@@ -46,7 +46,8 @@ export type Ground = (x: number, y: number) => number
 const FLAT: Ground = () => 0
 
 /** 세트 경사면 네 꼭짓점(공통 로컬 좌표, m). 앞(남)쪽 모서리가 낮다. z는 부지 중심 지반 기준. */
-export function setCorners3D(s: ModuleSet, p: LayoutParams, g: SetGeometry, frame: LocalFrame, ground: Ground = FLAT): Vec3[] {
+export function setCorners3D(s: ModuleSet, p: LayoutParams, g0: SetGeometry, frame: LocalFrame, ground: Ground = FLAT): Vec3[] {
+  const g = forSet(g0, s)
   const c = frame.toLocal([s.lon, s.lat])
   const gz = ground(c[0], c[1])
   const r = -deg2rad(s.azimuth)
@@ -77,7 +78,8 @@ const SAMPLE_AT = [0.125, 0.375, 0.625, 0.875]
  * 모듈마다 경사면 위의 표본점 4개(아래에서 1/8, 3/8, 5/8, 7/8 지점).
  * 반환: 세트별 [모듈][표본점] 3D 좌표.
  */
-export function moduleSamples(s: ModuleSet, p: LayoutParams, g: SetGeometry, frame: LocalFrame, ground: Ground = FLAT): Vec3[][] {
+export function moduleSamples(s: ModuleSet, p: LayoutParams, g0: SetGeometry, frame: LocalFrame, ground: Ground = FLAT): Vec3[][] {
+  const g = forSet(g0, s)
   const c = frame.toLocal([s.lon, s.lat])
   const gz = ground(c[0], c[1])
   const r = -deg2rad(s.azimuth)
@@ -88,7 +90,7 @@ export function moduleSamples(s: ModuleSet, p: LayoutParams, g: SetGeometry, fra
   const sin = Math.sin(deg2rad(p.tilt))
   const out: Vec3[][] = []
   for (let row = 0; row < p.setRows; row++) {
-    for (let col = 0; col < p.setCols; col++) {
+    for (let col = 0; col < g.cols; col++) {
       const x = -g.width / 2 + col * (along + gap) + along / 2
       const pts: Vec3[] = SAMPLE_AT.map((f) => {
         const s = row * (across + gap) + f * across // 경사면을 따라 잰 거리

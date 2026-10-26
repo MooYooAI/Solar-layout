@@ -118,7 +118,12 @@ export function bomBlocks(d: DocInput): DocBlock[] {
   const modules = d.elec ? d.elec.strings.length * d.elec.stringLen : d.stats.modules
   const main: string[][] = [
     ['태양광 모듈', `${p.moduleWatt} W, ${p.moduleLength}×${p.moduleWidth} mm`, '장', fmt(modules)],
-    ['구조물', `${RACKING[p.racking].label}, ${p.setCols}열×${p.setRows}단, 경사 ${p.tilt}°`, '세트', fmt(d.stats.sets)],
+    ...(d.stats.mix.length > 1 ? d.stats.mix : [{ cols: p.setCols, count: d.stats.sets }]).map((m) => [
+      '구조물',
+      `${RACKING[p.racking].label}, ${m.cols}열×${p.setRows}단, 경사 ${p.tilt}°`,
+      '세트',
+      fmt(m.count),
+    ]),
   ]
   const elec: string[][] = []
   if (d.elec) {

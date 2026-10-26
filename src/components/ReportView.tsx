@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Parcel } from '../lib/parcel'
 import { SQM_PER_PYEONG } from '../lib/parcel'
-import { setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { forSet, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
 import { dailyShadeLoss, snapshot, terrainSunWindow, type Scene } from '../lib/analysis'
 import { dayOfYear, declination, kstToSolar, solarToKst, sunriseSunsetSolar } from '../lib/sun'
@@ -159,7 +159,7 @@ export default function ReportView(props: Props) {
     [props.econ, stats.kWp, annualKWh, props.designCapex],
   )
   const elec: ElecResult | null = design?.elec ?? null
-  const installArea = stats.sets * props.geometry.width * props.geometry.depth
+  const installArea = props.sets.reduce((a, s) => a + forSet(props.geometry, s).width * props.geometry.depth, 0)
   const eia = smallEia(props.area, props.zoning)
   const meanSlopeDeg = terrain ? pctToDeg(terrain.meanSlopePct) : null
   const nearMiss = capacityNearMiss(stats.kWp)

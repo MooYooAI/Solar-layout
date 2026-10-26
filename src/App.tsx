@@ -15,6 +15,7 @@ import {
   layoutStats,
   newSetId,
   setGeometry,
+  totalWatt,
   setQuadLonLat,
   shadeAngle,
   withEdgeSetback,
@@ -732,7 +733,7 @@ export default function App() {
   const [padAt, setPadAt] = useState<PadAt | null>(null)
   const padMove = padAt && padAt.parcel === parcel ? padAt : null
   // 500 kW 이하는 전기실 없이 옥외 수배전반 함체만 둔다. 배치가 있으면 그 용량, 없으면 부지 면적으로 어림한다.
-  const planKW = sets.length ? (sets.length * setGeometry(params).watt) / 1000 : estimateKW(area)
+  const planKW = sets.length ? totalWatt(sets, setGeometry(params)) / 1000 : estimateKW(area)
   const padKind = padKindFor(planKW)
   // 자동이면 부지 면적으로 어림한 용량으로 정한다. 배치 용량으로 정하면 AI 안을 적용하는 순간 자리가 생기거나 사라져 모듈과 어긋난다.
   const padRequired = estimateKW(area) >= ELEC_ROOM_KW
@@ -853,7 +854,7 @@ export default function App() {
       params,
       sets,
       obstacles,
-      kWp: (sets.length * setGeometry(params).watt) / 1000,
+      kWp: totalWatt(sets, setGeometry(params)) / 1000,
     }
     setTimeline((tl) => {
       const last = tl.at(-1)
@@ -1091,7 +1092,7 @@ export default function App() {
     setLayoutBasis(nextParams)
     editSets(nextSets)
     // 배치와 함께 인버터까지 잡아 두어 기본설계에서 자동 설계를 다시 돌리지 않아도 되게 한다.
-    fitInverter((nextSets.length * setGeometry(nextParams).watt) / 1000, 'AI 설계 적용')
+    fitInverter(totalWatt(nextSets, setGeometry(nextParams)) / 1000, 'AI 설계 적용')
     setSelected(new Set())
     setEnergy(null)
     switchTab('layout')
@@ -1190,7 +1191,7 @@ export default function App() {
   /** 자동 설계: 배치한 뒤 용량에 맞는 인버터를 고른다. */
   const runAutoDesign = () => {
     const next = placeSets('자동 설계')
-    if (next) fitInverter((next.length * geometry.watt) / 1000, '자동 설계')
+    if (next) fitInverter(totalWatt(next, geometry) / 1000, '자동 설계')
   }
 
   // 세트별 동지 그늘. 잰 뒤 배치·장애물이 바뀌면 다시 재야 한다.
@@ -1231,8 +1232,12 @@ export default function App() {
     editSets((prev) => prev.map((s) => (byId.has(s.id) ? { ...s, ...byId.get(s.id)! } : s)))
   }
 
+  // 세트 추가 때 넣을 가로 장수. 배치 설정과 같으면 따로 적지 않아 설정을 따라간다.
+  const [addCols, setAddCols] = useState<number | null>(null)
+  const addColsNow = addCols ?? params.setCols
+  const colsField = (cols: number) => (cols === params.setCols ? {} : { cols })
   const onAddSet = (lon: number, lat: number) => {
-    const s: ModuleSet = { id: newSetId(), lon, lat, azimuth: params.azimuth }
+    const s: ModuleSet = { id: newSetId(), lon, lat, azimuth: params.azimuth, ...colsField(addColsNow) }
     mark('세트 추가')
     editSets((prev) => [...prev, s])
     setSelected(new Set([s.id]))
@@ -1258,6 +1263,44 @@ export default function App() {
   const setAzimuthSelected = (deg: number) => {
     mark('세트 방위 맞춤')
     editSets((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, azimuth: deg } : s)))
+  }
+
+  /** 선택한 세트의 가로 장수를 바꾼다. 세트 가운데는 그대로 두고 양옆으로 늘거나 준다. */
+  const setColsSelected = (cols: number) => {
+    mark('세트 장수 변경')
+    editSets((prev) =>
+      prev.map((s) => {
+        if (!selected.has(s.id)) return s
+        const { cols: _old, ...rest } = s
+        return { ...rest, ...colsField(cols) }
+      }),
+    )
+  }
+
+  /**
+   * 선택한 세트를 한 행(앞뒤 위치) 또는 한 열(좌우 위치)로 맞춘다. 세트 방향 기준으로 재고, 가운데 값(중앙값)에 맞춰 옮긴다.
+   * 방향이 섞였으면 직접 설정 방위각 기준으로 잰다.
+   */
+  const alignSelected = (axis: 'row' | 'col') => {
+    const picked = sets.filter((s) => selected.has(s.id))
+    if (picked.length < 2) return
+    const az = picked.every((s) => s.azimuth === picked[0].azimuth) ? picked[0].azimuth : params.azimuth
+    const f = new LocalFrame(picked[0].lon, picked[0].lat)
+    const r = deg2rad(az)
+    const loc = new Map(picked.map((s) => [s.id, rotate(f.toLocal([s.lon, s.lat]), r)]))
+    const k = axis === 'row' ? 1 : 0
+    const vals = [...loc.values()].map((v) => v[k]).sort((a, b) => a - b)
+    const target = vals[Math.floor((vals.length - 1) / 2)]
+    mark(axis === 'row' ? '행 맞추기' : '열 맞추기')
+    editSets((prev) =>
+      prev.map((s) => {
+        const v = loc.get(s.id)
+        if (!v) return s
+        const moved: Vec = k ? [v[0], target] : [target, v[1]]
+        const [lon, lat] = f.toLonLat(rotate(moved, -r))
+        return { ...s, lon, lat }
+      }),
+    )
   }
 
   /** 선택한 세트를 동(dx)·북(dy)으로 m만큼 떨어뜨려 복제하고, 복제본을 선택한다. */
@@ -2108,7 +2151,7 @@ export default function App() {
           <OrderPanel
             metrics={design?.metrics ?? null}
             busy={designBusy}
-            lines={design ? orderLines({ params, elecParams: elec, elec: design.elec, metrics: design.metrics, costs }) : []}
+            lines={design ? orderLines({ params, elecParams: elec, elec: design.elec, metrics: design.metrics, costs, mix: stats.mix }) : []}
             plant={plant}
             address={parcel?.address ?? ''}
             fileBase={fileBase()}
@@ -2252,7 +2295,7 @@ export default function App() {
                   onApply={(r) => {
                     const next = placeSets(`${r.label} 설계용량으로 배치`, { ...params, rowSpacing: r.spacing })
                     if (!next) return
-                    fitInverter((next.length * geometry.watt) / 1000, `${r.label} 설계용량으로 배치`)
+                    fitInverter(totalWatt(next, geometry) / 1000, `${r.label} 설계용량으로 배치`)
                     switchTab('layout')
                   }}
                 />
@@ -2933,6 +2976,10 @@ export default function App() {
             onRotateSelected={rotateSelected}
             onSetAzimuth={setAzimuthSelected}
             onDuplicate={duplicateSelected}
+            onAlign={alignSelected}
+            addCols={addColsNow}
+            onAddCols={(v) => setAddCols(v === params.setCols ? null : v)}
+            onSetCols={setColsSelected}
             onClear={clearSets}
             canUndo={history.past.length > 0}
             canRedo={history.future.length > 0}

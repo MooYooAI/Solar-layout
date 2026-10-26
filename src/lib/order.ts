@@ -4,7 +4,7 @@ import { INVERTERS, RACKING, findModule, moduleName } from './catalog'
 import type { CostParams } from './costs'
 import type { DesignMetrics } from './design'
 import type { ElecParams, ElecResult } from './electrical'
-import type { LayoutParams } from './layout'
+import type { LayoutParams, LayoutStats } from './layout'
 
 export type OrderPackage = 'module' | 'inverter' | 'racking' | 'electric' | 'civil'
 
@@ -32,9 +32,11 @@ export interface OrderInput {
   elec: ElecResult | null
   metrics: DesignMetrics
   costs: CostParams
+  /** 가로 장수별 세트 수. 장수가 섞였으면 구조물을 장수별로 나눠 적는다. */
+  mix?: LayoutStats['mix']
 }
 
-export function orderLines({ params: p, elecParams: e, elec, metrics: m, costs: c }: OrderInput): OrderLine[] {
+export function orderLines({ params: p, elecParams: e, elec, metrics: m, costs: c, mix }: OrderInput): OrderLine[] {
   const capex = (key: string) => m.capex.items.find((i) => i.key === key)?.amount ?? null
   const lines: OrderLine[] = [
     {
@@ -53,14 +55,19 @@ export function orderLines({ params: p, elecParams: e, elec, metrics: m, costs: 
       qty: m.inverters,
       amount: capex('inverter'),
     },
-    {
-      pkg: 'racking',
-      item: '구조물',
-      spec: `${RACKING[p.racking].label}, ${p.setCols}열×${p.setRows}단, 경사 ${p.tilt}°`,
-      unit: '세트',
-      qty: m.sets,
-      amount: capex('racking'),
-    },
+    // 장수가 섞였으면 장수별로 줄을 나누고, 금액은 모듈 수 비율로 나눈다.
+    ...(mix && mix.length > 1 ? mix : [{ cols: p.setCols, count: m.sets }]).map((x, _, all) => {
+      const share = all.length > 1 && m.modules ? (x.cols * p.setRows * x.count) / m.modules : 1
+      const amount = capex('racking')
+      return {
+        pkg: 'racking' as const,
+        item: '구조물',
+        spec: `${RACKING[p.racking].label}, ${x.cols}열×${p.setRows}단, 경사 ${p.tilt}°`,
+        unit: '세트',
+        qty: x.count,
+        amount: amount === null ? null : amount * share,
+      }
+    }),
   ]
   if (elec) {
     lines.push({ pkg: 'electric', item: 'DC 케이블', spec: `${e.dcCableMm2} ㎟ (H1Z2Z2-K 등)`, unit: 'm', qty: Math.round(elec.dcCableM), amount: capex('dc') })

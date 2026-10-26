@@ -5,7 +5,7 @@
 import { deg2rad, LocalFrame, rotate } from './geo'
 import { elevAt, type ElevGrid } from './elevation'
 import { RACKING } from './catalog'
-import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
+import { forSet, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
 
 export interface SetEarthwork {
   id: string
@@ -32,12 +32,9 @@ export interface EarthworkResult {
 /** 바닥 표본 간격(m) */
 const STEP = 1
 
-export function layoutEarthwork(sets: ModuleSet[], p: LayoutParams, g: SetGeometry, grid: ElevGrid): EarthworkResult {
+export function layoutEarthwork(sets: ModuleSet[], p: LayoutParams, g0: SetGeometry, grid: ElevGrid): EarthworkResult {
   const rack = RACKING[p.racking]
   const frame = new LocalFrame(grid.lon0, grid.lat0)
-  const nu = Math.max(2, Math.round(g.width / STEP))
-  const nv = Math.max(2, Math.round(g.depth / STEP))
-  const cellArea = (g.width * g.depth) / (nu * nv)
   let cut = 0
   let fill = 0
   let maxCut = 0
@@ -45,6 +42,10 @@ export function layoutEarthwork(sets: ModuleSet[], p: LayoutParams, g: SetGeomet
   let steepSets = 0
   const perSet: SetEarthwork[] = []
   for (const s of sets) {
+    const g = forSet(g0, s)
+    const nu = Math.max(2, Math.round(g.width / STEP))
+    const nv = Math.max(2, Math.round(g.depth / STEP))
+    const cellArea = (g.width * g.depth) / (nu * nv)
     const c = frame.toLocal([s.lon, s.lat])
     const r = -deg2rad(s.azimuth)
     const pts: Array<{ u: number; v: number; z: number }> = []
