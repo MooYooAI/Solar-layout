@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { STRATEGIES, type Candidate, type Strategy } from '../lib/optimize'
+import { useState, type ReactNode } from 'react'
+import { STRATEGIES, groupCandidates, strategiesLabel, type Candidate, type FixedSettings, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
 import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
@@ -17,6 +17,15 @@ export interface Scenario {
 }
 
 interface Props {
+  /** auto: 방위각·경사각·간격을 AI가 모두 찾는다. manual: 사용자가 넣은 값을 지키고 비운 칸만 찾는다. */
+  mode: 'auto' | 'manual'
+  onMode: (m: 'auto' | 'manual') => void
+  /** 설정 배치 입력값(비운 칸은 undefined) */
+  fixed: FixedSettings
+  /** 기본설계 값에서 고친 적이 있는지 */
+  fixedEdited: boolean
+  onFixed: (f: FixedSettings) => void
+  onResetFixed: () => void
   canRun: boolean
   running: boolean
   results: Candidate[] | null
@@ -57,9 +66,36 @@ const ZONE_LABEL: Record<ZoneMode, string> = {
   fill: '한 방향 + 빈자리 채우기',
 }
 
+/** 설정 배치 입력 칸. 비우면 그 항목은 AI가 찾는다. */
+function FixField(props: { label: string; unit: string; value: number | undefined; step?: number; min?: number; max?: number; onChange: (v: number | undefined) => void }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <label className="field">
+      <span>{props.label}</span>
+      <input
+        type="number"
+        placeholder="자동"
+        step={props.step ?? 1}
+        min={props.min}
+        max={props.max}
+        value={draft ?? props.value ?? ''}
+        onChange={(e) => {
+          setDraft(e.target.value)
+          if (e.target.value === '') props.onChange(undefined)
+          else if (!Number.isNaN(e.target.valueAsNumber)) props.onChange(e.target.valueAsNumber)
+        }}
+        onBlur={() => setDraft(null)}
+      />
+      <em>{props.unit}</em>
+    </label>
+  )
+}
+
 export default function OptimizePanel(props: Props) {
   const { results } = props
-  const ordered = results ? [...results].sort((a, b) => ORDER.indexOf(a.strategy) - ORDER.indexOf(b.strategy)) : null
+  const ordered = results ? groupCandidates([...results].sort((a, b) => ORDER.indexOf(a.strategy) - ORDER.indexOf(b.strategy))) : null
+  const f = props.fixed
+  const setF = (k: keyof FixedSettings) => (v: number | undefined) => props.onFixed({ ...f, [k]: v })
   type Row = { key: string; name: string; m: DesignMetrics; apply?: () => void; remove?: () => void }
   const rows: Row[] = [
     ...(props.current ? [{ key: 'current', name: '현재 배치', m: props.current }] : []),
@@ -70,9 +106,9 @@ export default function OptimizePanel(props: Props) {
       apply: () => props.onApply(s.params, s.sets, s.layoutMode),
       remove: () => props.onRemoveScenario(s.id),
     })),
-    ...(results ?? []).map((c) => ({
+    ...(ordered ?? []).map(({ strategies, c }) => ({
       key: `ai-${c.strategy}`,
-      name: `AI ${STRATEGIES[c.strategy].label}`,
+      name: `AI ${strategiesLabel(strategies)}`,
       m: c.metrics,
       apply: () => props.onApply(c.params, c.sets, c.zone ?? 'grid'),
     })),
@@ -85,6 +121,44 @@ export default function OptimizePanel(props: Props) {
     <>
       <section className="card">
         <h2>AI 추천 배치</h2>
+        <div className="seg opt-mode" role="tablist" aria-label="배치 방식">
+          <button type="button" role="tab" aria-selected={props.mode === 'auto'} onClick={() => props.onMode('auto')}>
+            자동 배치
+          </button>
+          <button type="button" role="tab" aria-selected={props.mode === 'manual'} onClick={() => props.onMode('manual')}>
+            설정 배치
+          </button>
+        </div>
+        {props.mode === 'auto' ? (
+          <p className="hint">
+            방위각·경사각·열 이격거리를 AI가 모두 바꿔 보며 발전량, 설비용량, 발전원가 같은 기준마다 가장 좋은 배치안을 찾습니다. 세트 구성은 기본설계의
+            가로 장수·단 수와 연속 배열을 함께 견줍니다.
+          </p>
+        ) : (
+          <>
+            <p className="hint">
+              입력한 값은 AI가 바꾸지 않습니다. 그 조건에서 세트가 가장 많이 들어가도록 첫 열 위치를 맞추고, 용량에 맞는 인버터를 고릅니다. 칸을 비우면 그
+              항목만 AI가 찾아 기준별 배치안을 만듭니다.
+            </p>
+            <div className="grid2">
+              <FixField label="방위각" unit="°" value={f.azimuth} min={-90} max={90} onChange={setF('azimuth')} />
+              <FixField label="경사각" unit="°" value={f.tilt} min={0} max={60} step={0.5} onChange={setF('tilt')} />
+              <FixField label="열 이격거리" unit="m" value={f.rowSpacing} min={0} step={0.1} onChange={setF('rowSpacing')} />
+              <FixField label="세트 간격" unit="mm" value={f.setGap} min={0} step={10} onChange={setF('setGap')} />
+              <FixField label="가로 장수" unit="장" value={f.setCols} min={1} onChange={setF('setCols')} />
+              <FixField label="단 수" unit="단" value={f.setRows} min={1} max={6} onChange={setF('setRows')} />
+            </div>
+            <p className="hint">
+              방위각은 정남 0°, 서쪽 +, 동쪽 −입니다. 방위각을 정하면 구역마다 방향을 바꾸는 배치는 만들지 않습니다. 모듈·래킹·패널 간격·경계 이격은
+              기본설계 값을 씁니다.{' '}
+              {props.fixedEdited && (
+                <button type="button" className="link" onClick={props.onResetFixed}>
+                  기본설계 값으로 되돌리기
+                </button>
+              )}
+            </p>
+          </>
+        )}
         <ul className="hint checklist">
           <li>{props.maskActive ? '설계 가능 영역(경사·배수 제외)을 반영합니다.' : '설계 가능 영역을 반영하려면 지형 탭에서 지형을 불러오세요.'}</li>
           <li>{props.hasGrid ? '배치마다 세트 자리 토공량을 계산합니다.' : '지형을 불러오지 않아 토공량은 빠집니다.'}</li>
@@ -110,14 +184,20 @@ export default function OptimizePanel(props: Props) {
         {props.error && <p className="error">{props.error}</p>}
       </section>
 
-      {ordered?.map((c) => (
-        <section className={c.strategy === RECOMMENDED ? 'card option recommended' : 'card option'} key={c.strategy}>
+      {ordered?.map(({ strategies, c }) => (
+        <section className={strategies.includes(RECOMMENDED) ? 'card option recommended' : 'card option'} key={c.strategy}>
           <h2>
-            {STRATEGIES[c.strategy].label}
-            {c.strategy === RECOMMENDED && <span className="rv-badge ok">추천</span>}
+            {strategiesLabel(strategies)}
+            {strategies.includes(RECOMMENDED) && <span className="rv-badge ok">추천</span>}
           </h2>
           <p className="hint" style={{ marginTop: 0 }}>
-            {STRATEGIES[c.strategy].detail}
+            {strategies.length >= ORDER.length
+              ? props.mode === 'manual'
+                ? '입력한 조건으로는 어느 기준으로 골라도 이 안이 가장 좋습니다. 안을 여러 개 견주려면 경사각이나 열 이격거리 칸을 비워 AI가 찾게 하세요.'
+                : '어느 기준으로 골라도 이 안이 가장 좋습니다.'
+              : strategies.length > 1
+                ? `${strategies.length}개 기준에서 같은 안이 뽑혔습니다. ${STRATEGIES[c.strategy].detail}`
+                : STRATEGIES[c.strategy].detail}
           </p>
           <div className="hero">
             {c.strategy === 'capacity' ? (

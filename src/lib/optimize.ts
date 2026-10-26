@@ -6,6 +6,7 @@
 // 1차는 빠른 근사(네 계절, 1시간 간격)로 넓게 훑고, 상위 후보만 정밀 계산으로 다시 평가한다.
 // 용량 최대 기준은 동지 9~15시 무음영 이격거리를 지키는 안 가운데 설비용량이 가장 큰 안이다(업계에서 흔히 쓰는 가배치 기준).
 // 3차로 기준별 최선안을 구역별 방위각 배치와 빈자리 채우기(zones.ts)로 바꿔 본 안도 정밀 계산해 함께 견준다.
+// 설정 배치(fixed)에서는 사용자가 넣은 방위각·경사각·열 이격·세트 구성을 그대로 두고, 비운 항목만 찾는다.
 
 import { LocalFrame, convexHull, type Vec } from './geo'
 import type { TempModel } from './climate'
@@ -32,6 +33,26 @@ export const STRATEGIES: Record<Strategy, { label: string; detail: string }> = {
   yield: { label: 'kW당 발전량 최대', detail: '모듈 1kW당 연간 발전량이 가장 높은 안. 간격을 넓게 둬 그림자가 거의 없는 대신 세트 수는 적다' },
 }
 
+/** 설정 배치에서 사용자가 정한 값. 비운 항목(undefined)은 자동 배치처럼 찾는다. */
+export interface FixedSettings {
+  azimuth?: number
+  tilt?: number
+  /** 열 이격거리(m) */
+  rowSpacing?: number
+  setCols?: number
+  setRows?: number
+  /** 세트 간격(mm) */
+  setGap?: number
+}
+
+/** 고정값을 기본 설정에 덮어쓴다. */
+export function withFixed(p: LayoutParams, f: FixedSettings | null | undefined): LayoutParams {
+  if (!f) return p
+  const out = { ...p }
+  for (const k of ['azimuth', 'tilt', 'rowSpacing', 'setCols', 'setRows', 'setGap'] as const) if (f[k] !== undefined) out[k] = f[k]
+  return out
+}
+
 export interface OptimizeInput {
   parcel: Parcel
   base: LayoutParams
@@ -50,6 +71,8 @@ export interface OptimizeInput {
   keepOut?: number[][][]
   /** 수배전반 위치(경위도). 없으면 전기 설계가 고른다. */
   switchboard?: Vec | null
+  /** 설정 배치: 사용자가 정한 값. 없으면 자동 배치 */
+  fixed?: FixedSettings | null
 }
 
 export interface Candidate {
@@ -216,20 +239,25 @@ export function evaluateTask(o: OptimizeInput, t: Task, quick: boolean): Evaluat
 /** 1차: 빠른 근사로 넓게 훑을 후보(경사각 × 방위각 × 열 이격거리) */
 export function planCoarse(o: OptimizeInput): Task[] {
   const { lat0 } = LocalFrame.around(o.parcel.rings)
+  const f = o.fixed ?? {}
   const tasks: Task[] = []
   const queued = new Set<string>()
   const push = (trial: LayoutParams, ratio: number) => {
-    const rowSpacing = spacingFor(lat0, trial, ratio)
+    const rowSpacing = f.rowSpacing ?? spacingFor(lat0, trial, ratio)
     const key = `${trial.tilt}|${trial.azimuth}|${rowSpacing}|${trial.setCols}|${trial.setGap}`
     if (queued.has(key)) return
     queued.add(key)
     tasks.push({ params: { ...trial, rowSpacing }, spacingRatio: rowSpacing / noShadeSpacing(lat0, trial) })
   }
-  // 사용자가 정한 세트 구성 그대로와 연속 배열을 함께 훑는다.
-  for (const base of [o.base, continuousParams(o.base)])
-    for (const azimuth of parcelAlignedAzimuths(o.parcel)) {
-      for (const tilt of TILTS) for (const k of SPACING_RATIOS) push({ ...base, tilt, azimuth }, k)
-      for (const tilt of NO_SHADE_TILTS) push({ ...base, tilt, azimuth }, 1)
+  // 사용자가 정한 세트 구성 그대로와 연속 배열을 함께 훑는다. 설정 배치에서 세트 구성을 정했으면 그것만 쓴다.
+  const base = withFixed(o.base, f)
+  const bases = f.setCols !== undefined || f.setGap !== undefined ? [base] : [base, continuousParams(base)]
+  const azimuths = f.azimuth !== undefined ? [f.azimuth] : parcelAlignedAzimuths(o.parcel)
+  const tilts = (list: number[]) => (f.tilt !== undefined ? [f.tilt] : list)
+  for (const b of bases)
+    for (const azimuth of azimuths) {
+      for (const tilt of tilts(TILTS)) for (const k of SPACING_RATIOS) push({ ...b, tilt, azimuth }, k)
+      for (const tilt of tilts(NO_SHADE_TILTS)) push({ ...b, tilt, azimuth }, 1)
     }
   return tasks
 }
@@ -252,11 +280,12 @@ export function planRefine(o: OptimizeInput, coarse: Evaluated[]): Task[] {
   }
   const refine: Task[] = []
   const queued = new Set<string>()
+  const f = o.fixed ?? {}
   for (const s of seeds.values()) {
-    for (const dt of [-2.5, 0, 2.5]) {
-      const tilt = Math.max(MIN_TILT, s.params.tilt + dt)
+    for (const dt of f.tilt !== undefined ? [0] : [-2.5, 0, 2.5]) {
+      const tilt = dt ? Math.max(MIN_TILT, s.params.tilt + dt) : s.params.tilt
       const trial = { ...s.params, tilt }
-      const rowSpacing = dt ? spacingFor(lat0, trial, s.spacingRatio) : s.params.rowSpacing
+      const rowSpacing = dt && f.rowSpacing === undefined ? spacingFor(lat0, trial, s.spacingRatio) : s.params.rowSpacing
       const params = { ...trial, rowSpacing }
       const key = `${params.tilt}|${params.azimuth}|${params.rowSpacing}|${params.setCols}|${params.setGap}`
       if (queued.has(key)) continue
@@ -267,8 +296,9 @@ export function planRefine(o: OptimizeInput, coarse: Evaluated[]): Task[] {
   return refine
 }
 
-/** 3차: 기준별 최선안을 구역별 배치(경계 방향, 절충 방향)와 빈자리 채우기로 바꿔 볼 후보 */
-export function planZoned(fine: Evaluated[]): Task[] {
+/** 3차: 기준별 최선안을 구역별 배치(경계 방향, 절충 방향)와 빈자리 채우기로 바꿔 볼 후보. 방위각을 정했으면 다른 방위각을 섞지 않는다. */
+export function planZoned(o: OptimizeInput, fine: Evaluated[]): Task[] {
+  if (o.fixed?.azimuth !== undefined) return []
   const seeds = new Map<string, Evaluated>()
   for (const strategy of Object.keys(STRATEGIES) as Strategy[]) {
     const c = pick(fine, strategy)
@@ -287,6 +317,23 @@ export function pickCandidates(fine: Evaluated[]): Candidate[] {
   return out
 }
 
+/** 여러 기준에서 같은 안이 뽑혔으면 하나로 묶는다(순서는 처음 나온 자리). 설정 배치에서 값을 많이 정할수록 겹친다. */
+export function groupCandidates(cs: Candidate[]): Array<{ strategies: Strategy[]; c: Candidate }> {
+  const out: Array<{ strategies: Strategy[]; c: Candidate }> = []
+  for (const c of cs) {
+    const g = out.find((x) => x.c.sets === c.sets)
+    if (g) g.strategies.push(c.strategy)
+    else out.push({ strategies: [c.strategy], c })
+  }
+  return out
+}
+
+/** 묶인 안의 이름. 모든 기준에서 같은 안이면 한 이름으로 줄인다. */
+export function strategiesLabel(strategies: Strategy[]): string {
+  if (strategies.length >= Object.keys(STRATEGIES).length) return '모든 기준 최적안'
+  return strategies.map((s) => STRATEGIES[s].label).join(' · ')
+}
+
 /** 한 스레드에서 끝까지 돌린다(시험용). 화면은 optimizePool로 여러 워커에 나눠 돌린다. */
 export function optimize(o: OptimizeInput, onProgress?: Progress): Candidate[] {
   const coarseTasks = planCoarse(o)
@@ -303,7 +350,7 @@ export function optimize(o: OptimizeInput, onProgress?: Progress): Candidate[] {
     const c = evaluateTask(o, t, false)
     if (c) fine.push(c)
   })
-  const zoned = planZoned(fine)
+  const zoned = planZoned(o, fine)
   zoned.forEach((t, i) => {
     onProgress?.(i, zoned.length, '구역별 배치 계산 중')
     const c = evaluateTask(o, t, false)
