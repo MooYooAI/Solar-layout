@@ -49,6 +49,7 @@ import SidePanel from './components/SidePanel'
 import Resizer from './components/Resizer'
 import { loadHorizon, type Horizon, type SiteDem } from './lib/horizon'
 import { TerrainShader } from './lib/terrainShadow'
+import { useTerrainShade } from './lib/useTerrainShade'
 import { loadTimeline, MERGE_MS, parcelKey, saveTimeline, TIMELINE_MAX, type TimelineEntry } from './lib/timeline'
 import ExportPanel, { type ExportItem } from './components/ExportPanel'
 import type { Scenario } from './components/OptimizePanel'
@@ -947,6 +948,7 @@ export default function App() {
   // 산·언덕이 땅에 드리우는 그림자 지도(3D 음영). 표고를 받으면 한 번 만들어 둔다.
   const siteDem = horizonFresh?.dem ?? null
   const terrainShader = useMemo(() => (siteDem ? new TerrainShader(siteDem) : null), [siteDem])
+  useEffect(() => () => terrainShader?.dispose(), [terrainShader])
 
   const scene = useMemo(
     () => (parcel ? buildScene(parcel.rings, sets, siteObstacles, params, geometry, sets, horizon) : null),
@@ -960,12 +962,10 @@ export default function App() {
     const solar = kstToSolar(shadeHour, scene.frame.lon0, n)
     const snap = snapshot(scene, decl, solar)
     // 3D에서 옆·정면으로 봐도 그늘이 보이게 모듈 표면에 떨어진 그림자도 칸별로 구한다.
-    return {
-      ...snap,
-      panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null,
-      terrain: show3d && horizonOn ? (terrainShader?.render(snap.sun) ?? null) : null,
-    }
-  }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry, terrainShader, horizonOn])
+    return { ...snap, panel: show3d ? panelShadeCells(scene, sets, params, geometry, snap.sun) : null }
+  }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry])
+  // 산·언덕 그림자는 워커에서 그려 받아 온다. 시간 막대를 끄는 동안 화면이 멈추지 않게 한다.
+  const terrainShade = useTerrainShade(show3d && horizonOn ? terrainShader : null, shadeView?.sun ?? null)
   // 고른 날의 일출·일몰과, 주변 산 때문에 실제로 햇빛이 드는 시간(한국 표준시)
   const sunTimes = useMemo(() => {
     if (!parcel || tab !== 'shade') return null
@@ -2864,7 +2864,7 @@ export default function App() {
               shadows={shadeView?.shadows ?? NO_SHADOWS}
               setShade={shadeView?.perSet ?? null}
               panelShade={shadeView?.panel ?? null}
-              terrainShade={shadeView?.terrain ?? null}
+              terrainShade={terrainShade}
               sunLight={shadeView && shadeView.sun.altitude > 0 ? sunLightOf(shadeView.sun) : null}
               terrainCells={terrain?.cells ?? null}
               terrainView={mapTerrainView}
