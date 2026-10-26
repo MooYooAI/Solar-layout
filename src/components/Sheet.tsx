@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react'
 import SideElevation from './SideElevation'
 import { DcWiringSheet, FrontElevation, InverterOutline, ModuleOutline, SimpleSection } from './DetailDrawings'
 import { LocalFrame, type Vec } from '../lib/geo'
-import { setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecParams, ElecResult } from '../lib/electrical'
@@ -132,7 +132,7 @@ function Summary({ data, x, y, w }: { data: SheetData; x: number; y: number; w: 
     ['인버터', elec ? `${elec.inverters.length}대 · AC ${fmt(elec.kWac, 1)} kW` : '-'],
     ['경사·방위', `${p.tilt}° · ${azText(p.azimuth)}`],
     ['부지 면적', `${fmt(data.area)} ㎡`],
-    ['세트', `${p.setCols}열×${p.setRows}단 · ${fmt(stats.sets)}개`],
+    ['세트', stats.mix.length > 1 ? setMixText(stats, p) : `${p.setCols}열×${p.setRows}단 · ${fmt(stats.sets)}개`],
     ['열 이격', `${p.rowSpacing} m · 경계 ${p.boundarySetback} m${p.edgeSetbacks?.length ? ` (변별 ${p.edgeSetbacks.length}곳)` : ''}`],
   ]
   const cols = 4

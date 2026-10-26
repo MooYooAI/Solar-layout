@@ -7,7 +7,7 @@ import type { ElecResult } from '../electrical'
 import { contours, gridFrame, type ElevGrid } from '../elevation'
 import type { EconResult } from '../economics'
 import { LocalFrame } from '../geo'
-import { moduleQuadsLonLat, setQuadLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../layout'
+import { forSet, moduleQuadsLonLat, setQuadLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../layout'
 import type { Parcel } from '../parcel'
 import type { Obstacle } from '../shading'
 import { DxfWriter, type Pt } from './dxf'
@@ -150,7 +150,7 @@ export function arraysCsv(
       const e = ew.get(s.id)
       const inv = elec?.setInverter[s.id]
       return [
-        setLabel(i), x, y, s.lon.toFixed(7), s.lat.toFixed(7), s.azimuth, geometry.modules, (geometry.modules * moduleWatt) / 1000,
+        setLabel(i), x, y, s.lon.toFixed(7), s.lat.toFixed(7), s.azimuth, forSet(geometry, s).modules, (forSet(geometry, s).modules * moduleWatt) / 1000,
         inv !== undefined ? `INV-${inv + 1}` : '', e?.ground, e?.slopeNS, e?.slopeEW, e?.cut, e?.fill,
       ]
     }),

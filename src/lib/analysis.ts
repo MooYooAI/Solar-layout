@@ -1,7 +1,7 @@
 // 지도 화면과 발전량 계산이 함께 쓰는 음영 분석 묶음.
 
 import { LocalFrame, type Vec } from './geo'
-import { moduleQuads3D, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
+import { moduleQuads3D, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
 import { buildCasters, sampleAll, shadedFractions, ShadowIndex, shadowPolygons, shadowVector, type Ground, type Obstacle, type Vec3 } from './shading'
 import { declination, sunPosition, sunriseSunsetSolar, type SunPos } from './sun'
 import { REP_DAY } from './energy'
@@ -141,7 +141,7 @@ const MAX_PANEL_CELLS = 150_000
 export function panelShadeCells(scene: Scene, sets: ModuleSet[], p: LayoutParams, g: SetGeometry, sun: SunPos): PanelShade | null {
   const v = shadowVector(sun)
   if (!v || !sets.length) return null
-  const dense = sets.length * g.modules * 12 <= MAX_PANEL_CELLS
+  const dense = totalModules(sets, g) * 12 <= MAX_PANEL_CELLS
   const nu = dense ? 3 : 1
   const nv = dense ? 4 : 2
   const index = new ShadowIndex(shadowPolygons(scene.casters, v))

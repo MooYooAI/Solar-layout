@@ -131,6 +131,8 @@ export interface ModuleSet {
   lat: number
   /** 세트 방향(도), 남 0, 서 + */
   azimuth: number
+  /** 이 세트만 가로 장수를 따로 정했으면 그 장수. 없으면 배치 설정(setCols)을 따른다. */
+  cols?: number
 }
 
 export interface SetGeometry {
@@ -144,6 +146,11 @@ export interface SetGeometry {
   height: number
   modules: number
   watt: number
+  /** 가로 장수 */
+  cols: number
+  /** 모듈 한 장의 가로 폭(m)과 패널 간격(m). 세트마다 장수가 다를 때 폭을 다시 구하는 데 쓴다. */
+  along: number
+  gap: number
 }
 
 export function setGeometry(p: LayoutParams): SetGeometry {
@@ -161,8 +168,24 @@ export function setGeometry(p: LayoutParams): SetGeometry {
     height: p.groundClearance + slope * Math.sin(t),
     modules,
     watt: modules * p.moduleWatt,
+    cols: p.setCols,
+    along,
+    gap,
   }
 }
+
+/** 세트 하나의 바닥 치수. 가로 장수를 따로 정한 세트는 그 장수로 폭·장수·출력을 다시 구한다. */
+export function forSet(g: SetGeometry, s: Pick<ModuleSet, 'cols'>): SetGeometry {
+  if (!s.cols || s.cols === g.cols || g.cols <= 0) return g
+  const rows = g.modules / g.cols
+  const modules = s.cols * rows
+  return { ...g, cols: s.cols, width: s.cols * g.along + (s.cols - 1) * g.gap, modules, watt: (g.watt / g.modules) * modules }
+}
+
+/** 세트들의 모듈 수 합 */
+export const totalModules = (sets: ModuleSet[], g: SetGeometry): number => sets.reduce((n, s) => n + forSet(g, s).modules, 0)
+/** 세트들의 출력 합(W) */
+export const totalWatt = (sets: ModuleSet[], g: SetGeometry): number => sets.reduce((n, s) => n + forSet(g, s).watt, 0)
 
 /** 세트 위끝과 아래끝의 높이 차(m) */
 const setRise = (p: LayoutParams) => setGeometry(p).slope * Math.sin(deg2rad(p.tilt))
@@ -200,7 +223,7 @@ export function setQuadLocal(center: Vec, azimuthDeg: number, g: SetGeometry): V
 
 export function setQuadLonLat(s: ModuleSet, g: SetGeometry): Vec[] {
   const f = new LocalFrame(s.lon, s.lat)
-  const q = setQuadLocal([0, 0], s.azimuth, g).map((v) => f.toLonLat(v))
+  const q = setQuadLocal([0, 0], s.azimuth, forSet(g, s)).map((v) => f.toLonLat(v))
   return [...q, q[0]]
 }
 
@@ -351,7 +374,8 @@ export class Occupancy {
         const [x, y] = rotate(v, r)
         return [x + c[0], y + c[1]] as Vec
       })
-      occ.add(place(setQuadLocal([0, 0], 0, g)), place(clearanceQuad([0, 0], g, p)))
+      const gs = forSet(g, s)
+      occ.add(place(setQuadLocal([0, 0], 0, gs)), place(clearanceQuad([0, 0], gs, p)))
     }
     return occ
   }
@@ -439,7 +463,8 @@ function footprintBlocked(mask: BuildMask, frame: LocalFrame, g: SetGeometry) {
 }
 
 /** 세트 안 모듈 한 장씩의 지면 투영 사각형(경위도). 지도에 패널 줄눈을 그리는 용도. */
-export function moduleQuadsLonLat(s: ModuleSet, p: LayoutParams, g: SetGeometry): Vec[][] {
+export function moduleQuadsLonLat(s: ModuleSet, p: LayoutParams, g0: SetGeometry): Vec[][] {
+  const g = forSet(g0, s)
   const f = new LocalFrame(s.lon, s.lat)
   const r = mapRotation(s.azimuth)
   const cos = Math.cos(deg2rad(p.tilt))
@@ -450,7 +475,7 @@ export function moduleQuadsLonLat(s: ModuleSet, p: LayoutParams, g: SetGeometry)
   const quads: Vec[][] = []
   for (let row = 0; row < p.setRows; row++) {
     const y0 = -g.depth / 2 + row * (across + gapY)
-    for (let col = 0; col < p.setCols; col++) {
+    for (let col = 0; col < g.cols; col++) {
       const x0 = -g.width / 2 + col * (along + gapX)
       const q = (
         [
@@ -472,15 +497,24 @@ export interface LayoutStats {
   kWp: number
   /** 모듈 지면 투영 면적 / 필지 면적 */
   coverage: number
+  /** 가로 장수별 세트 수(많은 순). 세트마다 장수를 따로 정했을 때 여러 줄이 된다. */
+  mix: Array<{ cols: number; count: number }>
 }
 
+/** 세트 구성 한 줄: "8열×2단 12개" 또는 장수가 섞였으면 "8열×2단 10개 + 4열×2단 2개" */
+export const setMixText = (stats: LayoutStats, p: LayoutParams): string =>
+  (stats.mix.length ? stats.mix : [{ cols: p.setCols, count: 0 }]).map((m) => `${m.cols}열×${p.setRows}단 ${m.count}개`).join(' + ')
+
 export function layoutStats(sets: ModuleSet[], g: SetGeometry, parcelArea: number): LayoutStats {
-  const modules = sets.length * g.modules
+  const area = sets.reduce((a, s) => a + forSet(g, s).width * g.depth, 0)
+  const mix = new Map<number, number>()
+  for (const s of sets) mix.set(forSet(g, s).cols, (mix.get(forSet(g, s).cols) ?? 0) + 1)
   return {
+    mix: [...mix].map(([cols, count]) => ({ cols, count })).sort((a, b) => b.count - a.count),
     sets: sets.length,
-    modules,
-    kWp: (sets.length * g.watt) / 1000,
-    coverage: parcelArea > 0 ? (sets.length * g.width * g.depth) / parcelArea : 0,
+    modules: totalModules(sets, g),
+    kWp: totalWatt(sets, g) / 1000,
+    coverage: parcelArea > 0 ? area / parcelArea : 0,
   }
 }
 
@@ -488,7 +522,8 @@ export function layoutStats(sets: ModuleSet[], g: SetGeometry, parcelArea: numbe
  * 3D 보기용 모듈 사각형. 세트 중심 기준 로컬 좌표(m, +x 동, +y 북)와 지면 위 높이(m).
  * 앞(남쪽) 끝이 지상고에서 시작해 경사각만큼 올라간다.
  */
-export function moduleQuads3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Array<Array<[number, number, number]>> {
+export function moduleQuads3D(s: ModuleSet, p: LayoutParams, g0: SetGeometry): Array<Array<[number, number, number]>> {
+  const g = forSet(g0, s)
   const r = mapRotation(s.azimuth)
   const t = deg2rad(p.tilt)
   const cos = Math.cos(t)
@@ -501,7 +536,7 @@ export function moduleQuads3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Ar
   const quads: Array<Array<[number, number, number]>> = []
   for (let row = 0; row < p.setRows; row++) {
     const y0 = -g.depth / 2 + row * (across + gapY)
-    for (let col = 0; col < p.setCols; col++) {
+    for (let col = 0; col < g.cols; col++) {
       const x0 = -g.width / 2 + col * (along + gapX)
       const corners: Vec[] = [
         [x0, y0],
@@ -516,7 +551,8 @@ export function moduleQuads3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Ar
 }
 
 /** 3D 보기용 가대 기둥 위치: 세트 로컬 좌표(m)와 기둥 높이(m). 앞뒤 두 줄. */
-export function setPosts3D(s: ModuleSet, p: LayoutParams, g: SetGeometry): Array<[number, number, number]> {
+export function setPosts3D(s: ModuleSet, p: LayoutParams, g0: SetGeometry): Array<[number, number, number]> {
+  const g = forSet(g0, s)
   const r = mapRotation(s.azimuth)
   const n = Math.max(2, Math.ceil(g.width / 3) + 1)
   const inset = Math.min(0.3, g.width / 4)

@@ -3,7 +3,7 @@
 // 인버터는 묶인 세트 중 가운데 세트 뒤에 붙인다고 보고, AC 케이블은 세트 방향 축을 따라 ㄱ자로 수배전반까지 간다.
 
 import { deg2rad, LocalFrame, rotate, type Vec } from './geo'
-import type { LayoutParams, ModuleSet, SetGeometry } from './layout'
+import { forSet, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from './layout'
 import type { Parcel } from './parcel'
 import { INVERTERS, type InverterSpec } from './catalog'
 
@@ -142,7 +142,7 @@ export function designElectrical(
   if (!sets.length || g.modules <= 0) return null
   const warnings: string[] = []
   const { vocCold, vmpHot, minLen, maxLen } = stringRange(e)
-  const total = sets.length * g.modules
+  const total = totalModules(sets, g)
   let stringLen = maxLen
   if (minLen > maxLen || maxLen < 1) {
     warnings.push(`모듈 전압과 인버터 입력 범위가 맞지 않습니다 (최소 ${minLen}장 > 최대 ${maxLen}장).`)
@@ -207,7 +207,7 @@ export function designElectrical(
   let prevPos: Vec | null = null
   const stringJumpers: number[] = []
   for (const it of ordered) {
-    let left = g.modules
+    let left = forSet(g, it.s).modules
     while (left > 0) {
       if (!cur) {
         if (strings.length >= nStrings) break

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LocalFrame, deg2rad, type Vec } from '../lib/geo'
-import { moduleQuads3D, setPosts3D, setQuadLocal, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { forSet, moduleQuads3D, setPosts3D, setQuadLocal, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecResult } from '../lib/electrical'
@@ -83,7 +83,7 @@ export default function Plan3D(props: Props) {
 
     const faces: Face[] = []
     const tan = Math.tan(deg2rad(params.tilt))
-    const detailed = sets.length * geometry.modules <= MAX_MODULES
+    const detailed = totalModules(sets, geometry) <= MAX_MODULES
     for (const s of sets) {
       const [ox, oy] = frame.toLocal([s.lon, s.lat])
       const inv = props.elec?.setInverter[s.id]
@@ -93,7 +93,7 @@ export default function Plan3D(props: Props) {
         faces.push({ pts: [[ox + x, oy + y, 0], [ox + x, oy + y, h]], fill: '', stroke: '#868e96', lw: 1.5, kind: 'post' })
       const quads: P3[][] = detailed
         ? moduleQuads3D(s, params, geometry)
-        : [setQuadLocal([0, 0], s.azimuth, geometry).map(([x, y], i) => [x, y, params.groundClearance + (i < 2 ? 0 : geometry.depth * tan)] as P3)]
+        : [setQuadLocal([0, 0], s.azimuth, forSet(geometry, s)).map(([x, y], i) => [x, y, params.groundClearance + (i < 2 ? 0 : geometry.depth * tan)] as P3)]
       for (const q of quads)
         faces.push({
           pts: q.map(([x, y, z]) => [ox + x, oy + y, z] as P3),
