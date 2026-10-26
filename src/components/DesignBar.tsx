@@ -1,4 +1,5 @@
 import { rowSpacingForShadeAngle, shadeAngle, type LayoutParams } from '../lib/layout'
+import NumberInput from './NumberInput'
 
 interface Props {
   params: LayoutParams
@@ -17,13 +18,12 @@ export default function DesignBar({ params: p, onParams, noShadeSpacing, canPlac
   const num = (k: 'tilt' | 'azimuth' | 'rowSpacing' | 'boundarySetback' | 'setRows', label: string, unit: string, step: number, min: number, max: number) => (
     <label className="db-field">
       <span>{label}</span>
-      <input
-        type="number"
+      <NumberInput
         step={step}
         min={min}
         max={max}
         value={p[k]}
-        onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && onParams({ ...p, [k]: Math.min(max, Math.max(min, e.target.valueAsNumber)) })}
+        onValue={(v) => onParams({ ...p, [k]: Math.min(max, Math.max(min, v)) })}
       />
       <em>{unit}</em>
     </label>
@@ -36,14 +36,12 @@ export default function DesignBar({ params: p, onParams, noShadeSpacing, canPlac
       {num('rowSpacing', '열 이격', 'm', 0.1, 0, 30)}
       <label className="db-field">
         <span>음영각</span>
-        <input
-          type="number"
+        <NumberInput
           step={0.5}
           min={5}
           max={60}
           value={Math.round(shadeAngle(p) * 10) / 10}
-          onChange={(e) => {
-            const v = e.target.valueAsNumber
+          onValue={(v) => {
             if (v > 0 && v < 90) onParams({ ...p, rowSpacing: Math.min(30, rowSpacingForShadeAngle(p, v)) })
           }}
         />

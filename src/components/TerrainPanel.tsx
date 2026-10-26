@@ -4,6 +4,7 @@ import { CUTFILL_COLORS, CUTFILL_LABELS, SLOPE_COLORS, SLOPE_LABELS } from '../l
 import type { BuildableOptions, BuildableResult } from '../lib/buildable'
 import type { EarthworkResult } from '../lib/earthwork'
 import { RACKING, type RackingType } from '../lib/catalog'
+import NumberInput from './NumberInput'
 
 export type TerrainView = 'slope' | 'cutfill' | 'buildable' | 'none'
 
@@ -50,13 +51,12 @@ export default function TerrainPanel(props: Props) {
           </label>
           <label className="field">
             <span>계획면 최대 경사</span>
-            <input
-              type="number"
+            <NumberInput
               min={0}
               step={1}
               value={props.maxSlope}
               disabled={props.mode === 'flat'}
-              onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && props.onMaxSlope(e.target.valueAsNumber)}
+              onValue={(v) => props.onMaxSlope(v)}
             />
             <em>%</em>
           </label>
@@ -201,13 +201,12 @@ function BuildableCard(props: Props) {
   const num = (k: 'maxSlopePct' | 'drainAreaM2' | 'drainBuffer', label: string, unit: string, step: number, disabled = false) => (
     <label className="field">
       <span>{label}</span>
-      <input
-        type="number"
+      <NumberInput
         min={0}
         step={step}
         value={o[k]}
         disabled={disabled}
-        onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && set(k, e.target.valueAsNumber)}
+        onValue={(v) => set(k, v)}
       />
       <em>{unit}</em>
     </label>

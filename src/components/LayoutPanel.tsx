@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { continuousParams, DEFAULT_PARAMS, isContinuous, rowSpacingForShadeAngle, shadeAngle, type LayoutParams, type SetGeometry } from '../lib/layout'
 import { MODULES, RACKING, findModule, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { ZoneMode } from '../lib/zones'
+import NumberInput from './NumberInput'
 
 /** 연속 배열을 켜기 전의 세트 구성. 끌 때 되돌린다. 화면을 떠났다 와도 남도록 모듈 범위에 둔다. */
 let lastFixedSet: Pick<LayoutParams, 'setCols' | 'setGap'> | null = null
@@ -73,15 +74,11 @@ function Field(props: {
   return (
     <label className="field">
       <span>{props.label}</span>
-      <input
-        type="number"
+      <NumberInput
         value={props.value}
         step={props.step ?? 1}
         min={props.min ?? 0}
-        onChange={(e) => {
-          const v = e.target.valueAsNumber
-          if (!Number.isNaN(v)) props.onChange(v)
-        }}
+        onValue={props.onChange}
       />
       <em>{props.unit}</em>
     </label>

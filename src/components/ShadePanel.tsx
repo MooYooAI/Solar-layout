@@ -3,6 +3,7 @@ import type { MapTool } from './MapView'
 import { rad2deg } from '../lib/geo'
 import { sunPosition, type SunPos } from '../lib/sun'
 import { horizonAt, type Horizon } from '../lib/horizon'
+import NumberInput from './NumberInput'
 
 const SEASONS = [
   { label: '동지', month: 12, day: 22 },
@@ -77,11 +78,11 @@ export default function ShadePanel(props: Props) {
         <div className="grid2" style={{ marginTop: 10 }}>
           <label className="field">
             <span>월</span>
-            <input type="number" min={1} max={12} value={month} onChange={(e) => props.onDate(clamp(e.target.valueAsNumber, 1, 12), day)} />
+            <NumberInput min={1} max={12} value={month} onValue={(v) => props.onDate(clamp(v, 1, 12), day)} />
           </label>
           <label className="field">
             <span>일</span>
-            <input type="number" min={1} max={31} value={day} onChange={(e) => props.onDate(month, clamp(e.target.valueAsNumber, 1, 31))} />
+            <NumberInput min={1} max={31} value={day} onValue={(v) => props.onDate(month, clamp(v, 1, 31))} />
           </label>
         </div>
         <div className="time-row">
@@ -190,15 +191,11 @@ export default function ShadePanel(props: Props) {
                   onChange={(e) => onObstacles(obstacles.map((x) => (x.id === o.id ? { ...x, name: e.target.value } : x)))}
                 />
                 <label className="field inline">
-                  <input
-                    type="number"
+                  <NumberInput
                     min={0}
                     step={0.5}
                     value={o.height}
-                    onChange={(e) => {
-                      const v = e.target.valueAsNumber
-                      if (!Number.isNaN(v)) onObstacles(obstacles.map((x) => (x.id === o.id ? { ...x, height: v } : x)))
-                    }}
+                    onValue={(v) => onObstacles(obstacles.map((x) => (x.id === o.id ? { ...x, height: v } : x)))}
                   />
                   <em>m</em>
                 </label>

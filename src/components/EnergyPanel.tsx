@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { EnergyResult } from '../lib/energy'
 import { STATIONS } from '../lib/climate'
+import NumberInput from './NumberInput'
 
 interface Props {
   kWp: number
@@ -32,13 +33,12 @@ export default function EnergyPanel(props: Props) {
         <div className="grid2">
           <label className="field">
             <span>성능계수</span>
-            <input
-              type="number"
+            <NumberInput
               min={0.5}
               max={1}
               step={0.01}
               value={props.performanceRatio}
-              onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && props.onPerformanceRatio(e.target.valueAsNumber)}
+              onValue={(v) => props.onPerformanceRatio(v)}
             />
           </label>
           <label className="field">
@@ -68,13 +68,12 @@ export default function EnergyPanel(props: Props) {
             </label>
             <label className="field">
               <span>온도계수</span>
-              <input
-                type="number"
+              <NumberInput
                 min={-0.6}
                 max={0}
                 step={0.01}
                 value={props.tempCoeff}
-                onChange={(e) => !Number.isNaN(e.target.valueAsNumber) && props.onTempCoeff(e.target.valueAsNumber)}
+                onValue={(v) => props.onTempCoeff(v)}
               />
               <em>%/°C</em>
             </label>

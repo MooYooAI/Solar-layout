@@ -1,6 +1,7 @@
 import { INVERTERS } from '../lib/catalog'
 import { stringRange, type ElecParams, type ElecResult } from '../lib/electrical'
 import type { DesignMetrics } from '../lib/design'
+import NumberInput from './NumberInput'
 
 interface Props {
   elec: ElecParams
@@ -19,12 +20,11 @@ export default function ElectricalPanel(props: Props) {
   const num = (k: keyof ElecParams, label: string, unit: string, step = 1, min: number | undefined = 0) => (
     <label className="field">
       <span>{label}</span>
-      <input
-        type="number"
+      <NumberInput
         step={step}
         min={min}
         value={e[k] as number}
-        onChange={(ev) => !Number.isNaN(ev.target.valueAsNumber) && set(k, ev.target.valueAsNumber as never)}
+        onValue={(v) => set(k, v as never)}
       />
       <em>{unit}</em>
     </label>
