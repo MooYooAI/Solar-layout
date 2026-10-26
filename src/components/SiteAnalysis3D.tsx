@@ -11,6 +11,7 @@ import { panelShadeCells, snapshot, type Scene } from '../lib/analysis'
 import { dayOfYear, declination, kstToSolar } from '../lib/sun'
 import type { CameraView } from './Map3D'
 import type { TerrainShader } from '../lib/terrainShadow'
+import { useTerrainShade } from '../lib/useTerrainShade'
 
 const Map3D = lazy(() => import('./Map3D'))
 
@@ -129,9 +130,9 @@ export default function SiteAnalysis3D(p: Props) {
   // 산·언덕 그림자: 날짜·시각이 바뀔 때만 다시 그린다.
   const sunAz = shade?.sun.azimuth
   const sunAlt = shade?.sun.altitude
-  const terrainShade = useMemo(
-    () => (shadowOn && p.terrainShader && sunAz !== undefined && sunAlt !== undefined ? p.terrainShader.render({ azimuth: sunAz, altitude: sunAlt }) : null),
-    [shadowOn, p.terrainShader, sunAz, sunAlt],
+  const terrainShade = useTerrainShade(
+    shadowOn ? p.terrainShader : null,
+    useMemo(() => (sunAz !== undefined && sunAlt !== undefined ? { azimuth: sunAz, altitude: sunAlt } : null), [sunAz, sunAlt]),
   )
   const shadows = shadowOn && shade ? (showSets ? shade.shadows : shade.shadows.filter((s) => !s.fromSet)) : NO_SHADOWS
 
