@@ -100,7 +100,7 @@ const parcelStyle = new Style({
   fill: new Fill({ color: 'rgba(232, 89, 12, 0.10)' }),
 })
 /** 경계 이격선: 세트를 놓을 수 있는 영역의 테두리 */
-const setbackStyle = new Style({ stroke: new Stroke({ color: '#e8590c', width: 1.5, lineDash: [6, 4] }) })
+const setbackStyle = new Style({ stroke: new Stroke({ color: '#ffd43b', width: 2 }) })
 const parcelLayerStyle = (f: FeatureLike) => (f.get('kind') === 'setback' ? setbackStyle : parcelStyle)
 const setStyle = new Style({
   stroke: new Stroke({ color: '#a5c8ff', width: 1 }),

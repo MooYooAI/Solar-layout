@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react'
 import SideElevation from './SideElevation'
 import { DcWiringSheet, FrontElevation, InverterOutline, ModuleOutline, SimpleSection } from './DetailDrawings'
 import { LocalFrame, type Vec } from '../lib/geo'
-import { setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { setbackRings, setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecParams, ElecResult } from '../lib/electrical'
@@ -56,7 +56,7 @@ const SUMMARY_H = 24
 
 /** 평면도에 쓸 로컬 좌표(m) 모음 */
 function usePlan(data: SheetData) {
-  const { parcel, sets, geometry, obstacles, elec, terrain } = data
+  const { parcel, sets, geometry, obstacles, elec, terrain, params } = data
   return useMemo(() => {
     if (!parcel) return null
     const f = LocalFrame.around(parcel.rings)
@@ -70,6 +70,7 @@ function usePlan(data: SheetData) {
     return {
       frame: f,
       rings,
+      setback: setbackRings(parcel, params).map(loc),
       bbox: { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY },
       sets: sets.map((s) => ({ id: s.id, q: loc(setQuadLonLat(s, geometry)), inv: elec?.setInverter[s.id] ?? -1 })),
       obstacles: obstacles.map((o) => ({ name: o.name, h: o.height, q: loc(o.ring) })),
@@ -77,7 +78,7 @@ function usePlan(data: SheetData) {
       board: elec ? (f.toLocal(elec.switchboard) as Vec) : null,
       cells: terrain ? terrain.cells.map((c) => ({ q: loc(c.ring), dz: c.dz, slope: c.slopePct })) : [],
     }
-  }, [parcel, sets, geometry, obstacles, elec, terrain])
+  }, [parcel, sets, geometry, obstacles, elec, terrain, params])
 }
 type Plan = NonNullable<ReturnType<typeof usePlan>>
 
@@ -423,6 +424,9 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
             {plan.rings.map((r, i) => (
               <polygon key={`p${i}`} points={t.pts(r)} className="sh-parcel" />
             ))}
+            {plan.setback.map((r, i) => (
+              <polygon key={`b${i}`} points={t.pts(r)} className="sh-setback" />
+            ))}
             {plan.obstacles.map((o, i) => (
               <polygon key={`o${i}`} points={t.pts(o.q)} className="sh-obstacle" />
             ))}
@@ -504,6 +508,7 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
                       ]
                     : [
                         ['lg-parcel', '부지 경계'],
+                        ['lg-setback', '경계 이격선'],
                         ['lg-set', byInv ? '모듈 세트(인버터별 색)' : '모듈 세트'],
                         ['lg-obstacle', '장애물'],
                         ...(byInv ? ([['lg-inv', '인버터']] as Array<[string, string]>) : []),

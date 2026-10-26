@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LocalFrame, type Vec } from '../lib/geo'
-import { forSet, moduleQuadsLonLat, setQuadLocal, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { forSet, moduleQuadsLonLat, setbackRings, setQuadLocal, totalModules, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecResult } from '../lib/electrical'
@@ -71,6 +71,14 @@ export default function PlanEditor(props: Props) {
       h: maxY - minY + 2 * pad,
     }
   }, [parcel, frame])
+
+  // 경계 이격선: 세트를 놓을 수 있는 영역의 테두리
+  const { boundarySetback, edgeSetbacks } = props.params
+  const setback = useMemo(
+    () => setbackRings(parcel, { ...props.params, boundarySetback, edgeSetbacks }).map((r) => r.map((c) => frame.toLocal(c))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [parcel, frame, boundarySetback, edgeSetbacks],
+  )
 
   useEffect(() => {
     const el = svgRef.current
@@ -285,6 +293,9 @@ export default function PlanEditor(props: Props) {
         </g>
         {base.rings.map((r, i) => (
           <polygon key={`p${i}`} points={pts(r)} className="plan-parcel" />
+        ))}
+        {setback.map((r, i) => (
+          <polygon key={`b${i}`} points={pts(r)} className="plan-setback" />
         ))}
         {obstacles.map((o, i) => {
           if (o.id !== PAD_ID) return <polygon key={`o${i}`} points={pts(o.ring)} className="plan-obstacle" />
