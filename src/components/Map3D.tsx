@@ -423,7 +423,7 @@ function initialStyle(p: Props): StyleSpecification {
         type: 'line',
         source: 'parcel',
         filter: ['==', ['get', 'kind'], 'setback'],
-        paint: { 'line-color': '#e8590c', 'line-width': 1.5, 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#ffd43b', 'line-width': 2 },
       },
       {
         id: 'shadows',

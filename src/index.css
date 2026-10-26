@@ -358,6 +358,7 @@ details.chart summary { cursor: pointer; }
 .plan-svg * { vector-effect: non-scaling-stroke; }
 .plan-svg .plan-grid line { stroke: oklch(92% 0.008 80); stroke-width: 1; }
 .plan-svg .plan-parcel { fill: oklch(63% 0.18 42 / 0.06); stroke: var(--accent); stroke-width: 1.5; }
+.plan-svg .plan-setback { fill: none; stroke: #fab005; stroke-width: 1.5; pointer-events: none; }
 .plan-svg .plan-obstacle { fill: oklch(80% 0.01 255); stroke: var(--ink-2); stroke-width: 1; }
 .plan-svg .plan-pad polygon { fill: rgba(28, 126, 214, 0.35); stroke: #1c7ed6; stroke-width: 1.5; }
 .plan-svg .plan-pad.movable { cursor: move; }
@@ -1000,6 +1001,8 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .sh-legend .lg-cut { fill: rgba(201, 42, 42, 0.6); stroke: none; }
 .sh-legend .lg-s0 { fill: #d3f9d8; } .sh-legend .lg-s1 { fill: #8ce99a; } .sh-legend .lg-s2 { fill: #ffe066; } .sh-legend .lg-s3 { fill: #ffa94d; } .sh-legend .lg-s4 { fill: #ff6b6b; }
 .sh-parcel { fill: rgba(232, 89, 12, 0.04); stroke: #e8590c; stroke-width: 0.45; }
+.sh-setback { fill: none; stroke: #f59f00; stroke-width: 0.3; }
+.sh-legend .lg-setback { fill: none; stroke: #f59f00; stroke-width: 0.4; }
 .sh-set { fill: #1c408c; stroke: #a5c8ff; stroke-width: 0.06; }
 .sh-set.ghost { fill: none; stroke: #1d2330; stroke-width: 0.12; }
 .sh-obstacle { fill: #adb5bd; stroke: #495057; stroke-width: 0.2; }
