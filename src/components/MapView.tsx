@@ -12,7 +12,7 @@ import Feature from 'ol/Feature'
 import Draw from 'ol/interaction/Draw'
 import Translate from 'ol/interaction/Translate'
 import DragBox from 'ol/interaction/DragBox'
-import { shiftKeyOnly } from 'ol/events/condition'
+import { platformModifierKeyOnly } from 'ol/events/condition'
 import { getCenter } from 'ol/extent'
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style'
 import { getArea, getLength } from 'ol/sphere'
@@ -329,7 +329,7 @@ export default function MapView(props: Props) {
       if (p.tool === 'add') return p.onAddSet(lon, lat)
       if (p.tool === 'select') {
         const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f, { layerFilter: (l) => l === setLayer })
-        const additive = e.originalEvent.shiftKey
+        const additive = e.originalEvent.ctrlKey || e.originalEvent.metaKey
         if (hit) p.onSelect([hit.getId() as string], additive)
         else if (!additive) p.onSelect([], false)
         return
@@ -558,7 +558,7 @@ export default function MapView(props: Props) {
       }
     }
     if (tool === 'select') {
-      // 선택된 세트를 끌어서 옮기고, Shift+드래그로 여러 개를 한 번에 고른다.
+      // 선택된 세트를 끌어서 옮기고, Ctrl+드래그로 여러 개를 한 번에 고른다.
       const translate = new Translate({ features: selectedFeatures.current })
       translate.on('translateend', (e) => {
         latest.current.onMoveSets(
@@ -568,7 +568,7 @@ export default function MapView(props: Props) {
           }),
         )
       })
-      const box = new DragBox({ condition: shiftKeyOnly })
+      const box = new DragBox({ condition: platformModifierKeyOnly })
       box.on('boxend', () => {
         const ids: string[] = []
         setSource.current.forEachFeatureIntersectingExtent(box.getGeometry().getExtent(), (f) => {
