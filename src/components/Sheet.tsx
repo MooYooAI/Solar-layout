@@ -451,7 +451,7 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
                     <g>
                       <rect x={b[0] - 2.5} y={b[1] - 1.8} width={5} height={3.6} className="sh-board" />
                       <text x={b[0] + 3.5} y={b[1] + 1} className="sh-label">
-                        수배전반
+                        {data.elec?.switchboardLabel ?? '수배전반'}
                       </text>
                     </g>
                   )

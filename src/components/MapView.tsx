@@ -502,7 +502,7 @@ export default function MapView(props: Props) {
     }
     const sb = new Feature(new Point(fromLonLat(elec.switchboard)))
     sb.set('kind', 'switchboard')
-    sb.set('label', '수배전반')
+    sb.set('label', elec.switchboardLabel)
     feats.push(sb)
     src.addFeatures(feats)
   }, [elec])

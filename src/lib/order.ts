@@ -80,7 +80,7 @@ export function orderLines({ params: p, elecParams: e, elec, metrics: m, costs: 
   lines.push({ pkg: 'electric', item: '접속반·모니터링·접지', spec: '기타 전기 자재', unit: '식', qty: 1, amount: capex('bos') })
   lines.push({
     pkg: 'electric',
-    item: elec?.transformerKVA ? '수배전반·변압기' : '수배전반',
+    item: elec?.transformerKVA ? '수배전반·변압기' : elec?.switchboardLabel === '연계점' ? '계통연계 설비' : '수배전반',
     spec: elec?.transformerKVA ? `특고압 22.9 kV, 변압기 ${elec.transformerKVA} kVA` : '저압 연계',
     unit: '식',
     qty: 1,

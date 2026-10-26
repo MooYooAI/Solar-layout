@@ -790,7 +790,7 @@ export default function Map3D(props: Props) {
           label(`INV-${inv.id}`, inv.lonlat)
         }
         feats.push({ type: 'Feature', properties: { kind: 'switchboard' }, geometry: { type: 'Point', coordinates: elec.switchboard } })
-        label('수배전반', elec.switchboard)
+        label(elec.switchboardLabel, elec.switchboard)
       }
       ;(map.getSource('elec') as GeoJSONSource).setData(fc(feats))
     })

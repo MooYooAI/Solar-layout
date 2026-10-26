@@ -107,7 +107,7 @@ export function layoutDxf(d: LayoutDxfInput): { text: string; zone: TmZone } {
     }
     const sb = tm(d.elec.switchboard)
     w.polyline('SWITCHBOARD', [[sb[0] - 1.5, sb[1] - 1], [sb[0] + 1.5, sb[1] - 1], [sb[0] + 1.5, sb[1] + 1], [sb[0] - 1.5, sb[1] + 1]], true)
-    w.text('SWITCHBOARD', [sb[0], sb[1] + 1.4], 0.8, '수배전반', 'center')
+    w.text('SWITCHBOARD', [sb[0], sb[1] + 1.4], 0.8, d.elec.switchboardLabel, 'center')
   }
 
   const sw = tm(frame.toLonLat([bx0 + 30, by0 + 30]))
