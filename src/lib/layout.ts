@@ -499,6 +499,8 @@ export interface LayoutStats {
   coverage: number
   /** 가로 장수별 세트 수(많은 순). 세트마다 장수를 따로 정했을 때 여러 줄이 된다. */
   mix: Array<{ cols: number; count: number }>
+  /** 방위각별 세트 수(많은 순). 구역별 배치나 손으로 돌린 세트가 있으면 여러 줄이 된다. */
+  azimuths: Array<{ azimuth: number; count: number }>
 }
 
 /** 세트 구성 한 줄: "8열×2단 12개" 또는 장수가 섞였으면 "8열×2단 10개 + 4열×2단 2개" */
@@ -509,7 +511,10 @@ export function layoutStats(sets: ModuleSet[], g: SetGeometry, parcelArea: numbe
   const area = sets.reduce((a, s) => a + forSet(g, s).width * g.depth, 0)
   const mix = new Map<number, number>()
   for (const s of sets) mix.set(forSet(g, s).cols, (mix.get(forSet(g, s).cols) ?? 0) + 1)
+  const az = new Map<number, number>()
+  for (const s of sets) az.set(s.azimuth, (az.get(s.azimuth) ?? 0) + 1)
   return {
+    azimuths: [...az].map(([azimuth, count]) => ({ azimuth, count })).sort((a, b) => b.count - a.count),
     mix: [...mix].map(([cols, count]) => ({ cols, count })).sort((a, b) => b.count - a.count),
     sets: sets.length,
     modules: totalModules(sets, g),

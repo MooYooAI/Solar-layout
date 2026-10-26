@@ -322,6 +322,8 @@ details.chart summary { cursor: pointer; }
 .seg button[aria-selected='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px oklch(24% 0.02 255 / 0.12); }
 .seg.opt-mode { display: flex; margin: 2px 0 10px; }
 .seg.opt-mode button { flex: 1; }
+.seg.spacing-by { display: flex; margin: 8px 0 0; }
+.seg.spacing-by button { flex: 1; height: 26px; font-size: 12px; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-block: 1px solid var(--line); }
 .kpis > div { padding: 8px 0 10px; }
 .kpis > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
@@ -1312,3 +1314,11 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .toggle input[role='switch']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tool-select { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 12px; color: var(--muted); }
 .tool-select select { height: 30px; font-size: 12px; padding: 0 6px; }
+
+/* AI 배치안 카드: 미리보기·적용 버튼 */
+.option-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.option-actions button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+/* 지도 위 미리보기 안내 */
+.preview-banner { position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 4px 14px oklch(24% 0.02 255 / 0.18); font-size: 13px; white-space: nowrap; }
+.preview-banner strong { color: var(--accent); margin-right: 4px; }
+.preview-banner button { height: 30px; padding: 0 12px; }

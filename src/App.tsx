@@ -16,6 +16,7 @@ import {
   newSetId,
   setGeometry,
   totalWatt,
+  totalModules,
   forSet,
   setQuadLonLat,
   shadeAngle,
@@ -152,12 +153,14 @@ const cleanFixed = (f: FixedSettings): FixedSettings => {
   return {
     azimuth: num(f.azimuth, -90, 90),
     tilt: num(f.tilt, 0, 60),
-    rowSpacing: num(f.rowSpacing, 0, 50),
+    rowSpacing: f.pitch !== undefined ? undefined : num(f.rowSpacing, 0, 50),
+    pitch: num(f.pitch, 1, 60),
     setCols: num(f.setCols, 1, 60, true),
     setRows: num(f.setRows, 1, 6, true),
     setGap: num(f.setGap, 0, 20000),
   }
 }
+const NO_SELECTION: ReadonlySet<string> = new Set()
 const aiMinMs = () => 3000 + Math.round(Math.random() * 2000)
 
 /** 설계 지표를 다시 계산하기 전에 편집이 멈추길 기다리는 시간(ms) */
@@ -235,6 +238,8 @@ export default function App() {
   const [optMode, setOptMode] = useState<'auto' | 'manual'>('auto')
   // 설정 배치 입력값. 손대기 전(null)에는 기본설계 값을 그대로 보여 준다.
   const [fixedEdit, setFixedEdit] = useState<FixedSettings | null>(null)
+  // AI 배치안 미리보기: 적용하기 전에 지도에 그 안의 세트를 대신 보여 준다.
+  const [aiPreview, setAiPreview] = useState<{ key: string; name: string; params: LayoutParams; sets: ModuleSet[] } | null>(null)
   const fixedShown: FixedSettings = fixedEdit ?? {
     azimuth: params.azimuth,
     tilt: params.tilt,
@@ -991,6 +996,14 @@ export default function App() {
   }, [scene, tab, shadeHour, n, decl, show3d, sets, params, geometry])
   // 산·언덕 그림자는 워커에서 그려 받아 온다. 시간 막대를 끄는 동안 화면이 멈추지 않게 한다.
   const terrainShade = useTerrainShade(show3d && horizonOn ? terrainShader : null, shadeView?.sun ?? null)
+  // AI 배치안 미리보기는 AI 가설계 탭에서, 지금 결과 목록에 있는 안일 때만 지도에 보인다.
+  const previewOn = tab === 'ai' && !!aiPreview && !!optResults?.some((c) => c.sets === aiPreview.sets)
+  const previewGeometry = useMemo(() => setGeometry(aiPreview?.params ?? params), [aiPreview, params])
+  const mapSets = previewOn ? aiPreview!.sets : sets
+  const mapParams = previewOn ? aiPreview!.params : params
+  const mapGeometry = previewOn ? previewGeometry : geometry
+  // 카드와 같은 수치(스트링에 묶인 DC 용량)를 보여 준다.
+  const previewMetrics = previewOn ? (optResults?.find((c) => c.sets === aiPreview!.sets)?.metrics ?? null) : null
   // 고른 날의 일출·일몰과, 주변 산 때문에 실제로 햇빛이 드는 시간(한국 표준시)
   const sunTimes = useMemo(() => {
     if (!parcel || tab !== 'shade') return null
@@ -1105,6 +1118,7 @@ export default function App() {
     if (sets.length && !window.confirm('현재 배치를 이 안으로 바꿀까요?')) return
     if (!unlock()) return
     mark('AI 설계 적용')
+    setAiPreview(null)
     // 이 안을 계산할 때 둔 수배전반 자리로 되돌린다. 그 뒤에 옮겼으면 옮긴 자리가 모듈과 겹친다.
     if (padForSets.current.has(nextSets)) {
       const pad = padForSets.current.get(nextSets)!
@@ -1167,14 +1181,22 @@ export default function App() {
 
   /** 자동 배치. 확정 상태를 풀고 새 배치를 넣으면 그 배치를 돌려준다(취소하면 null). */
   // AI 가설계와 같은 함수로 배치한다. 값을 안 바꾸고 다시 배치하면 AI 안과 같은 배치가 나온다.
-  const layoutWith = (p: LayoutParams) =>
-    parcel ? ((placeLayout(parcel, p, { mode: layoutMode, mask, keepOut }) ?? placeLayout(parcel, p, { mode: 'grid', mask, keepOut }))?.sets ?? []) : []
+  const placeWith = (p: LayoutParams) =>
+    parcel ? (placeLayout(parcel, p, { mode: layoutMode, mask, keepOut }) ?? placeLayout(parcel, p, { mode: 'grid', mask, keepOut })) : null
+  const layoutWith = (p: LayoutParams) => placeWith(p)?.sets ?? []
   const placeSets = (label: string, p: LayoutParams = params): ModuleSet[] | null => {
     if (!parcel) return null
     if (sets.length && !window.confirm('현재 배치를 지우고 바꾼 값으로 다시 배치할까요?')) return null
     if (!unlock()) return null
     mark(label)
-    const next = layoutWith(p)
+    const placed = placeWith(p)
+    const next = placed?.sets ?? []
+    // 구역별 배치보다 한 방향 배치가 모듈이 같거나 많으면 placeLayout이 한 방향으로 돌려준다. 설정도 그 방향으로 맞춘다.
+    if (placed?.azimuth !== undefined) {
+      p = { ...p, azimuth: placed.azimuth }
+      setLayoutMode('grid')
+      setNotice(`구역별 배치보다 한 방향(${placed.azimuth === 0 ? '정남' : `${placed.azimuth > 0 ? '서' : '동'} ${Math.abs(placed.azimuth)}°`})이 모듈이 더 들어가 한 방향으로 깔았습니다`)
+    }
     if (p !== params) setParams(p)
     editSets(next)
     setLayoutBasis(p)
@@ -2326,6 +2348,11 @@ export default function App() {
             fixedEdited={fixedEdit !== null}
             onFixed={setFixedEdit}
             onResetFixed={() => setFixedEdit(null)}
+            params={params}
+            onParams={updateParams}
+            onModule={onModule}
+            previewKey={previewOn ? aiPreview!.key : null}
+            onPreview={(p) => setAiPreview(p)}
             canRun={!!parcel}
             running={!!optRun}
             results={optResults}
@@ -2873,6 +2900,20 @@ export default function App() {
           </button>
         </div>
         <div className="map-stage">
+        {previewOn && aiPreview && (
+          <div className="preview-banner" role="status">
+            <span>
+              <strong>미리보기</strong> {aiPreview.name} · 모듈 {fmt(previewMetrics?.modules ?? totalModules(aiPreview.sets, previewGeometry))}장 · DC{' '}
+              {fmt(previewMetrics?.kWp ?? totalWatt(aiPreview.sets, previewGeometry) / 1000, 1)} kWp
+            </span>
+            <button type="button" onClick={() => applyCandidate(aiPreview.params, aiPreview.sets, optResults?.find((c) => c.sets === aiPreview.sets)?.zone ?? 'grid')}>
+              이 배치 적용
+            </button>
+            <button type="button" className="secondary" onClick={() => setAiPreview(null)}>
+              닫기
+            </button>
+          </div>
+        )}
         {tab === 'layout' && parcel && (
           <DesignBar params={params} onParams={updateParams} noShadeSpacing={suggestedRowSpacing} canPlace={!!parcel} onPlace={runAutoLayout} kWp={stats.kWp} />
         )}
@@ -2886,10 +2927,10 @@ export default function App() {
               parcel={parcel}
               flyTo={flyTo}
               tool={tool}
-              sets={sets}
-              params={params}
-              geometry={geometry}
-              selected={selected}
+              sets={mapSets}
+              params={mapParams}
+              geometry={mapGeometry}
+              selected={previewOn ? NO_SELECTION : selected}
               onMapClick={onMapClick}
               onSelect={onSelect}
               onAddSet={onAddSet}
@@ -2902,7 +2943,7 @@ export default function App() {
               terrainCells={terrain?.cells ?? null}
               terrainView={mapTerrainView}
               buildable={buildable}
-              elec={mapElec}
+              elec={previewOn ? null : mapElec}
               exaggeration={exaggeration}
               camera={camera}
             />
@@ -2917,10 +2958,10 @@ export default function App() {
             parcel={parcel}
             flyTo={flyTo}
             tool={tool}
-            sets={sets}
-            params={params}
-            geometry={geometry}
-            selected={selected}
+            sets={mapSets}
+            params={mapParams}
+            geometry={mapGeometry}
+            selected={previewOn ? NO_SELECTION : selected}
             onMapClick={onMapClick}
             onDrawEnd={onDrawEnd}
             onSelect={onSelect}
@@ -2933,7 +2974,7 @@ export default function App() {
             terrainCells={terrain?.cells ?? null}
             terrainView={mapTerrainView}
             buildable={buildable}
-            elec={mapElec}
+            elec={previewOn ? null : mapElec}
             marks={mapMarks}
             onPadMove={equipPad ? (lon, lat) => movePad([lon, lat], 'manual') : undefined}
           />

@@ -33,16 +33,18 @@ export const MODULES: ModuleSpec[] = [
   // ── 제조사 제품(데이터시트 STC 값) ──
   // 한화큐셀 Q.TRON XL-G2R.9/BFG 국내 데이터시트(2025-02 Rev05, 635~640 Wp, 156셀, 30T)
   { id: 'qcells-qtron-g2r9-635', maker: '한화큐셀', model: 'Q.TRON XL-G2R.9/BFG 635', label: '635W N형 양면 (2465×1134)', length: 2465, width: 1134, watt: 635, voc: 56.68, vmp: 48.37, isc: 13.81, imp: 13.13, betaVoc: -0.25, gammaPmax: -0.29 },
-  // 한화큐셀 Q.TRON XL-G2.3/BFG 데이터시트(2026-02 Rev10)
+  { id: 'qcells-qtron-g2r9-640', maker: '한화큐셀', model: 'Q.TRON XL-G2R.9/BFG 640', label: '640W N형 양면 (2465×1134)', length: 2465, width: 1134, watt: 640, voc: 56.78, vmp: 48.57, isc: 13.83, imp: 13.18, betaVoc: -0.25, gammaPmax: -0.29 },
+  // 한화큐셀 Q.TRON XL-G2.3/BFG 데이터시트(2026-02 Rev10, 620~645 Wp)
   { id: 'qcells-qtron-xl-630', maker: '한화큐셀', model: 'Q.TRON XL-G2.3/BFG 630', label: '630W N형 양면 (2462×1134)', length: 2462, width: 1134, watt: 630, voc: 57.23, vmp: 47.89, isc: 13.88, imp: 13.15, betaVoc: -0.24, gammaPmax: -0.29 },
   { id: 'qcells-qtron-xl-640', maker: '한화큐셀', model: 'Q.TRON XL-G2.3/BFG 640', label: '640W N형 양면 (2462×1134)', length: 2462, width: 1134, watt: 640, voc: 57.79, vmp: 48.28, isc: 13.99, imp: 13.26, betaVoc: -0.24, gammaPmax: -0.29 },
+  { id: 'qcells-qtron-xl-645', maker: '한화큐셀', model: 'Q.TRON XL-G2.3/BFG 645', label: '645W N형 양면 (2462×1134)', length: 2462, width: 1134, watt: 645, voc: 58.07, vmp: 48.47, isc: 14.05, imp: 13.31, betaVoc: -0.24, gammaPmax: -0.29 },
   // HD현대에너지솔루션 HiN-TxxxNJ 데이터시트(2025-09)
   { id: 'hdhyundai-hin-t630nj', maker: 'HD현대에너지솔루션', model: 'HiN-T630NJ', label: '630W TOPCon 양면 (2465×1134)', length: 2465, width: 1134, watt: 630, voc: 55.9, vmp: 46.5, isc: 14.31, imp: 13.55, betaVoc: -0.25, gammaPmax: -0.3 },
   { id: 'hdhyundai-hin-t640nj', maker: 'HD현대에너지솔루션', model: 'HiN-T640NJ', label: '640W TOPCon 양면 (2465×1134)', length: 2465, width: 1134, watt: 640, voc: 56.3, vmp: 46.9, isc: 14.41, imp: 13.65, betaVoc: -0.25, gammaPmax: -0.3 },
-  // 진코솔라 Tiger Neo 66HL4M-BDV
+  // 진코솔라 Tiger Neo 66HL4M-BDV 데이터시트(JKM625-650N-66HL4M-BDV-Z4C3, 2025)
   { id: 'jinko-tigerneo-650', maker: '진코솔라', model: 'Tiger Neo JKM650N-66HL4M-BDV', label: '650W TOPCon 양면 (2382×1134)', length: 2382, width: 1134, watt: 650, voc: 50.28, vmp: 41.57, isc: 16.44, imp: 15.64, betaVoc: -0.25, gammaPmax: -0.29 },
-  // 트리나솔라 Vertex N TSM-NFG19RC.20
-  { id: 'trina-vertexn-620', maker: '트리나솔라', model: 'Vertex N TSM-NFG19RC.20 620W', label: '620W TOPCon 양면 (2390×1142)', length: 2390, width: 1142, watt: 620, voc: 48.5, vmp: 40.24, isc: 16.26, imp: 15.41, betaVoc: -0.24, gammaPmax: -0.29 },
+  // 트리나솔라 Vertex N TSM-NEG19RC.20 데이터시트(2025, 625~650 Wp). 650W는 진코와 규격·출력이 같아 목록에서 구분되지 않으므로 645W를 둔다.
+  { id: 'trina-vertexn-645', maker: '트리나솔라', model: 'Vertex N TSM-645NEG19RC.20', label: '645W TOPCon 양면 (2382×1134)', length: 2382, width: 1134, watt: 645, voc: 49.52, vmp: 41.22, isc: 16.55, imp: 15.65, betaVoc: -0.24, gammaPmax: -0.29 },
 ]
 
 /** 지금 설정과 같은 목록 모듈(규격·출력이 같으면 첫 항목) */

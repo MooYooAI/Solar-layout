@@ -119,7 +119,11 @@ export default function Overview(props: Props) {
             <dd>{RACKING[p.racking].label}</dd>
             <dt>경사·방위</dt>
             <dd>
-              {fmt(p.tilt, 1)}° · {az(p.azimuth)}
+              {fmt(p.tilt, 1)}° ·{' '}
+              {/* 세트 방향이 설정 방위각과 다르면(구역별 배치, 손으로 돌린 세트) 실제 방향을 적는다. */}
+              {stats.azimuths.length > 1 || (stats.azimuths.length === 1 && stats.azimuths[0].azimuth !== p.azimuth)
+                ? stats.azimuths.map((m) => `${az(m.azimuth)} ${fmt(m.count)}세트`).join(' · ')
+                : az(p.azimuth)}
             </dd>
             <dt>열 이격</dt>
             <dd>

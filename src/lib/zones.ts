@@ -6,7 +6,7 @@
 
 import type { BuildMask } from './buildable'
 import { LocalFrame, pointInRing, rad2deg, type Vec } from './geo'
-import { autoLayout, fillLayout, Occupancy, setGeometry, type LayoutParams, type ModuleSet } from './layout'
+import { autoLayout, fillLayout, Occupancy, setGeometry, totalModules, type LayoutParams, type ModuleSet } from './layout'
 import type { Parcel } from './parcel'
 
 export type ZoneMode = 'edge' | 'half' | 'fill'
@@ -165,17 +165,20 @@ export interface PlaceOptions {
  * 배치 방식대로 채우되, 첫 열 시작 위치를 열 피치 안에서 고르게 훑어 세트가 가장 많이 들어가는 자리를 쓴다.
  * 작은 필지일수록 시작 위치에 따라 들어가는 열 수가 크게 달라서 촘촘히 훑는다. 입력이 같으면 늘 같은 배치가 나온다.
  * 구역별 배치는 구역 채우기까지로 시작 위치를 고른 뒤 남은 자리를 한 번 채운다. 구역별 배치가 안 되면 null.
+ * 구역별 배치는 두 방향이 만나는 곳에 세모난 빈자리가 생긴다. 그래서 구역 방위각 가운데 하나로 한 방향 배치를 해 봐서
+ * 모듈이 같거나 더 많이 들어가면 그 한 방향 배치를 돌려준다(azimuth에 그 방위각). 꺾인 필지에서 쓸데없이 꺾는 것을 막는다.
  */
-export function placeLayout(parcel: Parcel, p: LayoutParams, o: PlaceOptions): { sets: ModuleSet[]; rowOffset: number } | null {
+export function placeLayout(parcel: Parcel, p: LayoutParams, o: PlaceOptions): { sets: ModuleSet[]; rowOffset: number; azimuth?: number } | null {
   const offsets = rowOffsets(parcel, p)
-  if (o.mode === 'grid') {
+  const grid = (q: LayoutParams) => {
     let best = { sets: [] as ModuleSet[], rowOffset: 0 }
     for (const rowOffset of offsets) {
-      const sets = autoLayout(parcel, p, rowOffset, o.mask, o.keepOut)
+      const sets = autoLayout(parcel, q, rowOffset, o.mask, o.keepOut)
       if (sets.length > best.sets.length) best = { sets, rowOffset }
     }
     return best
   }
+  if (o.mode === 'grid') return grid(p)
   const z = zonedPlanner(parcel, p, { ...o, mode: o.mode })
   if (!z) return null
   let best = { placed: z.main(0), rowOffset: 0 }
@@ -184,7 +187,18 @@ export function placeLayout(parcel: Parcel, p: LayoutParams, o: PlaceOptions): {
     if (placed.sets.length > best.placed.sets.length) best = { placed, rowOffset }
   }
   const sets = z.finish(best.placed)
-  return sets ? { sets, rowOffset: best.rowOffset } : null
+  if (!sets) return null
+  // 구역별 배치에 쓴 방위각마다 한 방향으로 깔아 보고, 모듈이 같거나 많으면 한 방향 배치가 낫다.
+  const g = setGeometry(p)
+  const zoned = totalModules(sets, g)
+  let single: { sets: ModuleSet[]; rowOffset: number; azimuth: number } | null = null
+  for (const { azimuth } of azimuthMix(sets)) {
+    if (azimuth === p.azimuth) continue
+    const r = grid({ ...p, azimuth })
+    if (totalModules(r.sets, g) >= zoned && (!single || r.sets.length > single.sets.length)) single = { ...r, azimuth }
+  }
+  if (single) return single
+  return { sets, rowOffset: best.rowOffset }
 }
 
 /** 첫 열 시작 위치 후보(m). 열 피치를 필지 크기에 따라 4~16칸으로 나눈다. */
