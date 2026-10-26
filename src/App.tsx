@@ -2013,7 +2013,6 @@ export default function App() {
 
       <aside className="panel" aria-labelledby="panel-title" ref={panelRef}>
         <header className="panel-head">
-          <p className="eyebrow">{`${String(stageIndex + 1).padStart(2, '0')} 단계`}</p>
           <h1 id="panel-title">{STAGES[stageIndex].label}</h1>
           {STAGES[stageIndex].tabs.length > 1 && (
             <div className="seg design-seg" role="tablist" aria-label={`${STAGES[stageIndex].label} 화면`}>
