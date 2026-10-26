@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { STRATEGIES, groupCandidates, strategiesLabel, withFixed, type Candidate, type FixedSettings, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
-import { findModule, INVERTERS, moduleName, RACKING, type ModuleSpec } from '../lib/catalog'
+import { findModule, INVERTERS, moduleName, RACKING, type ModuleSpec, type RackingType } from '../lib/catalog'
 import ModuleSelect from './ModuleSelect'
 import NumberInput from './NumberInput'
 import { azimuthMix, type ZoneMode } from '../lib/zones'
@@ -28,7 +28,7 @@ interface Props {
   fixedEdited: boolean
   onFixed: (f: FixedSettings) => void
   onResetFixed: () => void
-  /** 기본설계 값. 설정 배치에서 모듈·지면 높이·패널 간격·경계 이격을 고치면 기본설계도 같이 바뀐다. */
+  /** 기본설계 값. 설정 배치에서 모듈·구조물·지면 높이·패널 간격·경계 이격을 고치면 기본설계도 같이 바뀐다. */
   params: LayoutParams
   onParams: (p: LayoutParams) => void
   onModule: (m: ModuleSpec) => void
@@ -163,57 +163,92 @@ export default function OptimizePanel(props: Props) {
               입력한 값은 AI가 바꾸지 않습니다. 그 조건에서 세트가 가장 많이 들어가도록 첫 열 위치를 맞추고, 용량에 맞는 인버터를 고릅니다. 칸을 비우면 그
               항목만 AI가 찾아 기준별 배치안을 만듭니다.
             </p>
-            <h3 className="sub">AI가 지킬 값 (비우면 AI가 찾음)</h3>
-            <div className="grid2">
-              <FixField label="방위각" unit="°" value={f.azimuth} min={-90} max={90} onChange={setF('azimuth')} />
-              <FixField label="경사각" unit="°" value={f.tilt} min={0} max={60} step={0.5} onChange={setF('tilt')} />
-              <FixField label="가로 장수" unit="장" value={f.setCols} min={1} onChange={setF('setCols')} />
-              <FixField label="단 수" unit="단" value={f.setRows} min={1} max={6} onChange={setF('setRows')} />
-              <FixField label="세트 간격" unit="mm" value={f.setGap} min={0} step={10} onChange={setF('setGap')} />
-              {spacingBy === 'gap' ? (
-                <FixField label="열 이격거리" unit="m" value={f.rowSpacing} min={0} step={0.1} onChange={(v) => props.onFixed({ ...f, rowSpacing: v, pitch: undefined })} />
-              ) : (
-                <FixField label="열 중심 간격(피치)" unit="m" value={f.pitch} min={1} step={0.1} onChange={(v) => props.onFixed({ ...f, pitch: v, rowSpacing: undefined })} />
-              )}
-            </div>
-            <div className="seg spacing-by" role="tablist" aria-label="열 간격 입력 방식">
-              <button type="button" role="tab" aria-selected={spacingBy === 'gap'} onClick={() => switchSpacing('gap')}>
-                열 이격거리로
-              </button>
-              <button type="button" role="tab" aria-selected={spacingBy === 'pitch'} onClick={() => switchSpacing('pitch')}>
-                열 중심 간격으로
-              </button>
-            </div>
-            <p className="hint">
-              열 이격거리는 앞 세트 뒤끝에서 뒷 세트 앞끝까지, 열 중심 간격은 이격거리에 세트 앞뒤 길이(지금 {fmt(depth, 2)} m)를 더한 값입니다.
-              {spacingBy === 'pitch' && f.pitch !== undefined && (f.tilt !== undefined ? ` 이격거리로는 ${fmt(Math.max(0, f.pitch - depth), 2)} m입니다.` : ' 경사각을 AI가 찾으면 경사각마다 이격거리를 다시 맞춥니다.')}{' '}
-              방위각은 정남 0°, 서쪽 +, 동쪽 −이고, 방위각을 정하면 구역마다 방향을 바꾸는 배치는 만들지 않습니다.{' '}
+            <h3 className="sub">AI가 지킬 값</h3>
+            <p className="hint" style={{ marginTop: 4 }}>
+              모듈, 구조물, 지면 높이, 패널 간격, 경계 이격은 기본설계 배치 탭과 같은 값이라 여기서 고치면 같이 바뀝니다. '자동'으로 비울 수 있는 칸은 이
+              설정 배치에서만 씁니다.{' '}
               {props.fixedEdited && (
                 <button type="button" className="link" onClick={props.onResetFixed}>
                   기본설계 값으로 되돌리기
                 </button>
               )}
             </p>
-            <h3 className="sub">모듈과 설치 (기본설계와 같이 바뀜)</h3>
-            <ModuleSelect params={p} onModule={props.onModule} />
-            <div className="grid3">
+            <div className="fix-group">
+              <h3 className="sub">모듈</h3>
+              <ModuleSelect params={p} onModule={props.onModule} />
               <label className="field">
-                <span>지면 높이</span>
-                <NumberInput value={p.groundClearance} min={0} step={0.1} onValue={setP('groundClearance')} />
-                <em>m</em>
-              </label>
-              <label className="field">
-                <span>패널 간격</span>
-                <NumberInput value={p.moduleGap} min={0} step={5} onValue={setP('moduleGap')} />
-                <em>mm</em>
-              </label>
-              <label className="field">
-                <span>경계 이격</span>
-                <NumberInput value={p.boundarySetback} min={0} step={0.5} onValue={setP('boundarySetback')} />
-                <em>m</em>
+                <span>배치</span>
+                <select value={p.portrait ? 'p' : 'l'} onChange={(e) => setP('portrait')(e.target.value === 'p')}>
+                  <option value="p">세로</option>
+                  <option value="l">가로</option>
+                </select>
               </label>
             </div>
-            <p className="hint">이 값들은 AI가 바꾸지 않습니다. 여기서 고치면 기본설계 배치 탭의 값도 같이 바뀝니다.</p>
+            <div className="fix-group">
+              <h3 className="sub">세트 구성과 설치</h3>
+              <label className="field">
+                <span>구조물(래킹)</span>
+                <select
+                  value={p.racking}
+                  onChange={(e) => {
+                    const r = e.target.value as RackingType
+                    props.onParams({ ...p, racking: r, groundClearance: RACKING[r].groundClearance })
+                  }}
+                >
+                  {(Object.keys(RACKING) as RackingType[]).map((k) => (
+                    <option key={k} value={k}>
+                      {RACKING[k].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid2">
+                <FixField label="가로 장수" unit="장" value={f.setCols} min={1} onChange={setF('setCols')} />
+                <FixField label="단 수" unit="단" value={f.setRows} min={1} max={6} onChange={setF('setRows')} />
+                <FixField label="경사각" unit="°" value={f.tilt} min={0} max={60} step={0.5} onChange={setF('tilt')} />
+                <FixField label="방위각" unit="°" value={f.azimuth} min={-90} max={90} onChange={setF('azimuth')} />
+                <label className="field">
+                  <span>지면 높이</span>
+                  <NumberInput value={p.groundClearance} min={0} step={0.1} onValue={setP('groundClearance')} />
+                  <em>m</em>
+                </label>
+              </div>
+              <p className="hint">방위각은 정남 0°, 서쪽 +, 동쪽 −이고, 방위각을 정하면 구역마다 방향을 바꾸는 배치는 만들지 않습니다.</p>
+            </div>
+            <div className="fix-group">
+              <h3 className="sub">간격</h3>
+              <div className="grid2">
+                <label className="field">
+                  <span>패널 간격</span>
+                  <NumberInput value={p.moduleGap} min={0} step={5} onValue={setP('moduleGap')} />
+                  <em>mm</em>
+                </label>
+                <FixField label="세트 간격" unit="mm" value={f.setGap} min={0} step={10} onChange={setF('setGap')} />
+                {spacingBy === 'gap' ? (
+                  <FixField label="열 이격거리" unit="m" value={f.rowSpacing} min={0} step={0.1} onChange={(v) => props.onFixed({ ...f, rowSpacing: v, pitch: undefined })} />
+                ) : (
+                  <FixField label="열 중심 간격(피치)" unit="m" value={f.pitch} min={1} step={0.1} onChange={(v) => props.onFixed({ ...f, pitch: v, rowSpacing: undefined })} />
+                )}
+                <label className="field">
+                  <span>경계 이격</span>
+                  <NumberInput value={p.boundarySetback} min={0} step={0.5} onValue={setP('boundarySetback')} />
+                  <em>m</em>
+                </label>
+              </div>
+              <div className="seg spacing-by" role="tablist" aria-label="열 간격 입력 방식">
+                <button type="button" role="tab" aria-selected={spacingBy === 'gap'} onClick={() => switchSpacing('gap')}>
+                  열 이격거리로
+                </button>
+                <button type="button" role="tab" aria-selected={spacingBy === 'pitch'} onClick={() => switchSpacing('pitch')}>
+                  열 중심 간격으로
+                </button>
+              </div>
+              <p className="hint">
+                세트 간격은 같은 열에서 옆 세트와의 거리입니다. 열 이격거리는 앞 세트 뒤끝에서 뒷 세트 앞끝까지, 열 중심 간격은 이격거리에 세트 앞뒤
+                길이(지금 {fmt(depth, 2)} m)를 더한 값입니다.
+                {spacingBy === 'pitch' && f.pitch !== undefined && (f.tilt !== undefined ? ` 이격거리로는 ${fmt(Math.max(0, f.pitch - depth), 2)} m입니다.` : ' 경사각을 AI가 찾으면 경사각마다 이격거리를 다시 맞춥니다.')}
+              </p>
+            </div>
           </>
         )}
         <ul className="hint checklist">
