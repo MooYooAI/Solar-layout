@@ -112,8 +112,10 @@ export interface ElecResult {
   acCableM: number
   dcLossPct: number
   acLossPct: number
-  /** 수배전반 위치(경위도) */
+  /** 수배전반 위치(경위도). 수배전반 자리를 비우지 않았으면 AC 케이블이 닿는 계통 연계점 */
   switchboard: Vec
+  /** 그 자리 이름: 수배전반 자리를 비웠으면 '수배전반', 아니면 '연계점' */
+  switchboardLabel: '수배전반' | '연계점'
   connection: 'LV' | 'MV'
   transformerKVA: number | null
   /** 세트 id → 인버터 번호(0부터) */
@@ -348,6 +350,7 @@ export function designElectrical(
     dcLossPct,
     acLossPct,
     switchboard: frame.toLonLat(sb),
+    switchboardLabel: switchboardAt ? '수배전반' : '연계점',
     connection,
     transformerKVA,
     setInverter,
