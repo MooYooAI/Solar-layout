@@ -15,7 +15,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import type * as GeoJSON from 'geojson'
 import { CADASTRAL_WMS, ZONING_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
 import type { Parcel } from '../lib/parcel'
-import { moduleQuads3D, setPosts3D, setQuadLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { moduleQuads3D, setPosts3D, setQuadLonLat, setbackRings, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import { LocalFrame, pointInRing, type Vec } from '../lib/geo'
 import type { Obstacle } from '../lib/shading'
 import type { TerrainCell } from '../lib/terrain'
@@ -416,8 +416,15 @@ function initialStyle(p: Props): StyleSpecification {
         filter: ['==', ['get', 'kind'], 'channel'],
         paint: { 'line-color': '#1864ab', 'line-width': 2 },
       },
-      { id: 'parcel-fill', type: 'fill', source: 'parcel', paint: { 'fill-color': 'rgba(232, 89, 12, 0.10)' } },
-      { id: 'parcel-line', type: 'line', source: 'parcel', paint: { 'line-color': '#e8590c', 'line-width': 3 } },
+      { id: 'parcel-fill', type: 'fill', source: 'parcel', filter: ['!=', ['get', 'kind'], 'setback'], paint: { 'fill-color': 'rgba(232, 89, 12, 0.10)' } },
+      { id: 'parcel-line', type: 'line', source: 'parcel', filter: ['!=', ['get', 'kind'], 'setback'], paint: { 'line-color': '#e8590c', 'line-width': 3 } },
+      {
+        id: 'parcel-setback',
+        type: 'line',
+        source: 'parcel',
+        filter: ['==', ['get', 'kind'], 'setback'],
+        paint: { 'line-color': '#e8590c', 'line-width': 1.5, 'line-dasharray': [3, 2] },
+      },
       {
         id: 'shadows',
         type: 'fill',
@@ -687,7 +694,10 @@ export default function Map3D(props: Props) {
   useEffect(() => {
     whenReady(() => {
       const map = mapRef.current!
-      ;(map.getSource('parcel') as GeoJSONSource).setData(fc(parcel ? parcel.rings.map((r) => poly([r])) : []))
+      const setback: GeoJSON.Feature[] = parcel
+        ? [{ type: 'Feature', properties: { kind: 'setback' }, geometry: { type: 'MultiLineString', coordinates: setbackRings(parcel, latest.current.params) } }]
+        : []
+      ;(map.getSource('parcel') as GeoJSONSource).setData(fc(parcel ? [...parcel.rings.map((r) => poly([r])), ...setback] : []))
       if (!parcel) return
       if (latest.current.standalone) {
         if (fittedHere.current === parcel) return
@@ -698,7 +708,9 @@ export default function Map3D(props: Props) {
       shared.fitted = parcel
       fitParcel(map, parcel, map.getPitch() || 60)
     })
-  }, [parcel])
+    // 경계 이격 값이 바뀔 때도 이격선을 다시 그린다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, params.boundarySetback, params.edgeSetbacks])
 
   useEffect(() => {
     if (!flyTo || shared.flySeq === flyTo.seq) return

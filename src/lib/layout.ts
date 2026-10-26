@@ -1,5 +1,6 @@
-import { convexHull, deg2rad, LocalFrame, quadFitsInRing, rad2deg, rotate, type Vec } from './geo'
+import { convexHull, deg2rad, LocalFrame, rad2deg, rotate, segSegDist, type Vec } from './geo'
 import type { Parcel } from './parcel'
+import polygonClipping, { type Polygon as PcPolygon } from 'polygon-clipping'
 import { blockedAt, type BuildMask } from './buildable'
 import type { RackingType } from './catalog'
 
@@ -66,6 +67,44 @@ export function withEdgeSetback(p: LayoutParams, mid: [number, number], m: numbe
 /** 경위도 링 변마다의 이격(m). i번째 값은 ring[i] → ring[i + 1] 변. */
 export const ringMargins = (ring: number[][], p: LayoutParams): number[] =>
   ring.slice(0, -1).map((a, i) => (p.edgeSetbacks?.length ? edgeSetbackAt(p, edgeMid(a, ring[i + 1])) : null) ?? p.boundarySetback)
+
+/**
+ * 경계 이격선: 필지 안에서 모든 변으로부터 그 변의 이격 이상 떨어진 영역의 테두리(경위도 링 목록).
+ * 배치 판정(quadFitsInRing)과 같은 기준이라, 세트는 이 선 안에만 놓인다. 변마다 그 이격만큼 두께를 준 띠(끝은 둥글게)를 필지에서 뺀다.
+ */
+export function setbackRings(parcel: Parcel, p: LayoutParams): number[][][] {
+  const frame = LocalFrame.around(parcel.rings)
+  const ARC = 8
+  const bands: PcPolygon[] = []
+  const site: PcPolygon[] = []
+  for (const ring of parcel.rings) {
+    const margins = ringMargins(ring, p)
+    const pts = ring.map((c) => frame.toLocal(c))
+    site.push([pts.map(([x, y]) => [x, y] as [number, number])])
+    for (let i = 0; i < pts.length - 1; i++) {
+      const m = margins[i]
+      const [a, b] = [pts[i], pts[i + 1]]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      if (m <= 0 || len === 0) continue
+      const t = Math.atan2(b[1] - a[1], b[0] - a[0])
+      const band: [number, number][] = []
+      // b 쪽 반원, a 쪽 반원을 이어 길쭉한 띠를 만든다.
+      for (let k = 0; k <= ARC; k++) {
+        const u = t - Math.PI / 2 + (Math.PI * k) / ARC
+        band.push([b[0] + m * Math.cos(u), b[1] + m * Math.sin(u)])
+      }
+      for (let k = 0; k <= ARC; k++) {
+        const u = t + Math.PI / 2 + (Math.PI * k) / ARC
+        band.push([a[0] + m * Math.cos(u), a[1] + m * Math.sin(u)])
+      }
+      band.push(band[0])
+      bands.push([band])
+    }
+  }
+  if (!site.length) return []
+  const inner = bands.length ? polygonClipping.difference(site, ...bands) : site
+  return inner.flatMap((poly) => poly.map((r) => r.map((v) => frame.toLonLat(v as Vec) as number[])))
+}
 
 /** 기본 모듈: 한화큐셀 Q.TRON XL-G2.3/BFG 640 (catalog.ts의 qcells-qtron-xl-640) */
 export const DEFAULT_PARAMS: LayoutParams = {
@@ -224,15 +263,17 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
     const [minX, maxX] = [Math.min(...xs), Math.max(...xs)]
     const [minY, maxY] = [Math.min(...ys), Math.max(...ys)]
     for (let cy = minY + edge + g.depth / 2 + rowOffset; cy + g.depth / 2 <= maxY; cy += rowPitch) {
+      const fits = bandFit(ring, margins, cy - g.depth / 2, cy + g.depth / 2)
       let cx = minX + edge + g.width / 2
       while (cx + g.width / 2 <= maxX) {
         const quad = setQuadLocal([cx, cy], 0, g)
+        // 싼 판정부터: 구역(accept)·이미 놓인 세트에서 대부분 걸러진다.
         const ok =
-          quadFitsInRing(quad, ring, margins) &&
-          !blocked?.(cx, cy, r) &&
           (!o.accept || o.accept(toFrame(quad))) &&
-          (!keep.length || !keep.some((k) => convexOverlap(toFrame(quad), k))) &&
-          (!o.occupied || o.occupied.free(toFrame(quad), toFrame(clearanceQuad([cx, cy], g, p))))
+          (!o.occupied || o.occupied.free(toFrame(quad), toFrame(clearanceQuad([cx, cy], g, p)))) &&
+          fits(quad, cx - g.width / 2, cx + g.width / 2) &&
+          !blocked?.(cx, cy, r) &&
+          (!keep.length || !keep.some((k) => convexOverlap(toFrame(quad), k)))
         if (ok) {
           const [lon, lat] = frame.toLonLat(rotate([cx, cy], r))
           out.push({ id: newSetId(), lon, lat, azimuth: p.azimuth })
@@ -245,6 +286,32 @@ export function fillLayout(parcel: Parcel, p: LayoutParams, o: FillOptions = {})
     }
   })
   return out
+}
+
+/**
+ * 세트 좌표계에서 한 열 띠(y0~y1)에 놓는 축 정렬 사각형이 링 안에 들어가고 변마다 이격을 지키는지 판정하는 함수.
+ * geo의 quadFitsInRing과 같은 판정을 띠 가까이의 변만 골라 한다(큰 필지에서 변이 많아도 빠르다).
+ */
+function bandFit(ring: Vec[], margins: readonly number[], y0: number, y1: number) {
+  const edges: Array<[Vec, Vec, number]> = []
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [a, b, m] = [ring[i], ring[i + 1], margins[i]]
+    if (Math.max(a[1], b[1]) < y0 - m || Math.min(a[1], b[1]) > y1 + m) continue
+    edges.push([a, b, m])
+  }
+  return (quad: Vec[], x0: number, x1: number): boolean => {
+    for (const [px, py] of quad) {
+      let inside = false
+      for (const [[xa, ya], [xb, yb]] of edges)
+        if (ya > py !== yb > py && px < ((xb - xa) * (py - ya)) / (yb - ya) + xa) inside = !inside
+      if (!inside) return false
+    }
+    for (const [a, b, m] of edges) {
+      if (Math.max(a[0], b[0]) < x0 - m || Math.min(a[0], b[0]) > x1 + m) continue
+      for (let k = 0; k < 4; k++) if (segSegDist(quad[k], quad[(k + 1) % 4], a, b) < m) return false
+    }
+    return true
+  }
 }
 
 /** 세트 바닥을 옆으로 세트 간격, 앞뒤로 열 이격거리만큼 넓힌 사각형(세트 좌표계). 다른 세트가 들어오면 안 되는 범위. */

@@ -1,6 +1,11 @@
-import { continuousParams, isContinuous, rowSpacingForShadeAngle, shadeAngle, type LayoutParams, type SetGeometry } from '../lib/layout'
+import { useEffect } from 'react'
+import { continuousParams, DEFAULT_PARAMS, isContinuous, rowSpacingForShadeAngle, shadeAngle, type LayoutParams, type SetGeometry } from '../lib/layout'
 import { MODULES, RACKING, findModule, type ModuleSpec, type RackingType } from '../lib/catalog'
 import type { ZoneMode } from '../lib/zones'
+
+/** 연속 배열을 켜기 전의 세트 구성. 끌 때 되돌린다. 화면을 떠났다 와도 남도록 모듈 범위에 둔다. */
+let lastFixedSet: Pick<LayoutParams, 'setCols' | 'setGap'> | null = null
+const fixedSetParams = (p: LayoutParams): LayoutParams => ({ ...p, ...(lastFixedSet ?? { setCols: DEFAULT_PARAMS.setCols, setGap: DEFAULT_PARAMS.setGap }) })
 
 interface Props {
   params: LayoutParams
@@ -95,6 +100,9 @@ export default function LayoutPanel(props: Props) {
   const set = <K extends keyof LayoutParams>(k: K) => (v: LayoutParams[K]) => onParams({ ...p, [k]: v })
   const preset = findModule(p.moduleLength, p.moduleWidth, p.moduleWatt)
   const pitch = props.geometry.depth + p.rowSpacing
+  useEffect(() => {
+    if (!isContinuous(p)) lastFixedSet = { setCols: p.setCols, setGap: p.setGap }
+  }, [p])
 
   return (
     <>
@@ -244,19 +252,19 @@ export default function LayoutPanel(props: Props) {
               : '도로 쪽처럼 한 변만 더 띄우려면 지도에서 그 변을 골라 거리를 넣으세요.'}
           </p>
         </div>
-        <div className="row" style={{ margin: '8px 0' }}>
-          <button type="button" className="secondary" disabled={isContinuous(p)} onClick={() => onParams(continuousParams(p))}>
-            {isContinuous(p) ? '연속 배열 사용 중' : '줄 잇기(연속 배열)'}
-          </button>
-        </div>
+        <label className="toggle">
+          <span>연속 배열</span>
+          <input type="checkbox" role="switch" checked={isContinuous(p)} onChange={(e) => onParams(e.target.checked ? continuousParams(p) : fixedSetParams(p))} />
+        </label>
         <p className="hint">
           연속 배열은 세트를 기둥 한 칸({p.portrait ? '세로 2열' : '가로 1열'}) 단위로 줄이고 모듈 간격으로 이어 붙여, 줄이 비스듬한 경계 끝까지 채워지게
-          합니다.
+          합니다. 끄면 켜기 전의 세트 구성으로 돌아갑니다.
         </p>
-        <label className="row" style={{ marginTop: 6 }}>
-          <input type="checkbox" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} /> 수배전반·전기실 자리 비워 두기
-          {props.pad.on && <small className="hint"> {props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</small>}
+        <label className="toggle">
+          <span>수배전반·전기실 자리 비워 두기</span>
+          <input type="checkbox" role="switch" checked={props.pad.on} onChange={(e) => props.pad.onToggle(e.target.checked)} />
         </label>
+        {props.pad.on && <p className="hint">{props.pad.label ?? '들어갈 자리를 찾지 못했습니다'}</p>}
         {!props.pad.on && <p className="hint">{props.pad.rule}</p>}
         {props.pad.on && (
           <div className="pad-tools">

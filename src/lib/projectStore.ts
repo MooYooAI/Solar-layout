@@ -19,8 +19,6 @@ export interface ProjectData {
   sets: ModuleSet[]
   obstacles: Obstacle[]
   layoutMode?: string
-  /** 열 시작 위치를 민 거리(m) */
-  layoutOffset?: number
   elec?: ElecParams
   costs?: CostParams
   econ?: EconSettings

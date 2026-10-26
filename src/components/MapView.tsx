@@ -17,6 +17,7 @@ import { getCenter } from 'ol/extent'
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style'
 import { getArea, getLength } from 'ol/sphere'
 import LineString from 'ol/geom/LineString'
+import MultiLineString from 'ol/geom/MultiLineString'
 import Point from 'ol/geom/Point'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import { defaults as defaultControls, ScaleLine } from 'ol/control'
@@ -26,7 +27,7 @@ import type { FeatureLike } from 'ol/Feature'
 import 'ol/ol.css'
 import { CADASTRAL_WMS, ZONING_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
 import { parcelGeometry, type Parcel } from '../lib/parcel'
-import { moduleQuadsLonLat, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { moduleQuadsLonLat, setbackRings, type LayoutParams, type ModuleSet, type SetGeometry } from '../lib/layout'
 import type { Obstacle } from '../lib/shading'
 import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
@@ -98,6 +99,9 @@ const parcelStyle = new Style({
   stroke: new Stroke({ color: '#e8590c', width: 3 }),
   fill: new Fill({ color: 'rgba(232, 89, 12, 0.10)' }),
 })
+/** 경계 이격선: 세트를 놓을 수 있는 영역의 테두리 */
+const setbackStyle = new Style({ stroke: new Stroke({ color: '#e8590c', width: 1.5, lineDash: [6, 4] }) })
+const parcelLayerStyle = (f: FeatureLike) => (f.get('kind') === 'setback' ? setbackStyle : parcelStyle)
 const setStyle = new Style({
   stroke: new Stroke({ color: '#a5c8ff', width: 1 }),
   fill: new Fill({ color: 'rgba(28, 64, 140, 0.85)' }),
@@ -273,7 +277,7 @@ export default function MapView(props: Props) {
           zIndex: 9.5,
           style: (f: FeatureLike) => (f.get('kind') === 'channel' ? channelStyle : excludedStyles[f.get('kind') as 'slope' | 'drain']),
         }),
-        new VectorLayer({ source: parcelSource.current, style: parcelStyle, zIndex: 10 }),
+        new VectorLayer({ source: parcelSource.current, style: parcelLayerStyle, zIndex: 10 }),
         new VectorLayer({
           source: elecSource.current,
           zIndex: 12.5,
@@ -406,10 +410,15 @@ export default function MapView(props: Props) {
     if (!parcel) return
     const geom = parcelGeometry(parcel).transform('EPSG:4326', 'EPSG:3857')
     src.addFeature(new Feature(geom))
+    const setback = new Feature(new MultiLineString(setbackRings(parcel, params).map((r) => r.map((c) => fromLonLat(c)))))
+    setback.set('kind', 'setback')
+    src.addFeature(setback)
     if (shared.fitted === parcel) return
     shared.fitted = parcel
     mapRef.current?.getView().fit(geom.getExtent(), { padding: [80, 80, 80, 80], maxZoom: 20, duration: 400 })
-  }, [parcel])
+    // 경계 이격 값이 바뀔 때만 다시 그린다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parcel, params.boundarySetback, params.edgeSetbacks])
 
   // 세트마다 모듈 한 장씩을 멀티폴리곤으로 그린다.
   useEffect(() => {
