@@ -86,7 +86,6 @@ import PermitPanel from './components/PermitPanel'
 import SiteReviewPanel from './components/SiteReviewPanel'
 import DesignBar from './components/DesignBar'
 import SideElevation from './components/SideElevation'
-import CapacityCompare, { type CapacityOption } from './components/CapacityCompare'
 import { SITE_KIND, forestReview, gridReview, landReview, mergeSiteCheck, nearbyRoads, ownerKindOf, roadAnchor, roadReview, searchBox, terrainReview, type RoadCandidate, type SiteCheck } from './lib/siteCheck'
 import { isForest, pctToDeg } from './lib/siteReview'
 import type { MapMark } from './components/MapView'
@@ -1223,24 +1222,6 @@ export default function App() {
     setLayoutBasis(params)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [equipPad])
-
-  // 표준·권장 설계용량: 동지 9~15시 무음영 이격(표준)과 10~14시 무음영 이격(권장, 용량 우선)으로 각각 배치해 본다.
-  // AI 가설계 후보가 나오면 그 아래에 참고로 보인다. AI가 전기실 자리를 옮기므로 옮긴 뒤의 자리로 계산한다.
-  const capRows = useMemo((): CapacityOption[] | null => {
-    if (tab !== 'ai' || !parcel || !optResults?.length) return null
-    const { lat0 } = LocalFrame.around(parcel.rings)
-    const h = geometry.height - params.groundClearance
-    const opts: Array<[CapacityOption['key'], string, string, number, number]> = [
-      ['standard', '표준', '동지 9~15시 앞 열 그림자 없음', 9, 15],
-      ['recommended', '권장', '동지 10~14시 앞 열 그림자 없음(용량 우선)', 10, 14],
-    ]
-    return opts.map(([key, label, basis, from, to]) => {
-      const spacing = Math.ceil(rowSpacingForNoShade(lat0, h, params.azimuth, from, to) * 10) / 10
-      const n = layoutWith({ ...params, rowSpacing: spacing }).length
-      return { key, label, basis, spacing, shadeAngle: shadeAngle({ ...params, rowSpacing: spacing }), sets: n, kWp: (n * geometry.watt) / 1000 }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, parcel, optResults, params, geometry, mask, layoutMode, keepOut])
 
   /** 용량에 맞는 인버터를 고른다(AI 가설계와 같은 규칙). 스트링 결선·케이블은 설계 계산이 이어서 잡는다. */
   const fitInverter = (kWp: number, label: string) => {
@@ -2388,19 +2369,6 @@ export default function App() {
                   : padMove?.how === 'manual'
                   ? `${PAD_NAME[padKind]}은 직접 옮긴 자리를 그대로 씁니다.`
                   : `${PAD_NAME[padKind]} 자리도 후보 자리를 비교해 가장 좋은 곳에 같이 넣습니다.`
-            }
-            extra={
-              capRows && (
-                <CapacityCompare
-                  rows={capRows}
-                  onApply={(r) => {
-                    const next = placeSets(`${r.label} 설계용량으로 배치`, { ...params, rowSpacing: r.spacing })
-                    if (!next) return
-                    fitInverter(totalWatt(next, geometry) / 1000, `${r.label} 설계용량으로 배치`)
-                    switchTab('layout')
-                  }}
-                />
-              )
             }
           />
         )}

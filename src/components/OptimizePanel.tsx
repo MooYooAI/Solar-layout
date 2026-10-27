@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { STRATEGIES, groupCandidates, strategiesLabel, withFixed, type Candidate, type FixedSettings, type Strategy } from '../lib/optimize'
 import type { DesignMetrics } from '../lib/design'
 import { isContinuous, setGeometry, type LayoutParams, type ModuleSet } from '../lib/layout'
@@ -56,8 +56,6 @@ interface Props {
   dcAcRatio: number
   /** 수배전반·전기실 자리를 어떻게 잡는지. 자리를 비우지 않으면 null */
   padNote: string | null
-  /** 후보 아래에 덧붙이는 참고 카드(표준·권장 설계용량) */
-  extra?: ReactNode
 }
 
 const fmt = (n: number, d = 0) => n.toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d })
@@ -425,7 +423,6 @@ export default function OptimizePanel(props: Props) {
           </div>
         </section>
       ))}
-      {results && !props.running && props.extra}
       {results && results.length === 0 && (
         <section className="card">
           <p className="hint">필지에 세트가 들어갈 자리가 없습니다. 경계 이격이나 세트 크기, 설계 가능 영역 조건을 줄여 보세요.</p>
