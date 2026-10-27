@@ -33,6 +33,7 @@ import type { TerrainCell } from '../lib/terrain'
 import type { BuildableResult } from '../lib/buildable'
 import type { ElecResult } from '../lib/electrical'
 import { GROUP_COLORS } from '../lib/palette'
+import { plantName, plantSummary } from '../lib/plants'
 import { shared } from '../lib/viewState'
 import { CUTFILL_COLORS, SLOPE_COLORS, cutFillClass, slopeClass } from '../lib/terrainColors'
 
@@ -158,6 +159,20 @@ const fmtArea = (a: number) =>
   a >= 1e6 ? `${(a / 1e6).toFixed(3)} ㎢` : `${Math.round(a).toLocaleString('ko-KR')} ㎡ (${Math.round(a / 3.305785).toLocaleString('ko-KR')} 평)`
 
 /** 측정 도형: 선은 총 길이, 면은 면적과 둘레를 가운데에 적는다. 그리는 중에도 같은 스타일을 쓴다. */
+function plantLabelStyle(f: FeatureLike): Style {
+  return new Style({
+    text: new Text({
+      text: f.get('label') as string,
+      font: '700 13px Pretendard, sans-serif',
+      fill: new Fill({ color: '#fff' }),
+      backgroundFill: new Fill({ color: GROUP_COLORS[(f.get('plant') as number) % GROUP_COLORS.length] }),
+      backgroundStroke: new Stroke({ color: '#fff', width: 1.5 }),
+      padding: [3, 6, 3, 6],
+      textAlign: 'center',
+    }),
+  })
+}
+
 function measureStyle(f: FeatureLike): Style[] {
   const g = f.getGeometry()
   const base = new Style({
@@ -237,6 +252,7 @@ export default function MapView(props: Props) {
   const terrainSource = useRef(new VectorSource())
   const buildSource = useRef(new VectorSource())
   const elecSource = useRef(new VectorSource())
+  const plantSource = useRef(new VectorSource())
   const selectedFeatures = useRef(new Collection<Feature>())
   // OL handlers are bound once; read the latest props through a ref.
   const latest = useRef(props)
@@ -252,6 +268,9 @@ export default function MapView(props: Props) {
         if (latest.current.selected.has(id)) return setSelectedStyle
         const shade = latest.current.setShade?.get(id) ?? 0
         if (shade > 0) return shadedStyles[Math.min(3, Math.floor(shade * 4))]
+        // 발전소를 나눴으면 발전소별 색, 아니면 인버터별 색
+        const plant = f.get('plant') as number | undefined
+        if (plant !== undefined) return groupStyles[plant % groupStyles.length]
         const inv = latest.current.elec?.setInverter[id]
         return inv !== undefined ? groupStyles[inv % groupStyles.length] : setStyle
       },
@@ -292,6 +311,7 @@ export default function MapView(props: Props) {
         setLayer,
         new VectorLayer({ source: obstacleSource.current, style: obstacleStyle, zIndex: 12 }),
         new VectorLayer({ source: measureSource.current, style: measureStyle, zIndex: 13 }),
+        new VectorLayer({ source: plantSource.current, style: plantLabelStyle, zIndex: 13.5, declutter: true }),
         markLayer,
       ],
       view: new View({
@@ -432,9 +452,23 @@ export default function MapView(props: Props) {
         )
         const f = new Feature(geom)
         f.setId(s.id)
+        if (s.plant !== undefined) f.set('plant', s.plant)
         return f
       }),
     )
+    // 발전소마다 가운데에 이름과 용량을 적는다.
+    const plants = plantSource.current
+    plants.clear()
+    for (const row of plantSummary(sets, geometry, params)) {
+      const mine = sets.filter((s) => s.plant === row.plant)
+      if (!mine.length) continue
+      const lon = mine.reduce((a, s) => a + s.lon, 0) / mine.length
+      const lat = mine.reduce((a, s) => a + s.lat, 0) / mine.length
+      const f = new Feature(new Point(fromLonLat([lon, lat])))
+      f.set('label', `${plantName(row.plant)}\n${row.kWp.toLocaleString('ko-KR', { maximumFractionDigits: 1 })} kW`)
+      f.set('plant', row.plant)
+      plants.addFeature(f)
+    }
   }, [sets, params, geometry])
 
   useEffect(() => {
