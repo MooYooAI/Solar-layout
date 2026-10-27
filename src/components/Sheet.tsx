@@ -6,7 +6,7 @@ import SideElevation from './SideElevation'
 import { DcWiringSheet, FrontElevation, InverterOutline, ModuleOutline, SimpleSection } from './DetailDrawings'
 import { LocalFrame, type Vec } from '../lib/geo'
 import { moduleQuadsLonLat, setbackRings, setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
-import { inverterGroups, stringPlan, voltageChecks } from '../lib/stringPlan'
+import { arrayTable, currentChecks, seriesTable, stringPlan, voltageChecks } from '../lib/stringPlan'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecParams, ElecResult } from '../lib/electrical'
@@ -596,7 +596,7 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
     case 'string-plan': {
       const elec = data.elec
       if (!plan || !elec || !strings) return { scale: null, body: emptyMsg('세트를 배치하면 스트링 구성도를 그립니다.') }
-      const panelW = paper === 'A3' ? 86 : 74
+      const panelW = paper === 'A3' ? 104 : 84
       const area = { x: full.x, y: full.y, w: full.w - panelW - 4, h: full.h }
       const t = planTransform(plan, area)
       const totalMods = data.stats.modules
@@ -607,144 +607,157 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
       const labelR = Math.min(2.4, Math.max(1.1, (data.geometry.depth * t.k) / 3))
       const color = (inv: number) => GROUP_COLORS[inv % GROUP_COLORS.length]
       const line = (pts: Vec[]) => pts.map((v) => t.P(v).join(',')).join(' ')
-      const groups = inverterGroups(elec)
-      const checks = voltageChecks(elec, data.elecParams)
       const e = data.elecParams
+      const checks = voltageChecks(elec, e)
+      const series = seriesTable(elec, e, totalMods)
+      const arrays = arrayTable(strings, elec, data.params.moduleWatt)
+      const currents = currentChecks(elec, e)
+      // 오른쪽 칸: 어레이 계산 시트 순서대로 기본 사양 → 직렬 장수 선정 → 온도 보정 → 전류·보호기 → 어레이별 직렬×병렬
       const px = area.x + area.w + 4
-      const rowH = 5.2
+      const bottom = area.y + area.h - 2
+      const rowH = 3.6
       let y = area.y + 4
       const panel: React.ReactNode[] = []
-      panel.push(
-        <text key="h1" x={px + panelW / 2} y={y} textAnchor="middle" className="sh-h">
-          STRING 구성
-        </text>,
-      )
-      y += 2.5
-      const shown = groups.slice(0, 9)
-      shown.forEach((gr, i) => {
-        const name = gr.from === gr.to ? `INVERTER #${gr.from}` : `INVERTER #${gr.from}~${gr.to}`
+      const heading = (text: string) => {
+        y += 1.5
         panel.push(
-          <g key={`g${i}`}>
-            <rect x={px} y={y} width={panelW * 0.48} height={rowH} className="cell" />
-            <rect x={px + panelW * 0.48} y={y} width={panelW * 0.52} height={rowH} className="cell" />
-            <line x1={px + 1.2} x2={px + 4.2} y1={y + rowH / 2} y2={y + rowH / 2} stroke={color(gr.from - 1)} strokeWidth={0.8} />
-            <text x={px + 5.4} y={y + 3.5}>
-              {name}
-            </text>
-            <text x={px + panelW * 0.48 + 1.5} y={y + 3.5}>
-              {`${gr.series}직렬 × ${gr.parallel}병렬`}
-            </text>
+          <text key={`h${panel.length}`} x={px} y={y} className="sh-h">
+            {text}
+          </text>,
+        )
+        y += 2.6
+      }
+      const note = (text: string, cls = 'sh-label') => {
+        panel.push(
+          <text key={`n${panel.length}`} x={px} y={y + 2.4} className={cls}>
+            {text}
+          </text>,
+        )
+        y += 3.4
+      }
+      /** 표 한 줄. fr는 열 폭 비율, 첫 열은 왼쪽, 나머지는 오른쪽 맞춤 */
+      const tableRow = (fr: number[], cells: Array<string | null>, opt: { head?: boolean; hl?: boolean; ng?: number } = {}) => {
+        let x = px
+        panel.push(
+          <g key={`r${panel.length}`}>
+            {cells.map((c, i) => {
+              const w = panelW * fr[i]
+              const x0 = x
+              x += w
+              return (
+                <g key={i}>
+                  <rect x={x0} y={y} width={w} height={rowH} className={opt.head ? 'sh-group' : opt.hl ? 'sh-hl' : 'cell'} />
+                  {c !== null && (
+                    <text
+                      x={opt.head || i === 0 ? x0 + 1 : x0 + w - 1}
+                      y={y + 2.6}
+                      textAnchor={opt.head || i === 0 ? 'start' : 'end'}
+                      className={opt.head ? 'sh-k' : opt.ng === i ? 'sh-ng' : 'sh-label'}
+                    >
+                      {c}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
           </g>,
         )
         y += rowH
-      })
-      if (groups.length > shown.length) {
-        panel.push(
-          <text key="more" x={px} y={y + 3} className="sh-label">
-            {`외 인버터 ${elec.inverters.length - shown.reduce((n, gr) => n + gr.to - gr.from + 1, 0)}대`}
-          </text>,
-        )
-        y += 4
       }
-      y += 4
-      panel.push(
-        <text key="h2" x={px} y={y} className="sh-h">
-          ■ 직렬 장수 전압 검토
-        </text>,
+
+      heading('■ 기본 사양')
+      note(`모듈 ${fmt(data.params.moduleWatt)} W · Voc ${fmt(e.voc, 2)} V · Vmp ${fmt(e.vmp, 2)} V · Isc ${fmt(e.isc, 2)} A`)
+      note(`모듈 ${fmt(totalMods)}장 · 연결 ${fmt(elec.strings.length * elec.stringLen)}장 · DC ${fmt(elec.kWdc, 2)} kW`)
+      note(`인버터 ${fmt(e.inverterKW)} kW × ${elec.inverters.length}대 · 최대 입력 ${fmt(e.maxDcV)} V · MPPT ${fmt(e.mpptMinV)}~${fmt(e.mpptMaxV)} V`)
+      y += 2.5
+
+      heading('■ 직렬 장수 선정')
+      const sFr = [0.12, 0.2, 0.2, 0.2, 0.14, 0.14]
+      tableRow(sFr, ['직렬', '개방(STC)', `저온 개방(${e.minTemp}°C)`, `고온 동작(${e.maxCellTemp}°C)`, '회로', '판정'], { head: true })
+      // 줄이 많으면 범위 양 끝과 적용 장수 주변만 남긴다.
+      const keep = (r: (typeof series)[number]) =>
+        series.length <= 10 || r.n >= elec.maxLen - 1 || r.n <= elec.minLen || Math.abs(r.n - elec.stringLen) <= 1
+      let skipped = false
+      for (const r of series) {
+        if (!keep(r)) {
+          if (!skipped) tableRow(sFr, ['⋮', null, null, null, null, null])
+          skipped = true
+          continue
+        }
+        skipped = false
+        tableRow(sFr, [`${r.n}장${r.applied ? ' ◀' : ''}`, `${fmt(r.voc, 1)} V`, `${fmt(r.vocCold, 1)} V`, `${fmt(r.vmpHot, 1)} V`, fmt(r.strings), r.ok ? 'O' : 'X'], {
+          hl: r.applied,
+          ng: r.ok ? undefined : 5,
+        })
+      }
+      note(
+        elec.minLen <= elec.maxLen
+          ? `직렬 가능 ${elec.minLen}~${elec.maxLen}장 중 남는 모듈이 가장 적은 ${elec.stringLen}장 적용${elec.unusedModules ? ` · 미연결 ${elec.unusedModules}장` : ''}`
+          : `직렬 가능 범위 없음 (최소 ${elec.minLen}장 > 최대 ${elec.maxLen}장)`,
+        'sh-v',
       )
-      y += 4
-      const info = [
-        `모듈 Voc ${fmt(e.voc, 2)} V · Vmp ${fmt(e.vmp, 2)} V · 온도계수 ${fmt(e.betaVoc, 2)} %/°C`,
-        `인버터 최대 입력 ${fmt(e.maxDcV)} V · MPPT ${fmt(e.mpptMinV)}~${fmt(e.mpptMaxV)} V`,
-      ]
-      for (const s2 of info) {
+      y += 2.5
+
+      heading(`■ 온도 보정 검토 (${elec.stringLen}직렬)`)
+      for (const c of checks) {
         panel.push(
-          <text key={s2} x={px} y={y} className="sh-label">
-            {s2}
-          </text>,
-        )
-        y += 3.6
-      }
-      y += 1
-      checks.forEach((c, i) => {
-        panel.push(
-          <g key={`c${i}`}>
-            <text x={px} y={y} className="sh-k">
-              {c.label}
+          <g key={`c${panel.length}`}>
+            <text x={px} y={y + 2.4} className="sh-label">
+              {`${c.label}: ${c.calc}`}
             </text>
-            <text x={px + panelW} y={y} textAnchor="end" className={c.ok ? 'sh-ok' : 'sh-ng'}>
+            <text x={px + panelW} y={y + 2.4} textAnchor="end" className={c.ok ? 'sh-ok' : 'sh-ng'}>
               {c.ok ? '적합' : '부적합'}
             </text>
-            <text x={px} y={y + 3.4} className="sh-label">
-              {c.calc}
-            </text>
           </g>,
         )
-        y += 8
-      })
-      panel.push(
-        <text key="range" x={px} y={y} className="sh-v">
-          {elec.minLen <= elec.maxLen ? `직렬 가능 범위 ${elec.minLen}~${elec.maxLen}장 → ${elec.stringLen}장 적용` : `직렬 가능 범위 없음 (최소 ${elec.minLen}장 > 최대 ${elec.maxLen}장)`}
-        </text>,
-      )
-      y += 4
-      panel.push(
-        <text key="sum" x={px} y={y} className="sh-label">
-          {`스트링 ${fmt(elec.strings.length)}개 · 인버터 ${elec.inverters.length}대${elec.unusedModules ? ` · 미연결 모듈 ${elec.unusedModules}장` : ''}`}
-        </text>,
-      )
-      y += 7
-      // 병렬 결선 개략: 첫 인버터 구성대로 스트링을 +/− 모선에 묶어 인버터로 넣는다.
-      const par = Math.min(6, groups[0]?.parallel ?? 0)
-      if (par > 0 && y + par * 5 + 10 < area.y + area.h) {
-        const bx = px + 2
-        const bw = 18
-        const busP = bx + bw + 8
-        const busN = busP + 4
-        const top = y
-        panel.push(
-          <text key="h3" x={px} y={y - 2} className="sh-k">
-            {`결선 개략 (INVERTER #${groups[0].from})`}
-          </text>,
-        )
-        for (let i = 0; i < par; i++) {
-          const yy = top + 1 + i * 5
-          panel.push(
-            <g key={`s${i}`} className="sh-wire">
-              <rect x={bx} y={yy} width={bw} height={3.4} />
-              <text x={bx + bw / 2} y={yy + 2.5} textAnchor="middle" className="sh-label">
-                {`S${i + 1} · ${elec.stringLen}장`}
-              </text>
-              <line x1={bx + bw} x2={busP} y1={yy + 1} y2={yy + 1} />
-              <line x1={bx + bw} x2={busN} y1={yy + 2.4} y2={yy + 2.4} />
-            </g>,
-          )
-        }
-        const bottom = top + 1 + (par - 1) * 5 + 2.4
-        const invY = bottom + 5
-        panel.push(
-          <g key="bus" className="sh-wire">
-            <line x1={busP} x2={busP} y1={top + 1} y2={invY} />
-            <line x1={busN} x2={busN} y1={top + 3.4} y2={invY} />
-            <text x={busP} y={top - 0.2} textAnchor="middle" className="sh-label">
-              +
-            </text>
-            <text x={busN} y={top - 0.2} textAnchor="middle" className="sh-label">
-              −
-            </text>
-            <rect x={busP - 4} y={invY} width={12} height={5} />
-            <text x={busP + 2} y={invY + 3.4} textAnchor="middle" className="sh-label">
-              INV
-            </text>
-          </g>,
-        )
-        if ((groups[0]?.parallel ?? 0) > par)
-          panel.push(
-            <text key="parmore" x={bx} y={invY + 3.4} className="sh-label">
-              {`외 ${groups[0].parallel - par}개 병렬`}
-            </text>,
-          )
+        y += 3.4
       }
+      y += 2.5
+
+      heading('■ 전류·보호기')
+      for (const c of currents) {
+        panel.push(
+          <g key={`i${panel.length}`}>
+            <text x={px} y={y + 2.4} className="sh-label">
+              {`${c.label}: ${c.calc}`}
+            </text>
+            <text x={px + panelW} y={y + 2.4} textAnchor="end" className={c.ok === false ? 'sh-ng' : 'sh-v'}>
+              {c.value}
+            </text>
+          </g>,
+        )
+        y += 3.4
+      }
+      y += 2.5
+
+      heading('■ 어레이 계산 (인버터별)')
+      const aFr = [0.15, 0.17, 0.2, 0.14, 0.16, 0.18]
+      tableRow(aFr, ['인버터', '어레이', '직렬 × 병렬', '계(장)', '발전량 kW', '합계 kW'], { head: true })
+      let shownInv = 0
+      for (const inv of arrays) {
+        if (y + inv.rows.length * rowH > bottom - 4) break
+        const top = y
+        inv.rows.forEach((r) => {
+          tableRow(aFr, [null, r.arrays, `${r.series} × ${r.parallel}`, fmt(r.modules), fmt(r.kW, 2), null])
+        })
+        // 인버터 이름과 합계는 그 인버터 줄을 한 칸으로 묶는다.
+        panel.push(
+          <g key={`t${panel.length}`}>
+            <rect x={px} y={top} width={panelW * aFr[0]} height={y - top} className="sh-span" />
+            <line x1={px + 1} x2={px + 3.5} y1={(top + y) / 2} y2={(top + y) / 2} className="sh-inv-key" style={{ stroke: color(inv.inverter - 1) }} />
+            <text x={px + 4.4} y={(top + y) / 2 + 0.9} className="sh-label">
+              {`INV-${inv.inverter}`}
+            </text>
+            <rect x={px + panelW * (1 - aFr[5])} y={top} width={panelW * aFr[5]} height={y - top} className="sh-span" />
+            <text x={px + panelW - 1} y={(top + y) / 2 + 0.9} textAnchor="end" className="sh-v">
+              {fmt(inv.kW, 2)}
+            </text>
+          </g>,
+        )
+        shownInv++
+      }
+      if (shownInv < arrays.length) note(`외 인버터 ${arrays.length - shownInv}대 · 전체 표는 설계계산서(D01)`)
+      else note(`합계 ${fmt(elec.strings.length)}회로 · ${fmt(elec.strings.length * elec.stringLen)}장 · ${fmt(elec.kWdc, 2)} kW`, 'sh-v')
       return {
         scale: t.scale,
         body: (

@@ -1032,6 +1032,9 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .sh-table .cell { fill: none; stroke: #adb5bd; stroke-width: 0.15; }
 .sh-table line { stroke: #adb5bd; stroke-width: 0.15; }
 .sh-table .sh-group { fill: #f1f3f5; stroke: #adb5bd; stroke-width: 0.15; }
+.sh-table .sh-hl { fill: #fff4e6; stroke: #adb5bd; stroke-width: 0.15; }
+.sh-table .sh-span { fill: #fff; stroke: #adb5bd; stroke-width: 0.15; }
+.sh-table .sh-inv-key { stroke-width: 0.8; }
 .sh-title-big { font-size: 6px !important; font-weight: 800; }
 .sh-sld { color: #1d2330; stroke: currentColor; }
 .sh-sld text { fill: currentColor; }
