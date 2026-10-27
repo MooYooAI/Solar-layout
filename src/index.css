@@ -779,6 +779,14 @@ details.chart summary { cursor: pointer; }
 .shortcuts ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
 kbd { font: 600 10px/1 inherit; padding: 2px 4px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 3px; background: var(--surface); color: var(--ink-2); }
 .plan-svg .plan-box { fill: oklch(63% 0.18 42 / 0.1); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.plan-svg.measuring { cursor: crosshair; }
+.plan-measure { pointer-events: none; }
+.plan-measure-line { fill: none; stroke: #fab005; stroke-width: 2.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.plan-measure-line.solid { stroke-dasharray: none; }
+.plan-measure-area { fill: rgba(250, 176, 5, 0.15); stroke: #fab005; stroke-width: 2.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.plan-measure-dot { fill: #fab005; stroke: #fff; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.plan-measure-label { fill: #1d2330; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+.plan-measure-label.small { font-weight: 500; }
 
 /* 상단 바 펼침 메뉴(타임라인) */
 .menu { position: relative; }

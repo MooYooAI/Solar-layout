@@ -3043,26 +3043,23 @@ export default function App() {
               <input type="checkbox" checked={showZoning} onChange={(e) => setShowZoning(e.target.checked)} /> 용도지역
             </label>
           )}
-          {!show3d && (
-            <>
-              <span className="map-mode-sep" />
-              <span className="map-mode-label">자</span>
-              {(
-                [
-                  ['measureLine', '거리', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다. 구간마다 길이와 총 길이를 적습니다.'],
-                  ['measureCircle', '반경', '가운데를 클릭하고 끝점을 클릭하면 반경·지름·원 면적을 적습니다.'],
-                  ['measureArea', '면적', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다.'],
-                ] as const
-              ).map(([t, label, title]) => (
-                <button key={t} type="button" className={tool === t ? 'on' : ''} aria-pressed={tool === t} onClick={() => setTool(tool === t ? 'none' : t)} title={title}>
-                  {label}
-                </button>
-              ))}
-              <button type="button" onClick={() => setClearMeasuresSeq((n) => n + 1)} title="잰 선·원·면적 지우기">
-                지우기
-              </button>
-            </>
-          )}
+          {/* 자는 3D에서도 보인다. 누르면 재는 동안 2D로 바뀐다. */}
+          <span className="map-mode-sep" />
+          <span className="map-mode-label">자</span>
+          {(
+            [
+              ['measureLine', '거리', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다. 구간마다 길이와 총 길이를 적습니다.'],
+              ['measureCircle', '반경', '가운데를 클릭하고 끝점을 클릭하면 반경·지름·원 면적을 적습니다.'],
+              ['measureArea', '면적', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다.'],
+            ] as const
+          ).map(([t, label, title]) => (
+            <button key={t} type="button" className={tool === t ? 'on' : ''} aria-pressed={tool === t} onClick={() => setTool(tool === t ? 'none' : t)} title={title}>
+              {label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setClearMeasuresSeq((n) => n + 1)} title="잰 선·원·면적 지우기">
+            지우기
+          </button>
           {(tool === 'measureLine' || tool === 'measureArea') && <span>마지막 점에서 두 번 클릭하면 끝</span>}
           {tool === 'measureCircle' && <span>가운데 클릭 → 끝점 클릭</span>}
         </div>

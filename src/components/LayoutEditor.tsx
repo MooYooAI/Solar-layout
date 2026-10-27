@@ -51,6 +51,8 @@ const colsOptions = (setCols: number) => Array.from({ length: Math.max(24, setCo
 export default function LayoutEditor(props: Props) {
   const { parcel, sets, selected, tool, onTool, geometry, params } = props
   const [step, setStep] = useState(1)
+  const [clearMeasuresSeq, setClearMeasuresSeq] = useState(0)
+  const measuring = tool === 'measureLine' || tool === 'measureCircle'
   const n = selected.size
   const picked = useMemo(() => sets.filter((s) => selected.has(s.id)), [sets, selected])
   const frame = useMemo(() => (parcel ? LocalFrame.around(parcel.rings) : null), [parcel])
@@ -84,7 +86,7 @@ export default function LayoutEditor(props: Props) {
       <div className="editor-bar" role="toolbar" aria-label="배치 편집 도구">
         <div className="tool-group" aria-label="모드">
           <span className="tool-label">모드</span>
-          <button type="button" className={tool !== 'add' ? 'toggle on' : 'toggle'} onClick={() => onTool('none')} title="세트를 눌러 고르고 끌어 옮깁니다">
+          <button type="button" className={tool !== 'add' && !measuring ? 'toggle on' : 'toggle'} onClick={() => onTool('none')} title="세트를 눌러 고르고 끌어 옮깁니다">
             ↖ 선택·이동
           </button>
           <button type="button" className={tool === 'add' ? 'toggle on' : 'toggle'} onClick={() => onTool(tool === 'add' ? 'none' : 'add')} title="도면을 누른 자리에 세트를 놓습니다">
@@ -102,6 +104,23 @@ export default function LayoutEditor(props: Props) {
               </select>
             </label>
           )}
+        </div>
+
+        <div className="tool-group" aria-label="자">
+          <span className="tool-label">자</span>
+          {(
+            [
+              ['measureLine', '거리', '도면을 클릭해 점을 찍고, 마지막 점에서 두 번 클릭(또는 Enter)하면 끝납니다. 구간마다 길이와 총 길이를 적습니다.'],
+              ['measureCircle', '반경', '가운데를 클릭하고 끝점을 클릭하면 반경·지름·원 면적을 적습니다.'],
+            ] as const
+          ).map(([t, label, title]) => (
+            <button key={t} type="button" className={tool === t ? 'toggle on' : 'toggle'} onClick={() => onTool(tool === t ? 'none' : t)} title={title}>
+              {label}
+            </button>
+          ))}
+          <button type="button" className="ghost" onClick={() => setClearMeasuresSeq((v) => v + 1)} title="잰 선·원 지우기">
+            지우기
+          </button>
         </div>
 
         <div className="tool-group" aria-label="선택">
@@ -199,6 +218,7 @@ export default function LayoutEditor(props: Props) {
             onMoveSets={props.onMoveSets}
             onAddSet={props.onAddSet}
             onPadMove={props.onPadMove}
+            clearMeasuresSeq={clearMeasuresSeq}
           />
         </div>
 
