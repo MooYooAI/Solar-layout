@@ -962,10 +962,14 @@ export default function App() {
   // 주변 산의 지평선. 부지가 바뀌면 반경 5 km 표고를 받아 다시 만든다(실패하면 지형 그늘 없이 계산).
   const [horizonOn, setHorizonOn] = useState(true)
   const [horizonState, setHorizonState] = useState<{ parcel: Parcel; horizon: Horizon | null; dem: SiteDem | null; error: string | null } | null>(null)
+  // AI 가설계가 지평선을 기다릴 수 있게 받는 중인 요청을 둔다. 필지를 고르자마자 돌려도 지형 그늘을 빼먹지 않는다.
+  const horizonLoad = useRef<{ parcel: Parcel; promise: Promise<Horizon | null> } | null>(null)
   useEffect(() => {
     if (!parcel) return
     let alive = true
-    loadHorizon(parcel).then(
+    const load = loadHorizon(parcel)
+    horizonLoad.current = { parcel, promise: load.then((r) => r.horizon, () => null) }
+    load.then(
       ({ horizon: h, dem }) => alive && setHorizonState({ parcel, horizon: h, dem, error: null }),
       (e: Error) => alive && setHorizonState({ parcel, horizon: null, dem: null, error: e.message }),
     )
@@ -1068,6 +1072,12 @@ export default function App() {
         setPadAt(usedPad)
       }
     }
+    // 주변 지평선을 아직 받는 중이면 기다린다. 안 기다리면 첫 계산만 지형 그늘이 빠져 다시 돌렸을 때 결과가 달라진다.
+    let h = horizon
+    if (horizonOn && !horizonFresh && horizonLoad.current?.parcel === parcel) {
+      h = await horizonLoad.current.promise
+      if (activeRun.current !== pending) return
+    }
     const input: OptimizeInput = {
       parcel,
       base: params,
@@ -1080,7 +1090,7 @@ export default function App() {
       econ,
       grid: t?.grid ?? null,
       mask: useMask ? (t?.buildable.mask ?? null) : null,
-      horizon,
+      horizon: h,
     }
     // 진행 단계는 분석 화면이 시간에 맞춰 보여 준다.
     const run = runOptimizePool(input, () => {})

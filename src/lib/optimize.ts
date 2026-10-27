@@ -17,7 +17,7 @@ import type { Horizon } from './horizon'
 import type { EconSettings } from './economics'
 import { fitInverter, type ElecParams } from './electrical'
 import type { ElevGrid } from './elevation'
-import { continuousParams, setGeometry, type LayoutParams, type ModuleSet } from './layout'
+import { continuousParams, DEFAULT_PARAMS, isContinuous, setGeometry, type LayoutParams, type ModuleSet } from './layout'
 import type { Parcel } from './parcel'
 import type { Obstacle } from './shading'
 import { rowSpacingForNoShade } from './sun'
@@ -260,8 +260,10 @@ export function planCoarse(o: OptimizeInput): Task[] {
     tasks.push({ params: { ...trial, rowSpacing }, spacingRatio: rowSpacing / noShadeSpacing(lat0, trial) })
   }
   // 사용자가 정한 세트 구성 그대로와 연속 배열을 함께 훑는다. 설정 배치에서 세트 구성을 정했으면 그것만 쓴다.
+  // 연속 배열 안을 적용한 뒤에 다시 돌려도 같은 후보를 보도록, 기본설계가 연속 배열이면 세트 구성은 기본 세트로 견준다.
   const base = withFixed(o.base, f)
-  const bases = f.setCols !== undefined || f.setGap !== undefined ? [base] : [base, continuousParams(base)]
+  const fixedSet = isContinuous(base) ? { ...base, setCols: DEFAULT_PARAMS.setCols, setGap: DEFAULT_PARAMS.setGap } : base
+  const bases = f.setCols !== undefined || f.setGap !== undefined ? [base] : [fixedSet, continuousParams(base)]
   const azimuths = f.azimuth !== undefined ? [f.azimuth] : parcelAlignedAzimuths(o.parcel)
   const tilts = (list: number[]) => (f.tilt !== undefined ? [f.tilt] : list)
   for (const b of bases)
