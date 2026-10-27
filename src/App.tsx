@@ -1038,7 +1038,8 @@ export default function App() {
   }
 
   // 탐색은 수십 번의 배치·음영 계산이라 화면이 멈추지 않게 워커에서 돌린다.
-  const runOptimize = async () => {
+  /** base: 이번 계산의 기본설계 값. 설정 배치를 초기화하고 바로 돌릴 때는 아직 반영되지 않은 새 값을 넘긴다. */
+  const runOptimize = async (base: LayoutParams = params) => {
     if (!parcel) return
     const fixed = optMode === 'manual' ? cleanFixed(fixedShown) : null
     optRun?.cancel()
@@ -1062,7 +1063,7 @@ export default function App() {
     let site = { obstacles: siteObstacles, keepOut, switchboard: switchboardAt }
     let usedPad = padMove
     if (reservePad && padMove?.how !== 'manual') {
-      const r = await searchPad(withFixed(params, fixed), useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
+      const r = await searchPad(withFixed(base, fixed), useMask ? (t?.buildable.mask ?? null) : null).catch(() => null)
       if (activeRun.current !== pending) return
       if (r) {
         site = padSite(r.best.pad)
@@ -1079,7 +1080,7 @@ export default function App() {
     }
     const input: OptimizeInput = {
       parcel,
-      base: params,
+      base,
       fixed,
       ...site,
       performanceRatio,
@@ -1115,6 +1116,25 @@ export default function App() {
         }),
       (e: Error) => finish(() => setOptError(e.message)),
     )
+  }
+
+  // 설정 배치에서 넣은 값(지킬 값, 발전소 나누기)이 남아 있으면 자동 배치로 돌리기 전에 초기화할지 묻는다.
+  const manualLeft = fixedEdit !== null || !!params.plants?.length
+  const [confirmAutoReset, setConfirmAutoReset] = useState(false)
+  const requestOptimize = () => {
+    if (optMode === 'auto' && manualLeft) setConfirmAutoReset(true)
+    else void runOptimize()
+  }
+  const answerAutoReset = (yes: boolean) => {
+    setConfirmAutoReset(false)
+    if (!yes) return
+    const next = params.plants?.length ? { ...params, plants: undefined } : params
+    if (next !== params) {
+      if (!unlock()) return
+      setParams(next)
+    }
+    setFixedEdit(null)
+    void runOptimize(next)
   }
 
   const cancelOptimize = () => {
@@ -2334,7 +2354,10 @@ export default function App() {
         {tab === 'ai' && (
           <OptimizePanel
             mode={optMode}
-            onMode={setOptMode}
+            onMode={(m) => {
+              setOptMode(m)
+              setConfirmAutoReset(false)
+            }}
             fixed={fixedShown}
             fixedEdited={fixedEdit !== null}
             onFixed={setFixedEdit}
@@ -2348,7 +2371,9 @@ export default function App() {
             running={!!optRun}
             results={optResults}
             error={optError}
-            onRun={() => void runOptimize()}
+            onRun={requestOptimize}
+            confirmReset={confirmAutoReset && optMode === 'auto' ? { fixed: fixedEdit !== null, plants: !!params.plants?.length } : null}
+            onConfirmReset={answerAutoReset}
             onCancel={cancelOptimize}
             onApply={applyCandidate}
             current={design?.metrics ?? null}

@@ -42,6 +42,10 @@ interface Props {
   results: Candidate[] | null
   error: string | null
   onRun: () => void
+  /** 자동 배치로 돌리기 전에 설정 배치 값을 초기화할지 묻는 중이면, 남아 있는 항목 */
+  confirmReset?: { fixed: boolean; plants: boolean } | null
+  /** 예(초기화하고 자동 배치) / 아니오 */
+  onConfirmReset?: (yes: boolean) => void
   onCancel: () => void
   /** mode는 다시 배치할 때 쓸 배치 방식(AI 안이 고른 방식) */
   onApply: (params: LayoutParams, sets: ModuleSet[], mode?: 'grid' | ZoneMode) => void
@@ -306,6 +310,24 @@ export default function OptimizePanel(props: Props) {
               중단
             </button>
           </>
+        ) : props.confirmReset ? (
+          <div className="confirm-box" role="alertdialog" aria-labelledby="auto-reset-q">
+            <p id="auto-reset-q">
+              <strong>자동 배치로 다시 생성하면 이전 설정 배치 값은 초기화됩니다. 진행하시겠습니까?</strong>
+            </p>
+            <p className="hint">
+              초기화되는 것:{' '}
+              {[props.confirmReset.fixed && '설정 배치에서 넣은 지킬 값', props.confirmReset.plants && '발전소 나누기'].filter(Boolean).join(', ')}
+            </p>
+            <div className="confirm-actions">
+              <button type="button" onClick={() => props.onConfirmReset?.(true)}>
+                예
+              </button>
+              <button type="button" className="secondary" onClick={() => props.onConfirmReset?.(false)}>
+                아니오
+              </button>
+            </div>
+          </div>
         ) : (
           <button type="button" className="block" disabled={!props.canRun} onClick={props.onRun}>
             배치안 생성
