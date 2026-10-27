@@ -4,8 +4,9 @@ import { INVERTERS, RACKING } from './catalog'
 import { rowSpacingForNoShade } from './sun'
 import { stringRange, type ElecParams, type ElecResult } from './electrical'
 import type { DesignMetrics } from './design'
-import type { LayoutParams, LayoutStats, SetGeometry } from './layout'
+import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from './layout'
 import type { Parcel } from './parcel'
+import { arrayTable, currentChecks, stringPlan } from './stringPlan'
 
 export interface DocBlock {
   heading: string
@@ -16,6 +17,7 @@ export interface DocBlock {
 
 export interface DocInput {
   parcel: Parcel | null
+  sets: ModuleSet[]
   params: LayoutParams
   geometry: SetGeometry
   stats: LayoutStats
@@ -70,10 +72,35 @@ export function calcBlocks(d: DocInput): DocBlock[] {
         ['DC 케이블', `${e.dcCableMm2} ㎟, 스트링별 왕복 길이 합`, `${fmt(el.dcCableM)} m`],
         ['DC 저항 손실(정격)', `Σ I² × ρ × L ÷ A (ρ = 0.021 Ω·㎟/m)`, `${fmt(el.dcLossPct, 2)} %`],
         ['AC 케이블', `인버터 → 수배전반, 전압강하 3% 이내 규격`, `${fmt(el.acCableM)} m`],
-        ['AC 최대 전압강하', worst ? `인버터 ${worst.id + 1}: ${fmt(worst.acCableM)} m, ${worst.acCableMm2} ㎟` : '-', worst ? `${fmt(worst.acDropPct, 2)} %` : '-'],
+        ['AC 최대 전압강하', worst ? `INV-${worst.id}: ${fmt(worst.acCableM)} m, ${worst.acCableMm2} ㎟` : '-', worst ? `${fmt(worst.acDropPct, 2)} %` : '-'],
         ['AC 저항 손실(정격)', '인버터별 손실 합 ÷ AC 출력', `${fmt(el.acLossPct, 2)} %`],
       ],
     })
+    blocks.push({
+      heading: '4. 전류·보호기',
+      cols: ITEM,
+      rows: currentChecks(el, e).map((c) => [c.label, c.calc, c.value]),
+    })
+    if (d.parcel && d.sets.length) {
+      // 어레이 계산 시트처럼 인버터마다 어레이별 직렬 × 병렬 = 장수와 발전량, 인버터 합계
+      const rows: string[][] = []
+      for (const inv of arrayTable(stringPlan(d.parcel, d.sets, d.geometry, el), el, p.moduleWatt))
+        inv.rows.forEach((r, i) =>
+          rows.push([i === 0 ? `INV-${inv.inverter}` : '', r.arrays, `${r.series} × ${r.parallel}`, fmt(r.modules), fmt(r.kW, 2), i === 0 ? fmt(inv.kW, 2) : '']),
+        )
+      blocks.push({
+        heading: '5. 어레이 계산(인버터별 직렬 × 병렬)',
+        cols: [
+          ['인버터', 0.14],
+          ['어레이', 0.18],
+          ['직렬 × 병렬', 0.2],
+          ['계(장)', 0.14],
+          ['발전량(kW)', 0.16],
+          ['인버터 합계(kW)', 0.18],
+        ],
+        rows,
+      })
+    }
   }
   if (d.parcel) {
     const lat = LocalFrame.around(d.parcel.rings).lat0
