@@ -5,7 +5,8 @@ import { useEffect, useMemo } from 'react'
 import SideElevation from './SideElevation'
 import { DcWiringSheet, FrontElevation, InverterOutline, ModuleOutline, SimpleSection } from './DetailDrawings'
 import { LocalFrame, type Vec } from '../lib/geo'
-import { setbackRings, setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { moduleQuadsLonLat, setbackRings, setMixText, setQuadLonLat, type LayoutParams, type LayoutStats, type ModuleSet, type SetGeometry } from '../lib/layout'
+import { inverterGroups, stringPlan, voltageChecks } from '../lib/stringPlan'
 import type { Parcel } from '../lib/parcel'
 import type { Obstacle } from '../lib/shading'
 import type { ElecParams, ElecResult } from '../lib/electrical'
@@ -280,6 +281,10 @@ function DocTables({ title, blocks, area, empty }: { title: string; blocks: DocB
 /** 도면 본문. 축척(없으면 null)과 그림을 돌려준다. */
 function useBody(def: SheetDef, paper: Paper, data: SheetData) {
   const plan = usePlan(data)
+  const strings = useMemo(
+    () => (def.id === 'string-plan' && data.parcel && data.elec && data.sets.length ? stringPlan(data.parcel, data.sets, data.geometry, data.elec) : null),
+    [def.id, data.parcel, data.sets, data.geometry, data.elec],
+  )
   const full = drawArea(paper)
   const withSummary = drawArea(paper, SUMMARY_H + 4)
   const { w: pw, h: ph } = PAPER[paper]
@@ -356,7 +361,7 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
               {s.title}
             </text>
             <text x={tx + tw - 20} y={y + 3.8} textAnchor="middle">
-              {['site-plan', 'array-plan', 'inverter-plan', 'grading', 'slope'].includes(s.id) ? '축척 표기' : 'NONE'}
+              {['site-plan', 'array-plan', 'string-plan', 'inverter-plan', 'grading', 'slope'].includes(s.id) ? '축척 표기' : 'NONE'}
             </text>
           </g>,
         )
@@ -587,6 +592,241 @@ function useBody(def: SheetDef, paper: Paper, data: SheetData) {
       const props = { params: data.params, geometry: data.geometry, lat: 36.5, elec: data.elec, elecParams: data.elecParams }
       const C = { front: FrontElevation, section: SimpleSection, module: ModuleOutline, inverter: InverterOutline }[def.id]
       return { scale: null, body: embed(<C {...props} />) }
+    }
+    case 'string-plan': {
+      const elec = data.elec
+      if (!plan || !elec || !strings) return { scale: null, body: emptyMsg('세트를 배치하면 스트링 구성도를 그립니다.') }
+      const panelW = paper === 'A3' ? 86 : 74
+      const area = { x: full.x, y: full.y, w: full.w - panelW - 4, h: full.h }
+      const t = planTransform(plan, area)
+      const totalMods = data.stats.modules
+      // 모듈이 너무 많으면 한 장씩 그리지 않고 세트 테두리만 그린다.
+      const drawModules = totalMods <= 6000
+      const modulePx = data.geometry.along * t.k
+      const term = Math.min(1.1, Math.max(0.35, modulePx * 0.42))
+      const labelR = Math.min(2.4, Math.max(1.1, (data.geometry.depth * t.k) / 3))
+      const color = (inv: number) => GROUP_COLORS[inv % GROUP_COLORS.length]
+      const line = (pts: Vec[]) => pts.map((v) => t.P(v).join(',')).join(' ')
+      const groups = inverterGroups(elec)
+      const checks = voltageChecks(elec, data.elecParams)
+      const e = data.elecParams
+      const px = area.x + area.w + 4
+      const rowH = 5.2
+      let y = area.y + 4
+      const panel: React.ReactNode[] = []
+      panel.push(
+        <text key="h1" x={px + panelW / 2} y={y} textAnchor="middle" className="sh-h">
+          STRING 구성
+        </text>,
+      )
+      y += 2.5
+      const shown = groups.slice(0, 9)
+      shown.forEach((gr, i) => {
+        const name = gr.from === gr.to ? `INVERTER #${gr.from}` : `INVERTER #${gr.from}~${gr.to}`
+        panel.push(
+          <g key={`g${i}`}>
+            <rect x={px} y={y} width={panelW * 0.48} height={rowH} className="cell" />
+            <rect x={px + panelW * 0.48} y={y} width={panelW * 0.52} height={rowH} className="cell" />
+            <line x1={px + 1.2} x2={px + 4.2} y1={y + rowH / 2} y2={y + rowH / 2} stroke={color(gr.from - 1)} strokeWidth={0.8} />
+            <text x={px + 5.4} y={y + 3.5}>
+              {name}
+            </text>
+            <text x={px + panelW * 0.48 + 1.5} y={y + 3.5}>
+              {`${gr.series}직렬 × ${gr.parallel}병렬`}
+            </text>
+          </g>,
+        )
+        y += rowH
+      })
+      if (groups.length > shown.length) {
+        panel.push(
+          <text key="more" x={px} y={y + 3} className="sh-label">
+            {`외 인버터 ${elec.inverters.length - shown.reduce((n, gr) => n + gr.to - gr.from + 1, 0)}대`}
+          </text>,
+        )
+        y += 4
+      }
+      y += 4
+      panel.push(
+        <text key="h2" x={px} y={y} className="sh-h">
+          ■ 직렬 장수 전압 검토
+        </text>,
+      )
+      y += 4
+      const info = [
+        `모듈 Voc ${fmt(e.voc, 2)} V · Vmp ${fmt(e.vmp, 2)} V · 온도계수 ${fmt(e.betaVoc, 2)} %/°C`,
+        `인버터 최대 입력 ${fmt(e.maxDcV)} V · MPPT ${fmt(e.mpptMinV)}~${fmt(e.mpptMaxV)} V`,
+      ]
+      for (const s2 of info) {
+        panel.push(
+          <text key={s2} x={px} y={y} className="sh-label">
+            {s2}
+          </text>,
+        )
+        y += 3.6
+      }
+      y += 1
+      checks.forEach((c, i) => {
+        panel.push(
+          <g key={`c${i}`}>
+            <text x={px} y={y} className="sh-k">
+              {c.label}
+            </text>
+            <text x={px + panelW} y={y} textAnchor="end" className={c.ok ? 'sh-ok' : 'sh-ng'}>
+              {c.ok ? '적합' : '부적합'}
+            </text>
+            <text x={px} y={y + 3.4} className="sh-label">
+              {c.calc}
+            </text>
+          </g>,
+        )
+        y += 8
+      })
+      panel.push(
+        <text key="range" x={px} y={y} className="sh-v">
+          {elec.minLen <= elec.maxLen ? `직렬 가능 범위 ${elec.minLen}~${elec.maxLen}장 → ${elec.stringLen}장 적용` : `직렬 가능 범위 없음 (최소 ${elec.minLen}장 > 최대 ${elec.maxLen}장)`}
+        </text>,
+      )
+      y += 4
+      panel.push(
+        <text key="sum" x={px} y={y} className="sh-label">
+          {`스트링 ${fmt(elec.strings.length)}개 · 인버터 ${elec.inverters.length}대${elec.unusedModules ? ` · 미연결 모듈 ${elec.unusedModules}장` : ''}`}
+        </text>,
+      )
+      y += 7
+      // 병렬 결선 개략: 첫 인버터 구성대로 스트링을 +/− 모선에 묶어 인버터로 넣는다.
+      const par = Math.min(6, groups[0]?.parallel ?? 0)
+      if (par > 0 && y + par * 5 + 10 < area.y + area.h) {
+        const bx = px + 2
+        const bw = 18
+        const busP = bx + bw + 8
+        const busN = busP + 4
+        const top = y
+        panel.push(
+          <text key="h3" x={px} y={y - 2} className="sh-k">
+            {`결선 개략 (INVERTER #${groups[0].from})`}
+          </text>,
+        )
+        for (let i = 0; i < par; i++) {
+          const yy = top + 1 + i * 5
+          panel.push(
+            <g key={`s${i}`} className="sh-wire">
+              <rect x={bx} y={yy} width={bw} height={3.4} />
+              <text x={bx + bw / 2} y={yy + 2.5} textAnchor="middle" className="sh-label">
+                {`S${i + 1} · ${elec.stringLen}장`}
+              </text>
+              <line x1={bx + bw} x2={busP} y1={yy + 1} y2={yy + 1} />
+              <line x1={bx + bw} x2={busN} y1={yy + 2.4} y2={yy + 2.4} />
+            </g>,
+          )
+        }
+        const bottom = top + 1 + (par - 1) * 5 + 2.4
+        const invY = bottom + 5
+        panel.push(
+          <g key="bus" className="sh-wire">
+            <line x1={busP} x2={busP} y1={top + 1} y2={invY} />
+            <line x1={busN} x2={busN} y1={top + 3.4} y2={invY} />
+            <text x={busP} y={top - 0.2} textAnchor="middle" className="sh-label">
+              +
+            </text>
+            <text x={busN} y={top - 0.2} textAnchor="middle" className="sh-label">
+              −
+            </text>
+            <rect x={busP - 4} y={invY} width={12} height={5} />
+            <text x={busP + 2} y={invY + 3.4} textAnchor="middle" className="sh-label">
+              INV
+            </text>
+          </g>,
+        )
+        if ((groups[0]?.parallel ?? 0) > par)
+          panel.push(
+            <text key="parmore" x={bx} y={invY + 3.4} className="sh-label">
+              {`외 ${groups[0].parallel - par}개 병렬`}
+            </text>,
+          )
+      }
+      return {
+        scale: t.scale,
+        body: (
+          <g>
+            {plan.rings.map((r, i) => (
+              <polygon key={`p${i}`} points={t.pts(r)} className="sh-parcel" />
+            ))}
+            {plan.setback.map((r, i) => (
+              <polygon key={`b${i}`} points={t.pts(r)} className="sh-setback" />
+            ))}
+            {plan.obstacles.map((o, i) => (
+              <polygon key={`o${i}`} points={t.pts(o.q)} className="sh-obstacle" />
+            ))}
+            {drawModules
+              ? data.sets.flatMap((st) =>
+                  moduleQuadsLonLat(st, data.params, data.geometry).map((q, i) => (
+                    <polygon key={`${st.id}-${i}`} points={t.pts(q.map((c) => plan.frame.toLocal(c) as Vec))} className="sh-module thin" />
+                  )),
+                )
+              : plan.sets.map((st) => <polygon key={st.id} points={t.pts(st.q)} className="sh-set ghost" />)}
+            {strings.paths.map((sp) => (
+              <g key={`st${sp.id}`} className="sh-string" style={{ stroke: color(sp.inverter) }}>
+                {sp.pieces.map((pc, i) => (
+                  <polyline key={i} points={line(pc)} />
+                ))}
+                {sp.pieces.slice(1).map((pc, i) => (
+                  <polyline key={`j${i}`} points={line([sp.pieces[i].at(-1)!, pc[0]])} className="jump" />
+                ))}
+              </g>
+            ))}
+            {strings.paths.map((sp) =>
+              (
+                [
+                  [sp.plus, '+'],
+                  [sp.minus, '−'],
+                ] as const
+              ).map(([v, sign]) => {
+                const [x, yy] = t.P(v)
+                return (
+                  <g key={`t${sp.id}${sign}`} className="sh-term">
+                    <circle cx={x} cy={yy} r={term} />
+                    <text x={x} y={yy + term * 0.55} textAnchor="middle" style={{ fontSize: `${term * 1.6}px` }}>
+                      {sign}
+                    </text>
+                  </g>
+                )
+              }),
+            )}
+            {strings.arrays.map((a) => {
+              const [x, yy] = t.P(a.anchor)
+              const cx = x + a.outward[0] * (labelR + 1)
+              const cy = yy - a.outward[1] * (labelR + 1)
+              return (
+                <g key={`a${a.no}`} className="sh-array-no">
+                  <circle cx={cx} cy={cy} r={labelR} />
+                  <text x={cx} y={cy + labelR * 0.4} textAnchor="middle" style={{ fontSize: `${labelR * (a.no >= 100 ? 0.95 : 1.15)}px` }}>
+                    {a.no}
+                  </text>
+                </g>
+              )
+            })}
+            {plan.inverters.map((v) => {
+              const [x, yy] = t.P(v.p)
+              return (
+                <g key={`i${v.id}`}>
+                  <rect x={x - 1.6} y={yy - 1.2} width={3.2} height={2.4} className="sh-inv" />
+                  <text x={x + 2.2} y={yy - 1.4} className="sh-label">
+                    INV-{v.id}
+                  </text>
+                </g>
+              )
+            })}
+            <g className="sh-table">{panel}</g>
+            <line x1={px - 2} x2={px - 2} y1={area.y} y2={area.y + area.h} className="sh-divider" />
+            <North x={area.x + area.w - 8} y={area.y + 9} />
+            <ScaleBar x={area.x + 4} y={area.y + area.h - 3} scale={t.scale} />
+            <text x={area.x + 4} y={area.y + area.h - 7} className="sh-label">
+              {`어레이 ${strings.arrays.length}개 · 선 색은 인버터별, 점선은 열을 건너는 연결선${drawModules ? '' : ' · 모듈이 많아 세트 테두리만 그림'}`}
+            </text>
+          </g>
+        ),
+      }
     }
     case 'dc': {
       if (!data.elec || !data.elec.inverters.length) return { scale: null, body: emptyMsg('세트를 배치하면 스트링 구성으로 DC 결선도를 그립니다.') }

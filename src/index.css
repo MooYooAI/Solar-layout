@@ -1325,3 +1325,15 @@ button.block:not(.secondary) { border-radius: 999px; box-shadow: 0 6px 18px oklc
 .fix-group { margin-top: 4px; padding-top: 2px; }
 .fix-group h3.sub { margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .fix-group > .field + .field, .fix-group > .field + .grid2, .fix-group > .grid2 + .field, .fix-group > .hint + .field { margin-top: 10px; }
+.sh-module.thin { stroke-width: 0.08; fill: #fff; stroke: #495057; }
+.sh-string { fill: none; stroke-width: 0.45; stroke-linejoin: round; stroke-linecap: round; }
+.sh-string .jump { stroke-dasharray: 0.9 0.6; stroke-width: 0.3; }
+.sh-term circle { fill: #fff; stroke: #1d2330; stroke-width: 0.18; }
+.sh-term text { font-weight: 700; fill: #1d2330; }
+.sh-array-no circle { fill: #fff; stroke: #1d2330; stroke-width: 0.25; }
+.sh-array-no text { font-weight: 700; fill: #1d2330; }
+.sh-wire rect { fill: #fff; stroke: #1d2330; stroke-width: 0.2; }
+.sh-wire line { stroke: #1d2330; stroke-width: 0.25; }
+.sh-divider { stroke: #adb5bd; stroke-width: 0.15; }
+.sh-ok { font-size: 2.2px !important; font-weight: 700; fill: #2b8a3e !important; }
+.sh-ng { font-size: 2.2px !important; font-weight: 700; fill: #c92a2a !important; }
