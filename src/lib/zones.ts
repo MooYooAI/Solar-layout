@@ -131,22 +131,23 @@ function zonedPlanner(parcel: Parcel, base: LayoutParams, o: Omit<ZonedOptions, 
   // 큰 구역부터 채워야 작은 구역이 큰 구역 자리를 먼저 차지하지 않는다.
   const order = o.mode === 'fill' ? [] : zoneOrder(parcel, zones)
   const centre = (q: Vec[]): Vec => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2]
-  type Placed = { sets: ModuleSet[]; occupied: Occupancy }
+  type Placed = { sets: ModuleSet[]; occupied: Occupancy; rowOffset: number }
   const place = (into: Placed, azimuth: number, accept?: (q: Vec[]) => boolean, rowOffset = 0) => {
     // 열 이격거리는 기준과 같게 둔다. 돌린 구역에 생기는 아침·저녁 그늘은 발전량 계산이 잰다.
     const params = { ...base, azimuth }
     into.sets.push(...fillLayout(parcel, params, { rowOffset, mask: o.mask, accept, occupied: into.occupied, keepOut: o.keepOut }))
   }
   const main = (rowOffset: number): Placed => {
-    const r: Placed = { sets: [], occupied: new Occupancy() }
+    const r: Placed = { sets: [], occupied: new Occupancy(), rowOffset }
     if (o.mode === 'fill') place(r, base.azimuth, undefined, rowOffset)
     else for (const az of order) place(r, zoneAz(az), (q) => zones.zoneOf(centre(q)) === az, rowOffset)
     return r
   }
   const finish = (r: Placed): ModuleSet[] | null => {
     const before = r.sets.length
-    // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다.
-    for (const az of new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])) place(r, az)
+    // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다. 첫 열 위치를 앞 단계와 같게 두어야 같은 방향 세트가
+    // 기존 열 줄에 맞춰 들어간다(다르면 열 끝 빈자리에 열 사이로 어긋난 세트가 끼어든다).
+    for (const az of new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])) place(r, az, undefined, r.rowOffset)
     if (!r.sets.length) return null
     if (o.mode === 'fill' && r.sets.length === before) return null
     return r.sets
