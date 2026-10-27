@@ -10,6 +10,7 @@ export type SheetId =
   | 'front'
   | 'section'
   | 'sld'
+  | 'string-plan'
   | 'dc'
   | 'inverter-plan'
   | 'module'
@@ -39,10 +40,11 @@ export const SHEETS: SheetDef[] = [
   { id: 'front', no: '006', title: '구조물 정면도', group: '구조물' },
   { id: 'section', no: '007', title: '구조물 간이 단면도', group: '구조물' },
   { id: 'sld', no: '008', title: '발전설비 단선결선도', group: '전기' },
-  { id: 'dc', no: '009', title: 'DC 결선도', group: '전기' },
-  { id: 'inverter-plan', no: '010', title: '인버터 구획 평면도', group: '전기' },
-  { id: 'module', no: '011', title: '모듈 외형도', group: '제품' },
-  { id: 'inverter', no: '012', title: '인버터 외형도', group: '제품' },
+  { id: 'string-plan', no: '009', title: '스트링 구성도', group: '전기' },
+  { id: 'dc', no: '010', title: 'DC 결선도', group: '전기' },
+  { id: 'inverter-plan', no: '011', title: '인버터 구획 평면도', group: '전기' },
+  { id: 'module', no: '012', title: '모듈 외형도', group: '제품' },
+  { id: 'inverter', no: '013', title: '인버터 외형도', group: '제품' },
   { id: 'grading', no: 'C01', title: '절·성토 계획 평면도', group: '토목' },
   { id: 'slope', no: 'C02', title: '경사 분석도', group: '토목' },
   { id: 'calc', no: 'D01', title: '설계계산서', group: '문서' },
@@ -62,7 +64,7 @@ export const BUNDLES: Array<{ key: string; label: string; detail: string; ids: S
     key: 'build',
     label: '시공용',
     detail: '현장 시공에 쓰는 상세도·결선도와 계산서·자재목록·물량',
-    ids: ['cover', 'index', 'site-plan', 'array-plan', 'set-plan', 'side', 'front', 'section', 'sld', 'dc', 'inverter-plan', 'grading', 'calc', 'bom', 'quantity'],
+    ids: ['cover', 'index', 'site-plan', 'array-plan', 'set-plan', 'side', 'front', 'section', 'sld', 'string-plan', 'dc', 'inverter-plan', 'grading', 'calc', 'bom', 'quantity'],
   },
   { key: 'all', label: '전체', detail: '모든 도면과 문서', ids: SHEETS.map((s) => s.id) },
 ]

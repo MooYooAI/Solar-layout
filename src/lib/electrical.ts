@@ -132,6 +132,25 @@ export function stringRange(e: ElecParams) {
   return { vocCold, vmpHot, minLen, maxLen }
 }
 
+/**
+ * 스트링을 잇는 세트 순서. 세트 방향 좌표계(+x 열 방향, +y 뒤쪽)로 돌려 열을 묶고(방위각이 섞이면 방위각마다 따로),
+ * 앞 열부터 열마다 방향을 바꿔(뱀 모양) 잇는다. row는 세트 방향 좌표, line은 열 번호, dir은 그 열에서 나아가는 x 방향.
+ */
+export function stringOrder(frame: LocalFrame, sets: ModuleSet[], g: SetGeometry) {
+  const items = sets.map((s) => {
+    const local = frame.toLocal([s.lon, s.lat])
+    return { s, local, row: rotate(local, deg2rad(s.azimuth)) }
+  })
+  items.sort((a, b) => a.s.azimuth - b.s.azimuth || a.row[1] - b.row[1])
+  const rows: (typeof items)[] = []
+  for (const it of items) {
+    const last = rows.at(-1)
+    if (last && last[0].s.azimuth === it.s.azimuth && Math.abs(it.row[1] - last[0].row[1]) < g.depth / 2) last.push(it)
+    else rows.push([it])
+  }
+  return rows.flatMap((row, i) => row.sort((a, b) => (i % 2 ? b.row[0] - a.row[0] : a.row[0] - b.row[0])).map((it) => ({ ...it, line: i, dir: i % 2 ? -1 : 1 })))
+}
+
 export function designElectrical(
   parcel: Parcel,
   sets: ModuleSet[],
@@ -183,24 +202,13 @@ export function designElectrical(
   if (kWac >= 1000 && e.inverterKW < 100)
     warnings.push('1MW 이상 부지는 대용량 인버터(예: 300kW, 800V)를 쓰면 대수와 AC 케이블이 크게 줄어듭니다.')
 
-  // 세트 방향 좌표계(+x 열 방향, +y 뒤쪽)로 돌려 열을 묶는다. 방위각이 섞인 배치는 방위각마다 따로 묶는다.
   const frame = LocalFrame.around(parcel.rings)
   // 케이블 경로는 기준 방위각 좌표계에서 꺾는다.
   const r = -deg2rad(p.azimuth)
   const toRow = (v: Vec) => rotate(v, -r)
   const fromRow = (v: Vec) => rotate(v, r)
-  const items = sets.map((s) => {
-    const local = frame.toLocal([s.lon, s.lat])
-    return { s, local, row: rotate(local, deg2rad(s.azimuth)) }
-  })
-  items.sort((a, b) => a.s.azimuth - b.s.azimuth || a.row[1] - b.row[1])
-  const rows: (typeof items)[] = []
-  for (const it of items) {
-    const last = rows.at(-1)
-    if (last && last[0].s.azimuth === it.s.azimuth && Math.abs(it.row[1] - last[0].row[1]) < g.depth / 2) last.push(it)
-    else rows.push([it])
-  }
-  const ordered = rows.flatMap((row, i) => row.sort((a, b) => (i % 2 ? b.row[0] - a.row[0] : a.row[0] - b.row[0])))
+  const ordered = stringOrder(frame, sets, g)
+  const items = ordered
 
   // 모듈을 순서대로 스트링 길이만큼 잘라 스트링을 만든다.
   const strings: StringInfo[] = []
