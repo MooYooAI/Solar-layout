@@ -6,6 +6,7 @@ import { findModule, INVERTERS, moduleName, RACKING, type ModuleSpec, type Racki
 import ModuleSelect from './ModuleSelect'
 import NumberInput from './NumberInput'
 import { azimuthMix, type ZoneMode } from '../lib/zones'
+import { expandPlants, plantSummary, type PlantSpec } from '../lib/plants'
 
 /** 비교 목록에 저장한 배치안 */
 export interface Scenario {
@@ -113,6 +114,12 @@ export default function OptimizePanel(props: Props) {
   // 값이 들어 있으면 그 칸을 보여 주고, 둘 다 비었으면(AI가 찾음) 마지막으로 고른 쪽
   const spacingBy = f.pitch !== undefined ? 'pitch' : f.rowSpacing !== undefined ? 'gap' : spacingPick
   const depth = setGeometry(withFixed(p, { ...f, rowSpacing: undefined, pitch: undefined })).depth
+  // 발전소 나누기(기본설계 값과 같이 바뀜)
+  const plants = p.plants ?? []
+  const setPlant = (i: number, patch: Partial<PlantSpec>) => setP('plants')(plants.map((pl, j) => (j === i ? { ...pl, ...patch } : pl)))
+  const expanded = expandPlants(plants)
+  const plantCount = expanded.length
+  const plantTotal = expanded.reduce((a, pl) => a + pl.kw, 0)
   const switchSpacing = (by: 'gap' | 'pitch') => {
     if (by === spacingBy) return
     setSpacingBy(by)
@@ -249,6 +256,39 @@ export default function OptimizePanel(props: Props) {
                 {spacingBy === 'pitch' && f.pitch !== undefined && (f.tilt !== undefined ? ` 이격거리로는 ${fmt(Math.max(0, f.pitch - depth), 2)} m입니다.` : ' 경사각을 AI가 찾으면 경사각마다 이격거리를 다시 맞춥니다.')}
               </p>
             </div>
+            <div className="fix-group">
+              <h3 className="sub">발전소 나누기</h3>
+              {plants.length > 0 && (
+                <div className="plant-rows">
+                  <div className="plant-row head">
+                    <span>용량(kW)</span>
+                    <span>개수</span>
+                    <span>간격(m)</span>
+                    <span />
+                  </div>
+                  {plants.map((pl, i) => (
+                    <div className="plant-row" key={i}>
+                      <NumberInput value={pl.kw} min={1} step={10} onValue={(v) => setPlant(i, { kw: v })} aria-label={`${i + 1}번째 줄 용량(kW)`} />
+                      <NumberInput value={pl.count} min={1} step={1} onValue={(v) => setPlant(i, { count: Math.max(1, Math.round(v)) })} aria-label={`${i + 1}번째 줄 개수`} />
+                      <NumberInput value={pl.gap} min={0} step={0.5} onValue={(v) => setPlant(i, { gap: v })} aria-label={`${i + 1}번째 줄 간격(m)`} />
+                      <button type="button" className="link" onClick={() => setP('plants')(plants.filter((_, j) => j !== i))} aria-label={`${i + 1}번째 줄 지우기`}>
+                        지우기
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" className="secondary" onClick={() => setP('plants')([...plants, { kw: 100, count: 1, gap: plants.at(-1)?.gap ?? 3 }])}>
+                + 발전소 추가
+              </button>
+              <p className="hint">
+                {plants.length
+                  ? `발전소 ${fmt(plantCount)}개, 합계 ${fmt(plantTotal)} kW로 나눕니다. `
+                  : '한 부지를 여러 사업자가 나눠 쓸 때 씁니다. 예: 500 kW 1개와 100 kW 5개. '}
+                용량은 발전소마다 넘지 않을 모듈 용량(DC)이고, 간격은 이웃 발전소 세트와 띄울 거리입니다(두 발전소 간격 중 큰 값). 한쪽 끝부터 발전소를 차례로
+                채우고, 부지가 모자라면 뒤쪽 발전소가 작아집니다. 기본설계 배치에도 같이 적용됩니다.
+              </p>
+            </div>
           </>
         )}
         <ul className="hint checklist">
@@ -256,6 +296,7 @@ export default function OptimizePanel(props: Props) {
           <li>{props.hasGrid ? '배치마다 세트 자리 토공량을 계산합니다.' : '지형을 불러오지 않아 토공량은 빠집니다.'}</li>
           <li>모듈은 기본설계에서 고른 모듈로 계산하고, 인버터는 안마다 용량에 맞춰 고릅니다(목표 DC/AC {fmt(props.dcAcRatio, 2)}).</li>
           {props.padNote && <li>{props.padNote}</li>}
+          {plants.length > 0 && <li>{`발전소 ${fmt(plantCount)}개(합계 ${fmt(plantTotal)} kW)로 나눕니다. 설정 배치 탭에서 바꿉니다.`}</li>}
         </ul>
         {props.running ? (
           <>
@@ -315,6 +356,16 @@ export default function OptimizePanel(props: Props) {
             <dd>
               {inverterLabel(c.inverterId)} × {fmt(c.metrics.inverters)}대
             </dd>
+            {c.params.plants?.length ? (
+              <>
+                <dt>발전소</dt>
+                <dd>
+                  {plantSummary(c.sets, setGeometry(c.params), c.params)
+                    .map((r) => `${r.plant + 1}번 ${fmt(r.kWp, 1)}/${fmt(r.target)} kW`)
+                    .join(' · ')}
+                </dd>
+              </>
+            ) : null}
             <dt>세트 구성</dt>
             <dd>
               {isContinuous(c.params)

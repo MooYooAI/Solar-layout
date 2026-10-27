@@ -7,6 +7,7 @@
 import type { BuildMask } from './buildable'
 import { LocalFrame, pointInRing, rad2deg, type Vec } from './geo'
 import { autoLayout, fillLayout, Occupancy, setGeometry, totalModules, type LayoutParams, type ModuleSet } from './layout'
+import { splitPlants } from './plants'
 import type { Parcel } from './parcel'
 
 export type ZoneMode = 'edge' | 'half' | 'fill'
@@ -171,6 +172,13 @@ export interface PlaceOptions {
  * 모듈이 같거나 더 많이 들어가면 그 한 방향 배치를 돌려준다(azimuth에 그 방위각). 꺾인 필지에서 쓸데없이 꺾는 것을 막는다.
  */
 export function placeLayout(parcel: Parcel, p: LayoutParams, o: PlaceOptions): { sets: ModuleSet[]; rowOffset: number; azimuth?: number } | null {
+  const r = placeAll(parcel, p, o)
+  // 발전소를 나눴으면 깐 세트를 발전소별 용량·간격대로 자른다.
+  if (!r || !p.plants?.length) return r
+  return { ...r, sets: splitPlants(parcel, r.sets, r.azimuth !== undefined ? { ...p, azimuth: r.azimuth } : p, setGeometry(p)) }
+}
+
+function placeAll(parcel: Parcel, p: LayoutParams, o: PlaceOptions): { sets: ModuleSet[]; rowOffset: number; azimuth?: number } | null {
   const offsets = rowOffsets(parcel, p)
   const grid = (q: LayoutParams) => {
     let best = { sets: [] as ModuleSet[], rowOffset: 0 }

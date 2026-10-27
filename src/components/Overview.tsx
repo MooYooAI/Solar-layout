@@ -6,6 +6,7 @@ import type { EnergyResult } from '../lib/energy'
 import type { ElecParams, ElecResult } from '../lib/electrical'
 import { findModule, INVERTERS, moduleName, RACKING } from '../lib/catalog'
 import { evaluate } from '../lib/economics'
+import { plantName } from '../lib/plants'
 import type { EconSettings } from './EconomicsPanel'
 
 export interface OverviewStep {
@@ -26,6 +27,8 @@ interface Props {
   elecParams: ElecParams
   /** 비워 둔 수배전반·전기실 자리 이름. 자리를 비우지 않으면 null */
   padLabel: string | null
+  /** 발전소를 나눴으면 발전소별 목표·용량 */
+  plants: Array<{ plant: number; target: number; kWp: number }>
   econ: EconSettings
   econHours: number
   steps: OverviewStep[]
@@ -115,6 +118,18 @@ export default function Overview(props: Props) {
             </dd>
             <dt>세트</dt>
             <dd>{isContinuous(p) ? `연속 배열 (${p.setCols}열 × ${p.setRows}단 단위)` : stats.mix.length > 1 ? setMixText(stats, p) : `${p.setCols}열 × ${p.setRows}단 × ${fmt(stats.sets)}세트`}</dd>
+            {props.plants.length > 0 && (
+              <>
+                <dt>발전소</dt>
+                <dd>
+                  {props.plants.map((r) => (
+                    <span key={r.plant} className="ov-plant">
+                      {`${plantName(r.plant)} ${fmt(r.kWp, 1)} / ${fmt(r.target)} kW`}
+                    </span>
+                  ))}
+                </dd>
+              </>
+            )}
             <dt>구조물</dt>
             <dd>{RACKING[p.racking].label}</dd>
             <dt>경사·방위</dt>

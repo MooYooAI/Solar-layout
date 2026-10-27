@@ -3,6 +3,7 @@ import type { Parcel } from './parcel'
 import polygonClipping, { type Polygon as PcPolygon } from 'polygon-clipping'
 import { blockedAt, type BuildMask } from './buildable'
 import type { RackingType } from './catalog'
+import type { PlantSpec } from './plants'
 
 export interface LayoutParams {
   /** 모듈 긴 변(mm) */
@@ -35,6 +36,8 @@ export interface LayoutParams {
   groundClearance: number
   /** 구조물(래킹) 방식: 지형 허용 경사와 토공, 구조물 단가가 달라진다 */
   racking: RackingType
+  /** 발전소 나누기: 한 부지를 여러 발전소로 쪼갤 때 용량·개수·간격. 없으면 한 발전소 */
+  plants?: PlantSpec[]
 }
 
 /** 한 변의 경계 이격. 변은 가운데 점(경위도)으로 찾아 필지 링 순서가 바뀌어도 같은 변에 붙는다. */
@@ -133,6 +136,8 @@ export interface ModuleSet {
   azimuth: number
   /** 이 세트만 가로 장수를 따로 정했으면 그 장수. 없으면 배치 설정(setCols)을 따른다. */
   cols?: number
+  /** 발전소를 나눴으면 몇 번째 발전소인지(0부터, plants를 펼친 순서) */
+  plant?: number
 }
 
 export interface SetGeometry {

@@ -4,6 +4,7 @@ import Plan3D from './Plan3D'
 import ZoomFrame from './ZoomFrame'
 import DetailDrawings from './DetailDrawings'
 import Overview, { type OverviewStep } from './Overview'
+import { plantSummary } from '../lib/plants'
 import { LocalFrame } from '../lib/geo'
 import type { LayoutParams, LayoutStats, ModuleSet, SetGeometry } from '../lib/layout'
 import type { Parcel } from '../lib/parcel'
@@ -118,6 +119,7 @@ export default function SidePanel(props: Props) {
           elec={props.elec}
           elecParams={props.elecParams}
           padLabel={props.padLabel}
+          plants={plantSummary(props.sets, props.geometry, props.params)}
           econ={props.econ}
           econHours={props.econHours}
           steps={props.steps}
