@@ -609,7 +609,8 @@ export default function MapView(props: Props) {
               // 반경: 가운데를 찍고 끝점을 찍는다. 지도 투영(메르카토르)의 원은 실제 거리와 어긋나므로 지표 거리로 원을 만든다.
               source: measureSource.current,
               type: 'Circle',
-              style: measureStyle,
+              // 그리는 동안 OpenLayers가 원 둘레를 따로 선(LineString)으로 덧그린다. 그 선에 거리 글씨가 붙지 않게 숨긴다.
+              style: (f) => (f.getGeometry() instanceof LineString ? [] : measureStyle(f)),
               geometryFunction: (coords, geom) => {
                 const [c, e] = coords as number[][]
                 const r = getDistance(toLonLat(c), toLonLat(e))
