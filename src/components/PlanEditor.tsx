@@ -23,6 +23,8 @@ interface Props {
   readOnly?: boolean
   /** 전기실(장애물 id 'equip-pad')을 끌어 놓은 자리(함체 가운데) */
   onPadMove?: (lon: number, lat: number) => void
+  /** 바뀌면 잰 선·원을 지운다 */
+  clearMeasuresSeq?: number
 }
 
 const PAD_ID = 'equip-pad'
@@ -36,9 +38,16 @@ type Drag =
   | { kind: 'box'; start: Vec; end: Vec }
   | { kind: 'pad'; start: Vec; d: Vec }
 
+/** 자: 거리(꺾은선)와 반경(가운데·끝점) */
+type Measure = { kind: 'line'; pts: Vec[] } | { kind: 'circle'; c: Vec; e: Vec }
+const fmtLen = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(1)} m`)
+const fmtArea = (a: number) => `${Math.round(a).toLocaleString('ko-KR')} ㎡ (${Math.round(a / 3.305785).toLocaleString('ko-KR')} 평)`
+const dist = (a: Vec, b: Vec) => Math.hypot(a[0] - b[0], a[1] - b[1])
+
 /**
  * 지도 타일 없이 필지·세트를 미터 단위로 그린 편집용 배치도.
  * 세트를 끌어 옮기고, Ctrl+클릭·Ctrl+드래그로 여러 개 고르고, 화살표 키로 미세 이동한다. 휠로 확대, 빈 곳을 끌면 화면 이동.
+ * 자(measureLine·measureCircle)를 고르면 클릭으로 점을 찍어 거리·반경을 잰다. 끌면 여전히 화면 이동이다.
  */
 export default function PlanEditor(props: Props) {
   const { parcel, sets, geometry, selected } = props
@@ -53,6 +62,22 @@ export default function PlanEditor(props: Props) {
   const setZoom = (f: (z: number) => number) => setViewState({ parcel, zoom: f(zoom), center })
   const setCenter = (c: Vec | null) => setViewState((v) => ({ parcel, zoom: v.parcel === parcel ? v.zoom : 1, center: c }))
   const [drag, setDrag] = useState<Drag | null>(null)
+  const measuring = props.tool === 'measureLine' || props.tool === 'measureCircle'
+  const [measures, setMeasures] = useState<Measure[]>([])
+  const [draft, setDraft] = useState<Measure | null>(null)
+  const [hover, setHover] = useState<Vec | null>(null)
+  // 지우기를 누르면 잰 것을 모두 지우고, 다른 도구로 바꾸면 그리던 것만 버린다.
+  const [clearSeen, setClearSeen] = useState(props.clearMeasuresSeq)
+  if (clearSeen !== props.clearMeasuresSeq) {
+    setClearSeen(props.clearMeasuresSeq)
+    setMeasures([])
+    setDraft(null)
+  }
+  const [toolSeen, setToolSeen] = useState(props.tool)
+  if (toolSeen !== props.tool) {
+    setToolSeen(props.tool)
+    setDraft(null)
+  }
 
   const base = useMemo(() => {
     const pts = parcel.rings.flat().map((c) => frame.toLocal(c))
@@ -153,7 +178,7 @@ export default function PlanEditor(props: Props) {
       e.currentTarget.setPointerCapture(e.pointerId)
       return
     }
-    if (props.readOnly) {
+    if (props.readOnly || measuring) {
       setDrag({ kind: 'pan', start: [e.clientX, e.clientY], startCenter: c, moved: false })
       e.currentTarget.setPointerCapture(e.pointerId)
       return
@@ -181,6 +206,7 @@ export default function PlanEditor(props: Props) {
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (measuring && draft) setHover(toLocal(e.clientX, e.clientY))
     if (!drag) return
     if (drag.kind === 'move' || drag.kind === 'pad') {
       const p = toLocal(e.clientX, e.clientY)
@@ -196,8 +222,30 @@ export default function PlanEditor(props: Props) {
     }
   }
 
-  const onPointerUp = () => {
+  /** 자: 찍은 점을 더한다. 반경은 두 번째 점에서 끝난다. */
+  const addMeasurePoint = (p: Vec) => {
+    if (props.tool === 'measureCircle') {
+      if (draft?.kind === 'circle') {
+        if (dist(draft.c, p) > 0.01) setMeasures((m) => [...m, { kind: 'circle', c: draft.c, e: p }])
+        setDraft(null)
+      } else setDraft({ kind: 'circle', c: p, e: p })
+      return
+    }
+    if (draft?.kind !== 'line') return setDraft({ kind: 'line', pts: [p] })
+    // 두 번 클릭할 때 같은 자리에 찍히는 점은 하나로 친다.
+    if (dist(draft.pts[draft.pts.length - 1], p) * fit < 4) return
+    setDraft({ kind: 'line', pts: [...draft.pts, p] })
+  }
+  /** 그리던 거리 재기를 끝낸다(두 번 클릭·Enter). */
+  const finishLine = () => {
+    if (draft?.kind === 'line' && draft.pts.length >= 2) setMeasures((m) => [...m, draft])
+    setDraft(null)
+    setHover(null)
+  }
+
+  const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!drag) return
+    if (measuring && drag.kind === 'pan' && !drag.moved) addMeasurePoint(toLocal(e.clientX, e.clientY))
     if (drag.kind === 'move') commitMove(drag.ids, drag.d)
     else if (drag.kind === 'pad') {
       const pad = obstacles.find((o) => o.id === PAD_ID)
@@ -214,7 +262,7 @@ export default function PlanEditor(props: Props) {
       const [y0, y1] = [Math.min(drag.start[1], drag.end[1]), Math.max(drag.start[1], drag.end[1])]
       const ids = local.quads.filter(({ center: [x, y] }) => x >= x0 && x <= x1 && y >= y0 && y <= y1).map((q) => q.id)
       if (ids.length) props.onSelect(ids, true)
-    } else if (!drag.moved && !props.readOnly) props.onSelect([], false)
+    } else if (!drag.moved && !props.readOnly && !measuring) props.onSelect([], false)
     setDrag(null)
   }
 
@@ -244,6 +292,12 @@ export default function PlanEditor(props: Props) {
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (measuring && (e.key === 'Escape' || e.key === 'Enter')) {
+      if (e.key === 'Enter') finishLine()
+      else setDraft(null)
+      e.preventDefault()
+      return
+    }
     if (props.readOnly) return
     const step = e.shiftKey ? 1 : 0.1
     const d: Record<string, Vec> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }
@@ -272,7 +326,7 @@ export default function PlanEditor(props: Props) {
     <div className="plan">
       <svg
         ref={svgRef}
-        className={`plan-svg${props.tool === 'add' ? ' adding' : ''}${drag?.kind === 'pan' && drag.moved ? ' panning' : ''}`}
+        className={`plan-svg${props.tool === 'add' ? ' adding' : ''}${measuring ? ' measuring' : ''}${drag?.kind === 'pan' && drag.moved ? ' panning' : ''}`}
         viewBox={viewBox}
         tabIndex={0}
         role="application"
@@ -281,6 +335,7 @@ export default function PlanEditor(props: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => setDrag(null)}
+        onDoubleClick={() => measuring && finishLine()}
         onKeyDown={onKeyDown}
       >
         <g className="plan-grid">
@@ -327,6 +382,14 @@ export default function PlanEditor(props: Props) {
             </g>
           )
         })}
+        <MeasureLayer
+          shapes={[
+            ...measures,
+            ...(draft?.kind === 'line' ? [{ kind: 'line' as const, pts: hover ? [...draft.pts, hover] : draft.pts }] : []),
+            ...(draft?.kind === 'circle' ? [{ kind: 'circle' as const, c: draft.c, e: hover ?? draft.e }] : []),
+          ]}
+          fit={fit}
+        />
         {drag?.kind === 'box' && (
           <rect
             className="plan-box"
@@ -363,6 +426,50 @@ export default function PlanEditor(props: Props) {
         </button>
       </div>
     </div>
+  )
+}
+
+/** 잰 선·원과 길이 글씨. 선 굵기와 글씨는 확대와 상관없이 화면에서 같은 크기로 그린다. */
+function MeasureLayer({ shapes, fit }: { shapes: Measure[]; fit: number }) {
+  const u = 1 / fit // 화면 1px의 미터 길이
+  const label = (key: string, at: Vec, text: string, small = false) => (
+    <text key={key} x={at[0]} y={-at[1] - (small ? 0 : 8 * u)} className={small ? 'plan-measure-label small' : 'plan-measure-label'} style={{ fontSize: (small ? 11 : 12) * u }}>
+      {text.split('\n').map((t, i) => (
+        <tspan key={i} x={at[0]} dy={i ? 14 * u : 0}>
+          {t}
+        </tspan>
+      ))}
+    </text>
+  )
+  const mid = (a: Vec, b: Vec): Vec => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  return (
+    <g className="plan-measure">
+      {shapes.map((m, k) => {
+        if (m.kind === 'circle') {
+          const r = dist(m.c, m.e)
+          return (
+            <g key={k}>
+              <circle cx={m.c[0]} cy={-m.c[1]} r={r} className="plan-measure-area" />
+              <line x1={m.c[0]} y1={-m.c[1]} x2={m.e[0]} y2={-m.e[1]} className="plan-measure-line solid" />
+              <circle cx={m.c[0]} cy={-m.c[1]} r={3.5 * u} className="plan-measure-dot" />
+              <circle cx={m.e[0]} cy={-m.e[1]} r={3.5 * u} className="plan-measure-dot" />
+              {r > 0 && label('r', mid(m.c, m.e), `반경 ${fmtLen(r)}\n지름 ${fmtLen(2 * r)} · ${fmtArea(Math.PI * r * r)}`)}
+            </g>
+          )
+        }
+        const total = m.pts.slice(1).reduce((t, p, i) => t + dist(m.pts[i], p), 0)
+        return (
+          <g key={k}>
+            <polyline points={m.pts.map(([x, y]) => `${x},${-y}`).join(' ')} className="plan-measure-line" />
+            {m.pts.map((p, i) => (
+              <circle key={i} cx={p[0]} cy={-p[1]} r={3.5 * u} className="plan-measure-dot" />
+            ))}
+            {m.pts.length > 2 && m.pts.slice(1).map((p, i) => dist(m.pts[i], p) > 0 && label(`s${i}`, mid(m.pts[i], p), fmtLen(dist(m.pts[i], p)), true))}
+            {total > 0 && label('t', m.pts[m.pts.length - 1], m.pts.length > 2 ? `총 ${fmtLen(total)}` : fmtLen(total))}
+          </g>
+        )
+      })}
+    </g>
   )
 }
 
