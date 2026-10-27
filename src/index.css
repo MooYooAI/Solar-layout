@@ -633,6 +633,7 @@ details.chart summary { cursor: pointer; }
 .side-elev .se-ok { fill: #2b8a3e; font-weight: 600; }
 .side-elev .se-warn { fill: #c92a2a; font-weight: 600; }
 .map-mode .map-mode-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line-strong); }
+.map-mode .map-mode-label { margin: 0 2px 0 2px; font-weight: 700; color: var(--ink-2); }
 .dd-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .dd-tabs button { height: 26px; padding: 0 9px; font-size: 12px; background: var(--surface); color: var(--ink-2); border-color: var(--line-strong); }
 .dd-tabs button:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }

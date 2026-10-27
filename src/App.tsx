@@ -5,7 +5,7 @@ import LayoutPanel, { type LayoutMode } from './components/LayoutPanel'
 // 3D 지도(MapLibre)는 무거워서 처음 3D로 볼 때 따로 읽는다.
 const Map3D = lazy(() => import('./components/Map3D'))
 /** 2D 지도에서만 되는 도구. 고르면 3D 보기 중에도 잠시 2D로 그린다. */
-const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea', 'edge'])
+const TOOLS_2D: ReadonlySet<MapTool> = new Set(['draw', 'obstacle', 'measureLine', 'measureArea', 'measureCircle', 'edge'])
 import { getBuildingsInBox, getParcelAt, getParcelForResult, getParcelsInBox, getPossession, getZoningAt, searchParcel, type BaseMap, type ParcelFeature, type ParcelSearchItem, type Possession } from './lib/vworld'
 import { interiorPoint, lotFromFeature, parcelArea, parcelFromFeature, parcelFromLots, SITE_KINDS, siteKindLabel, SQM_PER_PYEONG, type Parcel, type SiteKind } from './lib/parcel'
 import {
@@ -3046,30 +3046,25 @@ export default function App() {
           {!show3d && (
             <>
               <span className="map-mode-sep" />
-              <button
-                type="button"
-                className={tool === 'measureLine' ? 'on' : ''}
-                aria-pressed={tool === 'measureLine'}
-                onClick={() => setTool(tool === 'measureLine' ? 'none' : 'measureLine')}
-                title="지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다."
-              >
-                거리 재기
-              </button>
-              <button
-                type="button"
-                className={tool === 'measureArea' ? 'on' : ''}
-                aria-pressed={tool === 'measureArea'}
-                onClick={() => setTool(tool === 'measureArea' ? 'none' : 'measureArea')}
-                title="지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다."
-              >
-                면적 재기
-              </button>
-              <button type="button" onClick={() => setClearMeasuresSeq((n) => n + 1)} title="잰 선과 면적 지우기">
+              <span className="map-mode-label">자</span>
+              {(
+                [
+                  ['measureLine', '거리', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다. 구간마다 길이와 총 길이를 적습니다.'],
+                  ['measureCircle', '반경', '가운데를 클릭하고 끝점을 클릭하면 반경·지름·원 면적을 적습니다.'],
+                  ['measureArea', '면적', '지도를 클릭해 점을 찍고, 마지막 점에서 두 번 클릭하면 끝납니다.'],
+                ] as const
+              ).map(([t, label, title]) => (
+                <button key={t} type="button" className={tool === t ? 'on' : ''} aria-pressed={tool === t} onClick={() => setTool(tool === t ? 'none' : t)} title={title}>
+                  {label}
+                </button>
+              ))}
+              <button type="button" onClick={() => setClearMeasuresSeq((n) => n + 1)} title="잰 선·원·면적 지우기">
                 지우기
               </button>
             </>
           )}
           {(tool === 'measureLine' || tool === 'measureArea') && <span>마지막 점에서 두 번 클릭하면 끝</span>}
+          {tool === 'measureCircle' && <span>가운데 클릭 → 끝점 클릭</span>}
         </div>
         {ws === 'edit' && (
           <LayoutEditor

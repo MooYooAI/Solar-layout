@@ -15,14 +15,14 @@ import DragBox from 'ol/interaction/DragBox'
 import { platformModifierKeyOnly } from 'ol/events/condition'
 import { getCenter } from 'ol/extent'
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style'
-import { getArea, getLength } from 'ol/sphere'
+import { getArea, getDistance, getLength } from 'ol/sphere'
 import LineString from 'ol/geom/LineString'
 import MultiLineString from 'ol/geom/MultiLineString'
 import Point from 'ol/geom/Point'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import { defaults as defaultControls, ScaleLine } from 'ol/control'
 import MultiPolygon from 'ol/geom/MultiPolygon'
-import Polygon from 'ol/geom/Polygon'
+import Polygon, { circular } from 'ol/geom/Polygon'
 import type { FeatureLike } from 'ol/Feature'
 import 'ol/ol.css'
 import { CADASTRAL_WMS, ZONING_WMS, wmtsUrl, type BaseMap } from '../lib/vworld'
@@ -46,10 +46,10 @@ export interface FlyTarget {
 
 /**
  * draw: 필지 직접 그리기, select: 세트 선택·이동, add: 클릭한 자리에 세트 추가, obstacle: 장애물 그리기,
- * measureLine / measureArea: 거리·면적 재기, rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기,
+ * measureLine / measureArea / measureCircle: 자(거리·면적·반경 재기), rect: 클릭한 자리에 수치로 정한 사각형 영역 놓기, pole: 전주 위치 찍기,
  * place: 좌표 없는 도면 놓기, edge: 경계 이격을 따로 줄 필지 변 고르기
  */
-export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'rect' | 'pole' | 'place' | 'edge'
+export type MapTool = 'none' | 'draw' | 'select' | 'add' | 'obstacle' | 'measureLine' | 'measureArea' | 'measureCircle' | 'rect' | 'pole' | 'place' | 'edge'
 
 /** 입지검토 표시: 주변 도로·구거 지번(고른 것은 진하게)과 전주 */
 export type MapMark =
@@ -158,7 +158,6 @@ const fmtLen = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.
 const fmtArea = (a: number) =>
   a >= 1e6 ? `${(a / 1e6).toFixed(3)} ㎢` : `${Math.round(a).toLocaleString('ko-KR')} ㎡ (${Math.round(a / 3.305785).toLocaleString('ko-KR')} 평)`
 
-/** 측정 도형: 선은 총 길이, 면은 면적과 둘레를 가운데에 적는다. 그리는 중에도 같은 스타일을 쓴다. */
 function plantLabelStyle(f: FeatureLike): Style {
   return new Style({
     text: new Text({
@@ -173,37 +172,60 @@ function plantLabelStyle(f: FeatureLike): Style {
   })
 }
 
+const measureLabel = (text: string, at: Point, small = false) =>
+  new Style({
+    geometry: at,
+    text: new Text({
+      text,
+      font: small ? '500 11px Pretendard, sans-serif' : '600 12px Pretendard, sans-serif',
+      fill: new Fill({ color: '#1d2330' }),
+      backgroundFill: new Fill({ color: 'rgba(255, 255, 255, 0.9)' }),
+      padding: small ? [1, 4, 1, 4] : [3, 5, 3, 5],
+      offsetY: small ? 0 : -14,
+    }),
+  })
+const measureDot = new CircleStyle({ radius: 4, fill: new Fill({ color: '#fab005' }), stroke: new Stroke({ color: '#fff', width: 1.5 }) })
+
+/**
+ * 측정 도형(자): 선은 구간마다 길이와 끝에 총 길이, 면은 면적과 둘레, 원은 반경선과 반경·면적을 적는다.
+ * 그리는 중에도 같은 스타일을 쓴다. 원은 가운데·끝점·반경을 도형 속성(center, edge, radius)으로 들고 다닌다.
+ */
 function measureStyle(f: FeatureLike): Style[] {
   const g = f.getGeometry()
   const base = new Style({
     stroke: new Stroke({ color: '#fab005', width: 2.5, lineDash: [6, 4] }),
     fill: new Fill({ color: 'rgba(250, 176, 5, 0.15)' }),
-    image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#fab005' }) }),
+    image: measureDot,
   })
-  let label = ''
-  let at: Point | undefined
-  if (g instanceof LineString) {
-    label = fmtLen(getLength(g))
-    at = new Point(g.getLastCoordinate())
-  } else if (g instanceof Polygon && getArea(g) > 0) {
-    label = `${fmtArea(getArea(g))}\n둘레 ${fmtLen(getLength(new LineString(g.getCoordinates()[0])))}`
-    at = g.getInteriorPoint()
+  if (g instanceof Polygon && g.get('center')) {
+    const c = g.get('center') as number[]
+    const e = g.get('edge') as number[]
+    const r = g.get('radius') as number
+    const out = [
+      base,
+      new Style({ geometry: new LineString([c, e]), stroke: new Stroke({ color: '#fab005', width: 2.5 }) }),
+      new Style({ geometry: new Point(c), image: measureDot }),
+      new Style({ geometry: new Point(e), image: measureDot }),
+    ]
+    if (r > 0) out.push(measureLabel(`반경 ${fmtLen(r)}\n지름 ${fmtLen(2 * r)} · ${fmtArea(Math.PI * r * r)}`, new Point([(c[0] + e[0]) / 2, (c[1] + e[1]) / 2])))
+    return out
   }
-  if (!label || !at) return [base]
-  return [
-    base,
-    new Style({
-      geometry: at,
-      text: new Text({
-        text: label,
-        font: '600 12px Pretendard, sans-serif',
-        fill: new Fill({ color: '#1d2330' }),
-        backgroundFill: new Fill({ color: 'rgba(255, 255, 255, 0.9)' }),
-        padding: [3, 5, 3, 5],
-        offsetY: -14,
-      }),
-    }),
-  ]
+  if (g instanceof LineString) {
+    const cs = g.getCoordinates()
+    const out = [base]
+    // 구간이 둘 이상이면 구간마다 길이를 가운데에 적는다.
+    if (cs.length > 2)
+      for (let i = 1; i < cs.length; i++) {
+        const len = getLength(new LineString([cs[i - 1], cs[i]]))
+        if (len > 0) out.push(measureLabel(fmtLen(len), new Point([(cs[i - 1][0] + cs[i][0]) / 2, (cs[i - 1][1] + cs[i][1]) / 2]), true))
+      }
+    const total = getLength(g)
+    if (total > 0) out.push(measureLabel(cs.length > 2 ? `총 ${fmtLen(total)}` : fmtLen(total), new Point(g.getLastCoordinate())))
+    return out
+  }
+  if (g instanceof Polygon && getArea(g) > 0)
+    return [base, measureLabel(`${fmtArea(getArea(g))}\n둘레 ${fmtLen(getLength(new LineString(g.getCoordinates()[0])))}`, g.getInteriorPoint())]
+  return [base]
 }
 
 const groupStyles = GROUP_COLORS.map(
@@ -345,7 +367,7 @@ export default function MapView(props: Props) {
     map.on('singleclick', (e) => {
       const p = latest.current
       const [lon, lat] = toLonLat(e.coordinate)
-      if (p.tool === 'draw' || p.tool === 'obstacle' || p.tool === 'measureLine' || p.tool === 'measureArea') return
+      if (p.tool === 'draw' || p.tool === 'obstacle' || p.tool === 'measureLine' || p.tool === 'measureArea' || p.tool === 'measureCircle') return
       if (p.tool === 'add') return p.onAddSet(lon, lat)
       if (p.tool === 'select') {
         const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f, { layerFilter: (l) => l === setLayer })
@@ -579,13 +601,30 @@ export default function MapView(props: Props) {
         map.removeInteraction(draw)
       }
     }
-    if (tool === 'measureLine' || tool === 'measureArea') {
+    if (tool === 'measureLine' || tool === 'measureArea' || tool === 'measureCircle') {
       // 측정 결과는 지울 때까지 지도에 남긴다.
-      const draw = new Draw({
-        source: measureSource.current,
-        type: tool === 'measureLine' ? 'LineString' : 'Polygon',
-        style: measureStyle,
-      })
+      const draw =
+        tool === 'measureCircle'
+          ? new Draw({
+              // 반경: 가운데를 찍고 끝점을 찍는다. 지도 투영(메르카토르)의 원은 실제 거리와 어긋나므로 지표 거리로 원을 만든다.
+              source: measureSource.current,
+              type: 'Circle',
+              style: measureStyle,
+              geometryFunction: (coords, geom) => {
+                const [c, e] = coords as number[][]
+                const r = getDistance(toLonLat(c), toLonLat(e))
+                const ring = circular(toLonLat(c), Math.max(r, 0.01), 96).transform('EPSG:4326', 'EPSG:3857') as Polygon
+                const out = (geom as Polygon | undefined) ?? new Polygon([])
+                out.setCoordinates(ring.getCoordinates())
+                out.setProperties({ center: c, edge: e, radius: r })
+                return out
+              },
+            })
+          : new Draw({
+              source: measureSource.current,
+              type: tool === 'measureLine' ? 'LineString' : 'Polygon',
+              style: measureStyle,
+            })
       map.addInteraction(draw)
       return () => {
         map.removeInteraction(draw)
