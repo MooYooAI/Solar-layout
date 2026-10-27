@@ -145,9 +145,10 @@ function zonedPlanner(parcel: Parcel, base: LayoutParams, o: Omit<ZonedOptions, 
   }
   const finish = (r: Placed): ModuleSet[] | null => {
     const before = r.sets.length
-    // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다. 첫 열 위치를 앞 단계와 같게 두어야 같은 방향 세트가
-    // 기존 열 줄에 맞춰 들어간다(다르면 열 끝 빈자리에 열 사이로 어긋난 세트가 끼어든다).
-    for (const az of new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])) place(r, az, undefined, r.rowOffset)
+    // 남은 자리 채우기: 기준 방향과 구역 방향을 모두 시도한다. 먼저 첫 열 위치를 앞 단계와 같게 두어 기존 열 줄의 빈자리를
+    // 채우고(안 그러면 윗열에 자리가 있어도 열 사이로 어긋난 세트가 먼저 들어간다), 그래도 남은 자리는 줄과 상관없이 채운다.
+    const azimuths = [...new Set([base.azimuth, ...zones.azimuths.map(zoneAz), ...zones.azimuths])]
+    for (const rowOffset of new Set([r.rowOffset, 0])) for (const az of azimuths) place(r, az, undefined, rowOffset)
     if (!r.sets.length) return null
     if (o.mode === 'fill' && r.sets.length === before) return null
     return r.sets
